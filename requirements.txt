@@ -1,0 +1,12 @@
+streamlit
+yfinance
+pandas
+numpy
+hurst
+matplotlib
+quandl
+datetime
+mplfinance
+math
+ta
+time

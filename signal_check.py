@@ -53,8 +53,8 @@ for symbol, yf_symbol in symbol_mapping.items():
         data_temp['Buy'], days, profit, description, verdict, is_long, ignore = buy_signal(data_temp, symbol)
         if not ignore:
             data_temp = ind.long_strat(data_temp, days, profit) if days>0 else ind.og_strat(data_temp)
-            signals = signals._append([{'Symbol': symbol,'Signal': buy_signal.__name__, 'Description': description, 'Days': days, 'Profit': profit,
-                                        'Buy signal?': data_temp['LongTradeIn'].iloc[-1], 'HoldLong?': data_temp['HoldLong'].iloc[-1], 'Sell signal?': data_temp['LongTradeOut'].iloc[-1], 'Verdict': verdict, 'Date': data_temp['Date'].iloc[-1]}])
+            signals = signals._append([{'Symbol': symbol,'Signal': buy_signal.__name__, 'Buy signal?': data_temp['LongTradeIn'].iloc[-1], 'HoldLong?': data_temp['HoldLong'].iloc[-1], 'Sell signal?': data_temp['LongTradeOut'].iloc[-1],
+                                        'Days': days, 'Profit': profit, 'Description': description,'Verdict': verdict, 'Date': data_temp['Date'].iloc[-1]}])
 
 status.text('Done')
 bar.progress(100)           
