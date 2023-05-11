@@ -7,13 +7,23 @@ from pushbullet import Pushbullet
 import time
 
 start_time = time.perf_counter()
-ib = IB()
-data = dt.get_full_data(ib, years = 20)
+if (ticker == 'NQ' or ticker == 'ES' or ticker == 'RTY' or ticker == 'CL' or ticker == 'GC', ticker == 'SI', ticker == 'HG'):
+        yfticker = ticker + '=F'
+elif (ticker == 'GBPUSD'):
+        yfticker = ticker + '=X'
+else:
+        yfticker = ticker
+data = dt.get_data_yf(yfticker, 20, False) #True for local data, False for Yahoo Finance
+vix_data = dt.get_data_yf('^VIX', 20, False)
+#Add VIX data to dataframe
+data['VIX'] = vix_data['Close']
+data = dt.normalize_dataframe(data) #Capitalize the column names
+data = dt.clean_holidays(data) #Remove holidays
 data = ind.add_indicators(data)
 signals = pd.DataFrame()
 
 buy_signals = [ind.buy_signal1, ind.buy_signal2, ind.buy_signal3, ind.buy_signal4, ind.buy_signal5, ind.buy_signal6, ind.buy_signal7, ind.buy_signal8, ind.buy_signal9, ind.buy_signal10, 
-               ind.buy_signal11, ind.buy_signal12, ind.buy_signal13, ind.buy_signal14, ind.buy_signal15, ind.buy_signal16, ind.buy_signal17, ind.buy_signal18, ind.og_buy_signal ]
+               ind.buy_signal11, ind.buy_signal12, ind.buy_signal13, ind.buy_signal14, ind.buy_signal15, ind.buy_signal16, ind.buy_signal17, ind.buy_signal18, ind.buy_signal19, ind.og_buy_signal ]
 for buy_signal in buy_signals:
     data_temp = data.copy()
     data_temp['Buy'], days, profit, description, verdict, is_long, ignore = buy_signal(data)

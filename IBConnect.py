@@ -112,7 +112,7 @@ def main():
     """
 
     #data = dt.get_data_ib(ib, nq, False, period = '1 Y') #True = use RTH data, False = use all data
-    if (ticker == 'NQ' or ticker == 'ES' or ticker == 'RTY' or ticker == 'CL' or ticker == 'GC'):
+    if (ticker == 'NQ' or ticker == 'ES' or ticker == 'RTY' or ticker == 'CL' or ticker == 'GC' or ticker == 'SI' or ticker == 'HG'):
         contract = Future(ticker, '202306', 'CME')
         yfticker = ticker + '=F'
     elif (ticker == 'GBPUSD'):
@@ -140,14 +140,14 @@ def main():
     #data['Buy'] = data['Buy'] & (data['ER']<0.7)
     #data['Buy'] = data['Buy'] & (data['ValueCharts']>-10)
     #indicator_tryout(data, days, profit, is_long, is_sell = False, og = False)
-    #results = bt.backtest_ind(data, days, profit, is_long, 'Hurst', 'both', 0, 1, 0.1, og = True)
+    #results = bt.backtest_ind(data, days, profit, is_long, 'VFI', 'both', -12, 12, 2, og = True)
     #print (results)
     #results = bt.backtest_sell_ind(data, days, profit, is_long, 'Hurst', 'both', 0, 1, 0.1, False)
     #data['Sell'] = (data['Hurst'] < 0.5)
-    results = bt.backtest_days(data, 7, is_long)
+    #results = bt.backtest_days(data, 7, is_long)
     print(results.head(20))
     data = ind.long_strat(data,days,profit, is_long)
-    #data = ind.og_strat(data, set_sell = False)
+    #data = ind.og_strat(data, set_sell = True)
     print_stats(data, days, profit, description)
     data.to_csv('NQ.csv')
 

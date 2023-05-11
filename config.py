@@ -1,4 +1,4 @@
-ticker = 'GC'
+ticker = 'HG'
 point_multiplier = 20
 api_key = "o.NY8sxIj2MVxOW8GLtH8xylLpNHQegRAE" #API key for Pushbullet
 VolatilityPeriod = 5

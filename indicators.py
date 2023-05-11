@@ -387,6 +387,32 @@ def hurst_exponent(data):
     hurst = data['Close'].rolling(window).apply(H)
     return hurst
 
+def vfi(df, period=40, coef=0.2, vcoef=2.5):
+    typical_price = (df['High'] + df['Low'] + df['Close']) / 3
+    inter = np.log(typical_price) - np.log(typical_price.shift(1))
+    inter.fillna(0, inplace=True)
+
+    vinter = inter.rolling(window=30).std()
+
+    cutoff = coef * vinter * df['Close']
+    
+    vave = df['Volume'].rolling(window=period).mean()
+
+    vmax = vave * vcoef
+
+    vc = df['Volume'].where(df['Volume'] < vmax, vmax)
+    
+    mf = typical_price - typical_price.shift(1)
+
+    vc = np.where(mf > cutoff, vc, np.where(mf < -cutoff, -vc, 0))
+    
+    vfii = pd.Series(vc).rolling(window=period).sum() / vave
+    
+    vfimov = vfii.ewm(span=3).mean()
+    
+    return vfimov
+
+
 def macd_histogram(data, fast_period=12, slow_period=26, signal_period=9):
     macd_indicator = ta.trend.MACD(data['Close'], window_fast=fast_period, window_slow=slow_period, window_sign=signal_period)
     hist = macd_indicator.macd_diff()
@@ -418,6 +444,7 @@ def add_indicators(data):
     data['StochOscilator'] = data['Stoch'] - data['StochSlow']
     data['ValueCharts'] = value_charts(data)
     data['MACDHist'] = macd_histogram(data)
+    data['VFI'] = vfi(data)
     data = data.drop(columns=['StochSlow'])
     #data['StochFast'] = ta.momentum.stoch(data['High'], data['Low'], data['Close'], window=14, smooth_window=3, fastd=True)
     data['Sell'] = False
@@ -669,13 +696,13 @@ def buy_signal18(data, symbol = ticker):
     return buy, days, profit, description, verdict, is_long, ignore
 
 def buy_signal19(data, symbol = ticker):
-    allowed_symbols = ['GC']
+    allowed_symbols = ['GC', 'SI']
     ignore = False if symbol in allowed_symbols else True
     days = 1
     profit = 1
     description = "Long GC: Vix[0] <= Vix[1], rsi(close,14)[0] >= 30, IBR[0] <= 50"
     verdict = "1/1"
-    buy = (data['Vix'] <= data['Vix'].shift(1)) & (data['RSI14'] >= 30) & (data['IBR'] <= 0.5) & (data['RSI5'] < 60)
+    buy = (data['Vix'] <= data['Vix'].shift(1)) & (data['RSI14'] >= 30) & (data['IBR'] <= 0.5) & (data['RSI5'] < 90)
     is_long = True
     return buy, days, profit, description, verdict, is_long, ignore
 

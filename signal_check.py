@@ -24,22 +24,27 @@ start_time = time.perf_counter()
 #Add indicators to the table
 #data = ind.add_indicators(data)
 signals = pd.DataFrame()
-symbols = ['NQ', 'ES', 'CL', 'GC', 'SI', 'SPY', 'SMH', 'QQQ']
+symbols = ['NQ', 'ES', 'CL', 'GC', 'SI', 'SPY', 'SMH', 'QQQ', '^VIX']
 
 buy_signals = [ind.buy_signal1, ind.buy_signal2, ind.buy_signal3, ind.buy_signal4, ind.buy_signal5, ind.buy_signal6, ind.buy_signal7, ind.buy_signal8, ind.buy_signal9, ind.buy_signal10, 
-               ind.buy_signal11, ind.buy_signal12, ind.buy_signal13, ind.buy_signal14, ind.buy_signal15, ind.buy_signal16, ind.buy_signal17, ind.buy_signal18, ind.og_buy_signal]
+               ind.buy_signal11, ind.buy_signal12, ind.buy_signal13, ind.buy_signal14, ind.buy_signal15, ind.buy_signal16, ind.buy_signal17, ind.buy_signal18, ind.buy_signal19, ind.og_buy_signal]
 
 yf_symbols = [symbol+'=F' if symbol in ['NQ', 'ES', 'RTY', 'CL', 'GC', 'SI', 'HG'] else symbol for symbol in symbols]
 symbol_mapping = {symbol: yf_symbol for symbol, yf_symbol in zip(symbols, yf_symbols)}
 full_data = dt.get_bulk_data(yf_symbols)
+vix_close = full_data['Close', '^VIX']
 
 for symbol, yf_symbol in symbol_mapping.items():
+    if symbol == '^VIX':
+        continue
     data= full_data.xs(yf_symbol, axis=1, level=1, drop_level=False)
     status.text('Getting data for ' + symbol + '...')
     bar.progress(i)
     i+=0.125
     print('Getting data for ' + symbol + '...')
     data.columns = data.columns.droplevel(1)  # Reset column level
+    data = data.copy()
+    data['VIX'] = vix_close
     data = dt.normalize_dataframe(data)
     data = data.drop(columns = ['Adj close'])
     data = dt.clean_holidays(data)
