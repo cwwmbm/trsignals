@@ -1,0 +1,23 @@
+Metadata-Version: 2.1
+Name: barfi
+Version: 0.7.0
+Summary: Framework for a graphical programming environment.
+Home-page: https://github.com/krish-adi/barfi
+Author: Adithya Krishnan
+Author-email: krishsandeep@gmail.com
+Project-URL: Source, https://github.com/krish-adi/barfi
+Classifier: Development Status :: 3 - Alpha
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.6
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: streamlit (>=0.63)
+Requires-Dist: networkx (>=2.6.2)
+
+# Barfi
+
+**Block and Link based graphical programming environment for performing simulations in Python.**
+
+It provides a Streamlit component for a graphical programming environment to perform simulations.
