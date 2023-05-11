@@ -5,13 +5,13 @@ import getdata as dt
 import indicators as ind
 from config import *
 #from ib_insync import IB, Future, util, Stock
-from pushbullet import Pushbullet
+#from pushbullet import Pushbullet
 import time
 import streamlit as st
 
-def send_push_notification(title, message, api_key):
-    pb = Pushbullet(api_key)
-    pb.push_note(title, message)
+#def send_push_notification(title, message, api_key):
+#    pb = Pushbullet(api_key)
+#    pb.push_note(title, message)
 
 bar = st.progress(0)
 status = st.empty()
