@@ -7,3 +7,4 @@ quandl
 datetime
 mplfinance
 ta
+pandas_market_calendars
