@@ -406,7 +406,8 @@ def vfi(df, period=40, coef=0.2, vcoef=2.5):
 
     vc = np.where(mf > cutoff, vc, np.where(mf < -cutoff, -vc, 0))
     
-    vfii = pd.Series(vc).rolling(window=period).sum() / vave
+    vfii_temp = pd.Series(vc).rolling(window=period).sum()
+    vfii = vfii_temp / vave
     
     vfimov = vfii.ewm(span=3).mean()
     
@@ -432,6 +433,8 @@ def add_indicators(data):
     data['RSI2'] = ta.momentum.RSIIndicator(data['Close'], window=2).rsi()
     data['RSI5'] = ta.momentum.RSIIndicator(data['Close'], window=5).rsi()
     data['RSI14'] = ta.momentum.RSIIndicator(data['Close'], window=14).rsi()
+    data['RSI5Breadth'] = ta.momentum.RSIIndicator(data['Breadth'], window=5).rsi()
+    data['RSI14Breadth'] = ta.momentum.RSIIndicator(data['Breadth'], window=14).rsi()
     data['EMA8'] = ta.trend.ema_indicator(data['Close'], window=8)
     data['EMA20'] = ta.trend.ema_indicator(data['Close'], window=20)
     data['EMA100'] = ta.trend.ema_indicator(data['Close'], window=100)
@@ -444,7 +447,10 @@ def add_indicators(data):
     data['StochOscilator'] = data['Stoch'] - data['StochSlow']
     data['ValueCharts'] = value_charts(data)
     data['MACDHist'] = macd_histogram(data)
-    data['VFI'] = vfi(data)
+    data['VFI40'] = vfi(data)
+    data['VFI20'] = vfi(data, period=20)
+    data['VFI80'] = vfi(data, period=80)
+    data['VFI10'] = vfi(data, period=10)
     data = data.drop(columns=['StochSlow'])
     #data['StochFast'] = ta.momentum.stoch(data['High'], data['Low'], data['Close'], window=14, smooth_window=3, fastd=True)
     data['Sell'] = False
@@ -496,13 +502,13 @@ def buy_signal3 (data, symbol = ticker):
     #return (data['Close'].shift(2) < data['Close'].shift(3)) & (data['High'].shift(1) == data['High'].rolling(window=5).max()) #5/5 or 7/5 but big drawdown either way for NQ. For ES 6/6 or 6/5 gives some decent numbers.
 
 def buy_signal4 (data, symbol = ticker):
-    allowed_symbols = ['NQ', 'ES']
+    allowed_symbols = []
     ignore = False if symbol in allowed_symbols else True
-    days = 2
+    days = 6
     profit = 2
     description = 'Long NQ: SMA50 > SMA200, Low = max low last 3 days, IBR < 0.8'
     verdict = 'Suspect for elimination'
-    buy = (data['SMA50'] > data['SMA200']) & (data['Low'] == data['Low'].rolling(window=3).max()) & (data['IBR'] <= 0.8)
+    buy = False#(data['SMA50'] > data['SMA200']) & (data['Low'] == data['Low'].rolling(window=3).max()) & (data['IBR'] <= 0.8)
     is_long = True
     return buy, days, profit, description, verdict, is_long, ignore
     #return (data['SMA50'] > data['SMA200']) & (data['Low'] == data['Low'].rolling(window=3).max()) & (data['IBR'] <= 80) #Hold 2 days profit 2
@@ -546,16 +552,16 @@ def buy_signal7 (data, symbol = ticker):
 def buy_signal8(data, symbol = ticker):
     allowed_symbols = ['NQ']
     ignore = False if symbol in allowed_symbols else True
-    days = 2
+    days = 3
     profit = 1
-    description = "Long NQ: ER(10) > 0.50, ValueCharts(5) > -12, RSI2 <= 90, IBR <= 0.8"
-    verdict = "2/1 best combo, decent results, low drawdown after 2011."
+    description = "Long NQ: ER(10) > 0.50, ValueCharts(5) > -12, RSI2 <= 90, IBR <= 0.8, RSI5Breadth < 80"
+    verdict = "Good results for both NQ and ES. Low drawdown post 2008."
 
     kama_er_condition = data['ER'] > 0.50
     value_charts_condition = data['ValueCharts'] > -12
     rsi_condition = data['RSI2'] <= 90
 
-    buy = kama_er_condition & value_charts_condition & rsi_condition & (data['IBR'] <= 0.8)
+    buy = kama_er_condition & value_charts_condition & rsi_condition & (data['IBR'] <= 0.8) & (data['RSI5Breadth'] < 80)
     is_long = True
     return buy, days, profit, description, verdict, is_long, ignore
 
@@ -719,6 +725,19 @@ def og_buy_signal(data, symbol = ticker):
         ((data['Close'] - data['Close'].shift(1)) / data['Close'].shift(1) > -MaxDecline)))               #Decline less than 4%    
     return buy, 0, 0, description, verdict, is_long, ignore
 
+def og_new_buy_signal(data, symbol = ticker):
+    allowed_symbols = ['SPY']
+    ignore = False if symbol in allowed_symbols else True
+    description = "OG Long Spy strategy with few extra conditions"
+    verdict = "OG Long Spy strategy with few extra conditions"
+    is_long = True
+    
+    buy = ((data['RSI2'] < RSI2Buy) & (data['RSI5'] < RSI5Buy) & (                                 #RSI2 and RSI5 below threashold
+        (data['VolumeEMADiff'] < VolumeEMAThreashold) | (data['Volatility'] < VolumeEMAThreashold)) & (  #Volume less than EMAThreashold
+        ((data['Close'] - data['Close'].shift(1)) / data['Close'].shift(1) > -MaxDecline)) &            #Decline less than 4%   
+        (data['RSI5Breadth'] < 90) &(data['RSI5Breadth'] > 20) & (data['ValueCharts']>-12) & (data['Stoch']<40))    #New Conditions            
+    return buy, 0, 0, description, verdict, is_long, ignore    
+
 def og_sell_signal(data, symbol = ticker):
     allowed_symbols = ['SPY']
     
@@ -730,3 +749,14 @@ def og_sell_signal(data, symbol = ticker):
 
     return sell#, 0, 0, description, verdict, is_long, ignore
 
+def og_new_sell_signal(data, symbol = ticker):
+    allowed_symbols = ['SPY']
+    
+    sell = ((data['RSI2'] > RSI2Sell) & (data['RSI5'] > RSI5Sell)) | (                                #RSI2 and RSI5 above threashold
+            (data['Close'].shift(1) > data['EMA8'].shift(1)) & (data['Close'] < data['EMA8'])) | (            #Crossing EMA8 down
+            (ExitOnVolatility) & ((data['VolumeEMADiff'] >= VolumeEMAThreashold))) | (                        #Volume more than EMAThreashold !!!!!!!!!!!DOESNT WORK - INVESTIGATE!!!!!!!!
+            #(data['Close'] - data['Close'].shift(1)) / data['Close'].shift(1) < -MaxDecline) | (              #Decline more than 4%
+            (data['VolumeEMADiff'] > VolumeEMAThreashold) & (data['Volatility'] > VolatilityThreashold)) | (      #Big volume and volatility  
+            data['Hurst'] < 0.4)
+
+    return sell#, 0, 0, description, verdict, is_long, ignore

@@ -1,5 +1,6 @@
 import streamlit as st
 import streamlit.components.v1 as components
+import pandas as pd
 
-# embed streamlit docs in a streamlit app
-components.iframe("https://docs.streamlit.io/en/latest")
+data = pd.read_csv('data.csv')
+print (data.head(5))

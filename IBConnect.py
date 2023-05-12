@@ -29,6 +29,11 @@ def print_stats(data, days = 0, profit = 0, description = "Original Strategy"):
     formatted_drawdown = '{:.2%}'.format(max_drawdown)
     print(f"Maximum drawdown: {formatted_drawdown}")
 
+    #calculate CAGR
+    first_day = data.iloc[0]
+    last_day = data.iloc[-1]
+    cagr = (last_day['RollingPnL'] / first_day['RollingPnL']) ** (1 / (data.shape[0] / 252)) - 1
+    print(f"CAGR: {cagr:.2%}")
 
     # Calculate the percentage of profitable trades
     percentage_profitable_trades = (num_profitable_trades / number_of_trades) * 100
@@ -80,24 +85,42 @@ def print_stats(data, days = 0, profit = 0, description = "Original Strategy"):
     #print(f"Treynor ratio: {treynor:.6f}")
 
 def indicator_tryout(data, days, profit, is_long, is_sell = False, og = False):
+    running_results = pd.DataFrame(columns=['Indicator', 'Condition', 'Value', 'PnL', 'MaxDD', 'Trades', '%Pstv', 'Sharpe', 'Sortino'])
+    """
+    results = bt.backtest_ind(data, days, profit, is_long, 'VFI40', 'both', -15, 15, 2, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'VFI', 'both', -15, 15, 2, og)
+    running_results = running_results.append(results.head(3))
+    results = bt.backtest_ind(data, days, profit, is_long, 'VFI10', 'both', -15, 15, 2, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'VFI10', 'both', -15, 15, 2, og)
+    running_results = running_results.append(results.head(3))
+    results = bt.backtest_ind(data, days, profit, is_long, 'VFI20', 'both', -15, 15, 2, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'VFI20', 'both', -15, 15, 2, og)
+    running_results = running_results.append(results.head(3))
+    """
     results = bt.backtest_ind(data, days, profit, is_long, 'Hurst', 'both', 0.1, 0.9, 0.1, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'Hurst', 'both', 0.1, 0.9, 0.1, og)
-    print(results.head(20))
+    running_results = running_results._append(results.head(3))
+    results = bt.backtest_ind(data, days, profit, is_long, 'Vix', 'both', 10, 50, 5, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'Vix', 'both', 10, 50, 5, og)
+    running_results = running_results._append(results.head(3))
+    results = bt.backtest_ind(data, days, profit, is_long, 'RSI14Breadth', 'both', 10, 90, 10, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'RSI14Breadth', 'both', 10, 90, 10, og)
+    running_results = running_results._append(results.head(3))
+    results = bt.backtest_ind(data, days, profit, is_long, 'RSI5Breadth', 'both', 10, 90, 10, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'RSI5Breadth', 'both', 10, 90, 10, og)
+    running_results = running_results._append(results.head(3))
     results = bt.backtest_ind(data, days, profit, is_long, 'Stoch', 'both', 10, 90, 10, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'Stoch', 'both', 10, 90, 10, og)
-    print(results.head(20))
+    running_results = running_results._append(results.head(3))
     results = bt.backtest_ind(data, days, profit, is_long, 'RSI5', 'both', 10, 90, 10, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'RSI5', 'both', 10, 90, 10, og)
-    print(results.head(20))
+    running_results = running_results._append(results.head(3))
     results = bt.backtest_ind(data, days, profit, is_long, 'ER', 'both', 0.1, 0.9, 0.1, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'ER', 'both', 0.1, 0.9, 0.1, og)
-    print(results.head(20))
+    running_results = running_results._append(results.head(3))
     results = bt.backtest_ind(data, days, profit, is_long, 'CCI', 'both', -150, 150, 50, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'CCI', 'both', -150, 150, 50, og)
-    print(results.head(20))
+    running_results = running_results._append(results.head(3))
     results = bt.backtest_ind(data, days, profit, is_long, 'IBR', 'both', 0.1, 0.9, 0.1, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'IBR', 'both', 0.1, 0.9, 0.1, og)
-    print(results.head(20))
+    running_results = running_results._append(results.head(3))
     results = bt.backtest_ind(data, days, profit, is_long, 'ValueCharts', 'both', -12, 12, 2, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'ValueCharts', 'both', -12, 12, 2, og)
-    print(results.head(20))
+    running_results = running_results._append(results.head(3))
     results = bt.backtest_ind(data, days, profit, is_long, 'MACDHist', 'both', 0, 0, 1, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'MACDHist', 'both', 0, 0, 1, og)
-    print(results.head(20))
+    running_results = running_results._append(results.head(3))
     results = bt.backtest_ind(data, days, profit, is_long, 'StochOscilator', 'both', 0, 0, 1, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'StochOscilator', 'both', 0, 0, 1, og)
-    print(results.head(20))
+    running_results = running_results._append(results.head(3))
+    running_results = running_results.sort_values(by=['Sharpe'], ascending=False)
+    print(running_results)
+
 
 def main():
     start_time = time.perf_counter()
@@ -123,31 +146,33 @@ def main():
         yfticker = ticker
 
     data = dt.get_data_yf(yfticker, 20, False) #True for local data, False for Yahoo Finance
-    vix_data = dt.get_data_yf('^VIX', 20, False)
+    #vix_data = dt.get_data_yf('^VIX', 20, False)
     #Add VIX data to dataframe
-    data['VIX'] = vix_data['Close']
+    #data['VIX'] = vix_data['Close']
     data = dt.normalize_dataframe(data) #Capitalize the column names
     data = dt.clean_holidays(data) #Remove holidays
     data = ind.add_indicators(data)
 
    
     
-    data['Buy'], days, profit, description, verdict, is_long, ignore = ind.buy_signal19(data)
-    #data['Buy'], days, profit, description, verdict, is_long, ignore = ind.og_buy_signal(data)
+    data['Buy'], days, profit, description, verdict, is_long, ignore = ind.buy_signal8(data)
+    #data['Buy'] = data['Buy'] & (data['RSI5Breadth'] < 80)
+    #data['Buy'], days, profit, description, verdict, is_long, ignore = ind.og_new_buy_signal(data)
+    #data['Buy'] = data['Buy'] & (data['RSI5Breadth'] < 90) & (data['RSI5Breadth'] > 20)
     #data['Buy'] = data['Buy'] & (data['ValueCharts']>-12) #& (data['Stoch']<40)
-    #data['Sell'] = ind.og_sell_signal(data) | (data['Hurst'] < 0.4)
+    #data['Sell'] = ind.og_new_sell_signal(data) #| (data['Hurst'] < 0.4)
     #data['Buy'] = data['Buy'] & (data['Stoch']<90)
     #data['Buy'] = data['Buy'] & (data['ER']<0.7)
     #data['Buy'] = data['Buy'] & (data['ValueCharts']>-10)
     #indicator_tryout(data, days, profit, is_long, is_sell = False, og = False)
-    #results = bt.backtest_ind(data, days, profit, is_long, 'VFI', 'both', -12, 12, 2, og = True)
+    #results = bt.backtest_ind(data, days, profit, is_long, 'RSI5Breadth', 'both', 10, 90, 10, og = True)
     #print (results)
     #results = bt.backtest_sell_ind(data, days, profit, is_long, 'Hurst', 'both', 0, 1, 0.1, False)
     #data['Sell'] = (data['Hurst'] < 0.5)
     #results = bt.backtest_days(data, 7, is_long)
     print(results.head(20))
     data = ind.long_strat(data,days,profit, is_long)
-    #data = ind.og_strat(data, set_sell = True)
+    #data = ind.og_strat(data, set_sell = False)
     print_stats(data, days, profit, description)
     data.to_csv('NQ.csv')
 

@@ -90,12 +90,24 @@ def get_data_yf(ticker, years=1, Local=False):
     end_date = (dtm.now() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
     if Local:
         print("Using local csv")
-        data = pd.read_csv('NQ_yf.csv', index_col='Date', parse_dates=True)
+        data_symbol = pd.read_csv('NQ_yf.csv', index_col='Date', parse_dates=True)
     else:
         print("Using yahoo finance")
-        data = yf.download(ticker, start=start_date, end=end_date)
-        data.to_csv('NQ_yf.csv')
-    return data
+        tickers = [ticker, '^VIX', 'SPY', 'RSP']
+        data = yf.download(tickers, start=start_date, end=end_date)
+        vix = data['Close']['^VIX']
+        spy_to_rsp = data['Close']['SPY'] / data['Close']['RSP']
+        data_symbol = data.xs(ticker, axis=1, level=1, drop_level=False)
+        data_symbol.columns = data_symbol.columns.droplevel(1)  # Reset column level
+        data_symbol = data_symbol.copy()
+        data_symbol['VIX'] = vix
+        data_symbol['Breadth'] = spy_to_rsp
+        #remove rows with empty Close values
+        data_symbol = data_symbol[data_symbol['Close'].notna()]
+        data_symbol.to_csv('NQ_yf.csv')
+    #vix_data = dt.get_data_yf('^VIX', 20, False)
+    
+    return data_symbol
 
 def get_data_quandl():
     # Set your API key
