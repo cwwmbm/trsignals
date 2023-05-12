@@ -155,12 +155,11 @@ def main():
 
    
     
-    data['Buy'], days, profit, description, verdict, is_long, ignore = ind.buy_signal8(data)
-    #data['Buy'] = data['Buy'] & (data['RSI5Breadth'] < 80)
-    #data['Buy'], days, profit, description, verdict, is_long, ignore = ind.og_new_buy_signal(data)
+    #data['Buy'], days, profit, description, verdict, is_long, ignore = ind.buy_signal8(data)
+    data['Buy'], days, profit, description, verdict, is_long, ignore = ind.og_new_buy_signal(data)
     #data['Buy'] = data['Buy'] & (data['RSI5Breadth'] < 90) & (data['RSI5Breadth'] > 20)
     #data['Buy'] = data['Buy'] & (data['ValueCharts']>-12) #& (data['Stoch']<40)
-    #data['Sell'] = ind.og_new_sell_signal(data) #| (data['Hurst'] < 0.4)
+    data['Sell'] = ind.og_new_sell_signal(data) #| (data['Hurst'] < 0.4)
     #data['Buy'] = data['Buy'] & (data['Stoch']<90)
     #data['Buy'] = data['Buy'] & (data['ER']<0.7)
     #data['Buy'] = data['Buy'] & (data['ValueCharts']>-10)
@@ -171,8 +170,8 @@ def main():
     #data['Sell'] = (data['Hurst'] < 0.5)
     #results = bt.backtest_days(data, 7, is_long)
     print(results.head(20))
-    data = ind.long_strat(data,days,profit, is_long)
-    #data = ind.og_strat(data, set_sell = False)
+    #data = ind.long_strat(data,days,profit, is_long)
+    print (data['TradePnL'].iloc[-1])
     print_stats(data, days, profit, description)
     data.to_csv('NQ.csv')
 

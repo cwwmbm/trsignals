@@ -64,8 +64,10 @@ for symbol, yf_symbol in symbol_mapping.items():
             data_temp['Sell'] = ind.og_new_sell_signal(data_temp)
         if not ignore:
             data_temp = ind.long_strat(data_temp, days, profit) if days>0 else ind.og_strat(data_temp, set_sell=False)
+            #find TradePnL in % and store it as string with % sign in the end
+            trade_pnl = str(round(data_temp['TradePnL'].iloc[-1]*100,2)) + '%'
             signals = signals._append([{'Symbol': symbol,'Signal': buy_signal.__name__, 'Buy signal?': data_temp['LongTradeIn'].iloc[-1], 'HoldLong?': data_temp['HoldLong'].iloc[-1], 'Sell signal?': data_temp['LongTradeOut'].iloc[-1],
-                                        'Days': days, 'Profit': profit, 'Description': description,'Verdict': verdict, 'Date': data_temp['Date'].iloc[-1]}])
+                                        'Days': days, 'Profit': profit, 'TradePnL': trade_pnl,'Description': description,'Verdict': verdict, 'Date': data_temp['Date'].iloc[-1]}])
 
 status.text('Done')
 bar.progress(100)           
