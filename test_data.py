@@ -7,7 +7,7 @@ from pushbullet import Pushbullet
 import time
 
 start_time = time.perf_counter()
-if (ticker == 'NQ' or ticker == 'ES' or ticker == 'RTY' or ticker == 'CL' or ticker == 'GC', ticker == 'SI', ticker == 'HG'):
+if (ticker == 'NQ' or ticker == 'ES' or ticker == 'RTY' or ticker == 'CL' or ticker == 'GC' or ticker == 'SI' or ticker == 'HG'):
         yfticker = ticker + '=F'
 elif (ticker == 'GBPUSD'):
         yfticker = ticker + '=X'
@@ -31,7 +31,7 @@ for buy_signal in buy_signals:
         data_temp['Sell'] = ind.og_sell_signal(data_temp)
     elif buy_signal.__name__ == 'og_new_buy_signal':
         data_temp['Sell'] = ind.og_new_sell_signal(data_temp)
-    data_temp = ind.long_strat(data_temp, days, profit) if days>0 else ind.og_strat(data_temp)
+    data_temp = ind.long_strat(data_temp, days, profit) if days>0 else ind.og_strat(data_temp, set_sell = False)
     max_drawdown = data_temp['Drawdown'].max()
     formatted_drawdown = '{:.2%}'.format(max_drawdown)
     latest_rolling_pnl = ind.format_dollar_value(data_temp['RollingPnL'].iloc[-1] - 15000)

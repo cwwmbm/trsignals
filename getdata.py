@@ -93,15 +93,19 @@ def get_data_yf(ticker, years=1, Local=False):
         data_symbol = pd.read_csv('NQ_yf.csv', index_col='Date', parse_dates=True)
     else:
         print("Using yahoo finance")
-        tickers = [ticker, '^VIX', 'SPY', 'RSP']
+        tickers = [ticker, '^VIX', 'SPY', 'RSP', 'QQQ', 'SMH']
         data = yf.download(tickers, start=start_date, end=end_date)
         vix = data['Close']['^VIX']
         spy_to_rsp = data['Close']['SPY'] / data['Close']['RSP']
+        qqq_to_spy = data['Close']['QQQ'] / data['Close']['SPY']
+        smh_to_spy = data['Close']['SMH'] / data['Close']['SPY']
         data_symbol = data.xs(ticker, axis=1, level=1, drop_level=False)
         data_symbol.columns = data_symbol.columns.droplevel(1)  # Reset column level
         data_symbol = data_symbol.copy()
         data_symbol['VIX'] = vix
         data_symbol['Breadth'] = spy_to_rsp
+        data_symbol['RiskBreadth'] = qqq_to_spy
+        data_symbol['SemisBreadth'] = smh_to_spy
         #remove rows with empty Close values
         data_symbol = data_symbol[data_symbol['Close'].notna()]
         data_symbol.to_csv('NQ_yf.csv')

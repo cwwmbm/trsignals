@@ -120,6 +120,31 @@ def treynor_ratio(data, benchmark_returns, risk_free_rate=0, periods_per_year=25
     treynor_ratio = (average_daily_return - risk_free_rate) / beta if beta != 0 else 0
     return treynor_ratio
 
+#Calculate CAGR
+def cagr(data, periods_per_year=252):
+    """
+    Calculate the CAGR of a set of returns.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        Data containing the 'RollingPnL' column.
+    periods_per_year : int, optional
+        Number of periods per year.
+
+    Returns
+    -------
+    float
+        The CAGR.
+
+    """
+    first_day = data.iloc[0]
+    last_day = data.iloc[-1]
+    cagr = (last_day['RollingPnL'] / first_day['RollingPnL']) ** (1 / (data.shape[0] / 252)) - 1
+    #round to 2 decimal places
+    cagr = round(cagr*100, 2)
+    return cagr
+
 #Convert numbers to dollars
 def format_dollar_value(value):
     return f"${value:,.2f}"
@@ -433,8 +458,15 @@ def add_indicators(data):
     data['RSI2'] = ta.momentum.RSIIndicator(data['Close'], window=2).rsi()
     data['RSI5'] = ta.momentum.RSIIndicator(data['Close'], window=5).rsi()
     data['RSI14'] = ta.momentum.RSIIndicator(data['Close'], window=14).rsi()
+    data['RSI2Breadth'] = ta.momentum.RSIIndicator(data['Breadth'], window=2).rsi()
     data['RSI5Breadth'] = ta.momentum.RSIIndicator(data['Breadth'], window=5).rsi()
     data['RSI14Breadth'] = ta.momentum.RSIIndicator(data['Breadth'], window=14).rsi()
+    data['RSI2RiskBreadth'] = ta.momentum.RSIIndicator(data['Riskbreadth'], window=2).rsi()
+    data['RSI5RiskBreadth'] = ta.momentum.RSIIndicator(data['Riskbreadth'], window=5).rsi()
+    data['RSI14RiskBreadth'] = ta.momentum.RSIIndicator(data['Riskbreadth'], window=14).rsi()
+    data['RSI2SemisBreadth'] = ta.momentum.RSIIndicator(data['Semisbreadth'], window=2).rsi()
+    data['RSI5SemisBreadth'] = ta.momentum.RSIIndicator(data['Semisbreadth'], window=5).rsi()
+    data['RSI14SemisBreadth'] = ta.momentum.RSIIndicator(data['Semisbreadth'], window=14).rsi()
     data['EMA8'] = ta.trend.ema_indicator(data['Close'], window=8)
     data['EMA20'] = ta.trend.ema_indicator(data['Close'], window=20)
     data['EMA100'] = ta.trend.ema_indicator(data['Close'], window=100)
@@ -672,7 +704,7 @@ def buy_signal16(data, symbol = ticker):
     days = 3
     profit = 1
     description = "Long SMH: high[0] > close[1], IBR[0] <= 50, Close > SMA100"
-    verdict = "2/1"
+    verdict = "Great results for SMH but not for SOXX. Suspect."
 
     buy = (data['High'] > data['Close'].shift(1)) & (data['IBR'] <= 0.5) & (data['Close']>data['SMA100']) #& (data['High'] < data['SMA10']) 
     is_long = True

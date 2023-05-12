@@ -63,7 +63,9 @@ def backtest_ind(data, days_in_trade, profitable_close, is_long, column_name, co
             positive_trades = (trade_out_rows['TradePnL'] > 0).sum() / trades_number * 100 if trades_number > 0 else 0
             sharpe = ind.sharpes_ratio(data_copy)
             sortino = ind.sortino_ratio(data_copy)
-            results = results._append({'Indicator': column_name, 'Condition': 'more', 'Value': value, 'PnL': rolling_pnl, 'MaxDD': max_drawdown, 'Trades': trades_number, '%Pstv': positive_trades, 'Sharpe': sharpe, 'Sortino': sortino}, ignore_index=True)
+            #calculate CAGR
+            cagr = ind.cagr(data_copy)
+            results = results._append({'Indicator': column_name, 'Condition': 'more', 'Value': value, 'PnL': rolling_pnl, 'MaxDD': max_drawdown, 'Trades': trades_number, '%Pstv': positive_trades, 'CAGR': str(cagr)+'%','Sharpe': sharpe, 'Sortino': sortino}, ignore_index=True)
             data_copy = data.copy()
             data_copy['Buy'] = data_copy['Buy'] & (data_copy[column_name] <= value)    
         
@@ -77,9 +79,10 @@ def backtest_ind(data, days_in_trade, profitable_close, is_long, column_name, co
         positive_trades = (trade_out_rows['TradePnL'] > 0).sum() / trades_number * 100 if trades_number > 0 else 0
         sharpe = ind.sharpes_ratio(data_copy)
         sortino = ind.sortino_ratio(data_copy)
+        cagr = ind.cagr(data_copy)
         cond = 'less' if condition == 'both' else condition
         
-        results = results._append({'Indicator': column_name, 'Condition': cond, 'Value': value, 'PnL': rolling_pnl, 'MaxDD': max_drawdown, 'Trades': trades_number, '%Pstv': positive_trades, 'Sharpe': sharpe, 'Sortino': sortino}, ignore_index=True)
+        results = results._append({'Indicator': column_name, 'Condition': cond, 'Value': value, 'PnL': rolling_pnl, 'MaxDD': max_drawdown, 'Trades': trades_number, '%Pstv': positive_trades, 'CAGR': str(cagr)+'%','Sharpe': sharpe, 'Sortino': sortino}, ignore_index=True)
     
     results = results.sort_values(by=['Sharpe'], ascending=False)
     results['PnL'] = results['PnL'].astype(int)
