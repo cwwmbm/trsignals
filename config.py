@@ -1,4 +1,4 @@
-ticker = 'SPY'
+ticker = 'ES'
 point_multiplier = 20
 api_key = "o.NY8sxIj2MVxOW8GLtH8xylLpNHQegRAE" #API key for Pushbullet
 VolatilityPeriod = 5
@@ -15,8 +15,8 @@ ExitOnVolatility = True
 Leverage = 3
 
 #One day buy variables
-MondayBuy = True
-LowVolumeBuy = True
+MondayBuy = False
+LowVolumeBuy = False
 VolumeEMAThreasholdBuy = 0.15
 DownDays = 3
 OneDayArm = False #No code written to support this yet

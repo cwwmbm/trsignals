@@ -65,7 +65,7 @@ def backtest_ind(data, days_in_trade, profitable_close, is_long, column_name, co
             sortino = ind.sortino_ratio(data_copy)
             #calculate CAGR
             cagr = ind.cagr(data_copy)
-            results = results._append({'Indicator': column_name, 'Condition': 'more', 'Value': value, 'PnL': rolling_pnl, 'MaxDD': max_drawdown, 'Trades': trades_number, '%Pstv': positive_trades, 'CAGR': str(cagr)+'%','Sharpe': sharpe, 'Sortino': sortino}, ignore_index=True)
+            results = results._append({'Buysell': 'Buy','Indicator': column_name, 'Condition': 'more', 'Value': value, 'PnL': rolling_pnl, 'MaxDD': max_drawdown, 'Trades': trades_number, '%Pstv': positive_trades, 'CAGR': str(cagr)+'%','Sharpe': sharpe, 'Sortino': sortino}, ignore_index=True)
             data_copy = data.copy()
             data_copy['Buy'] = data_copy['Buy'] & (data_copy[column_name] <= value)    
         
@@ -82,7 +82,7 @@ def backtest_ind(data, days_in_trade, profitable_close, is_long, column_name, co
         cagr = ind.cagr(data_copy)
         cond = 'less' if condition == 'both' else condition
         
-        results = results._append({'Indicator': column_name, 'Condition': cond, 'Value': value, 'PnL': rolling_pnl, 'MaxDD': max_drawdown, 'Trades': trades_number, '%Pstv': positive_trades, 'CAGR': str(cagr)+'%','Sharpe': sharpe, 'Sortino': sortino}, ignore_index=True)
+        results = results._append({'Buysell': 'Buy', 'Indicator': column_name, 'Condition': cond, 'Value': value, 'PnL': rolling_pnl, 'MaxDD': max_drawdown, 'Trades': trades_number, '%Pstv': positive_trades, 'CAGR': str(cagr)+'%','Sharpe': sharpe, 'Sortino': sortino}, ignore_index=True)
     
     results = results.sort_values(by=['Sharpe'], ascending=False)
     results['PnL'] = results['PnL'].astype(int)
@@ -122,7 +122,7 @@ def backtest_sell_ind(data, days_in_trade, profitable_close, is_long, column_nam
             sortino = ind.sortino_ratio(data_copy)
             #calculate CAGR
             cagr = ind.cagr(data_copy)
-            results = results._append({'Indicator': column_name, 'Condition': 'more', 'Value': value, 'PnL': rolling_pnl, 'MaxDD': max_drawdown, 'Trades': trades_number, '%Pstv': positive_trades, 'CAGR': str(cagr)+'%','Sharpe': sharpe, 'Sortino': sortino}, ignore_index=True)
+            results = results._append({'Buysell': 'Sell', 'Indicator': column_name, 'Condition': 'more', 'Value': value, 'PnL': rolling_pnl, 'MaxDD': max_drawdown, 'Trades': trades_number, '%Pstv': positive_trades, 'CAGR': str(cagr)+'%','Sharpe': sharpe, 'Sortino': sortino}, ignore_index=True)
             data_copy = data.copy()
             data_copy['Sell'] = data_copy['Sell'] | (data_copy[column_name] <= value)    
         
@@ -139,7 +139,7 @@ def backtest_sell_ind(data, days_in_trade, profitable_close, is_long, column_nam
         cagr = ind.cagr(data_copy)
         cond = 'less' if condition == 'both' else condition
         
-        results = results._append({'Indicator': column_name, 'Condition': cond, 'Value': value, 'PnL': rolling_pnl, 'MaxDD': max_drawdown, 'Trades': trades_number, '%Pstv': positive_trades, 'CAGR': str(cagr)+'%','Sharpe': sharpe, 'Sortino': sortino}, ignore_index=True)
+        results = results._append({'Buysell': 'Sell', 'Indicator': column_name, 'Condition': cond, 'Value': value, 'PnL': rolling_pnl, 'MaxDD': max_drawdown, 'Trades': trades_number, '%Pstv': positive_trades, 'CAGR': str(cagr)+'%','Sharpe': sharpe, 'Sortino': sortino}, ignore_index=True)
     
     results = results.sort_values(by=['Sharpe'], ascending=False)
     results['PnL'] = results['PnL'].astype(int)
@@ -154,4 +154,12 @@ def backtest_sell_ind(data, days_in_trade, profitable_close, is_long, column_nam
     # Convert the 'Trades' column to integers
     results['Trades'] = results['Trades'].astype(int)
     
+    return results
+
+
+def execute_strategy (data, days, profit, is_long = True, set_sell = True):
+    if days == 0:
+        results = ind.og_strat(data, set_sell)
+    else:
+        results = ind.long_strat(data, days, profit, is_long)
     return results

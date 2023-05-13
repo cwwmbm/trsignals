@@ -505,7 +505,8 @@ def buy_signal1 (data, symbol = ticker):
     buy = False #(data['Open'] <= data['High'].shift(1)) & (data['High'].shift(3) <= data['Open'].shift(8)) & (data['EMA100'] > data['EMA100'].shift(2))&(data['IBR']<0.4) & (data['ER'] <= 0.4)
     #return custom_return(buy, days, profit, description, verdict)
     is_long = True
-    return buy, days, profit, description, verdict, is_long, ignore
+    sell = False
+    return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal2 (data, symbol = ticker):
     allowed_symbols = ['NQ', 'QQQ']
@@ -516,7 +517,8 @@ def buy_signal2 (data, symbol = ticker):
     verdict = 'Good numbers overall'
     buy = (data['Close'].shift(1) < data['Close'].shift(2)) & (data['Close'].pct_change(periods=10).shift(1) < 0) & (data['IBR'] <= 0.5)
     is_long = True
-    return buy, days, profit, description, verdict, is_long, ignore
+    sell = False
+    return buy, sell, days, profit, description, verdict, is_long, ignore
     #return custom_return(buy, days, profit, description, verdict)
     #return (data['Close'].shift(1) < data['Close'].shift(2)) & (data['Close'].pct_change(periods=10).shift(1) < 0) & (data['IBR'] <= 0.5) #2/1 for ES, check for NQ, good numbers overall.
 
@@ -530,7 +532,8 @@ def buy_signal3 (data, symbol = ticker):
     verdict = 'Big drawdown either way for NQ. For ES 6/6 or 6/5 gives some decent numbers.'
     buy = False #(data['Close'].shift(2) < data['Close'].shift(3)) & (data['High'].shift(1) == data['High'].rolling(window=5).max())
     is_long = True
-    return buy, days, profit, description, verdict, is_long, ignore
+    sell = False
+    return buy, sell, days, profit, description, verdict, is_long, ignore
     #return (data['Close'].shift(2) < data['Close'].shift(3)) & (data['High'].shift(1) == data['High'].rolling(window=5).max()) #5/5 or 7/5 but big drawdown either way for NQ. For ES 6/6 or 6/5 gives some decent numbers.
 
 def buy_signal4 (data, symbol = ticker):
@@ -542,8 +545,9 @@ def buy_signal4 (data, symbol = ticker):
     verdict = 'Suspect for elimination'
     buy = False#(data['SMA50'] > data['SMA200']) & (data['Low'] == data['Low'].rolling(window=3).max()) & (data['IBR'] <= 0.8)
     is_long = True
-    return buy, days, profit, description, verdict, is_long, ignore
-    #return (data['SMA50'] > data['SMA200']) & (data['Low'] == data['Low'].rolling(window=3).max()) & (data['IBR'] <= 80) #Hold 2 days profit 2
+    sell = False
+    return buy, sell, days, profit, description, verdict, is_long, ignore
+   #return (data['SMA50'] > data['SMA200']) & (data['Low'] == data['Low'].rolling(window=3).max()) & (data['IBR'] <= 80) #Hold 2 days profit 2
 
 def buy_signal5 (data, symbol = ticker):
     allowed_symbols = ['NQ', 'QQQ']
@@ -554,8 +558,9 @@ def buy_signal5 (data, symbol = ticker):
     verdict = 'Low profit but low drawdown.'
     buy = (pd.notna(data['ER'])) & (data['ER'] >= 0.5) & (data['IBR'] <= 0.8)
     is_long = True
-    return buy, days, profit, description, verdict, is_long, ignore
-    #return (pd.notna(data['ER'])) & (data['ER'] >= 0.5) & (data['IBR'] <= 0.8)  #Hold 2 days profit 1
+    sell = False
+    return buy, sell, days, profit, description, verdict, is_long, ignore
+   #return (pd.notna(data['ER'])) & (data['ER'] >= 0.5) & (data['IBR'] <= 0.8)  #Hold 2 days profit 1
 
 def buy_signal6 (data, symbol = ticker):
     allowed_symbols = ['NQ', 'ES']
@@ -566,8 +571,9 @@ def buy_signal6 (data, symbol = ticker):
     verdict = 'Very low drawdowns. Decent results with OG strat'
     buy = (pd.notna(data['CCI'])) & (data['CCI'] <= -150) & (data['IBR'] <= 0.2)
     is_long = True
-    return buy, days, profit, description, verdict, is_long, ignore
-    #return (pd.notna(data['CCI'])) & (data['CCI'] <= -150) & (data['IBR'] <= 0.4) #Hold 4 days proft 1 (could do 3 and 1). Potentiall 9 and 5.
+    sell = False
+    return buy, sell, days, profit, description, verdict, is_long, ignore
+   #return (pd.notna(data['CCI'])) & (data['CCI'] <= -150) & (data['IBR'] <= 0.4) #Hold 4 days proft 1 (could do 3 and 1). Potentiall 9 and 5.
 
 def buy_signal7 (data, symbol = ticker):
     allowed_symbols = ['NQ', 'SMH', 'ES', 'QQQ']
@@ -578,8 +584,9 @@ def buy_signal7 (data, symbol = ticker):
     verdict = '3/3 for NQ, 3/1 for SMH, ES. Monster of a strategy.'
     buy = (data['Close'].shift(1) <= data['Close'].shift(3)) & (data['IBR'] <= 0.4) #& (data['Close'].pct_change(periods=10) < 0)
     is_long = True
-    return buy, days, profit, description, verdict, is_long, ignore
-    #return (data['Close'].shift(1) <= data['Close'].shift(3)) & (data['IBR'] <= 0.4) #& (data['Close'].pct_change(periods=10) < 0) #Hold 3 days profit 1
+    sell = False
+    return buy, sell, days, profit, description, verdict, is_long, ignore
+   #return (data['Close'].shift(1) <= data['Close'].shift(3)) & (data['IBR'] <= 0.4) #& (data['Close'].pct_change(periods=10) < 0) #Hold 3 days profit 1
 
 def buy_signal8(data, symbol = ticker):
     allowed_symbols = ['NQ']
@@ -595,7 +602,8 @@ def buy_signal8(data, symbol = ticker):
 
     buy = kama_er_condition & value_charts_condition & rsi_condition & (data['IBR'] <= 0.8) & (data['RSI5Breadth'] < 80)
     is_long = True
-    return buy, days, profit, description, verdict, is_long, ignore
+    sell = False
+    return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal9(data, symbol = ticker):
     allowed_symbols = ['NQ', 'SMH']
@@ -615,7 +623,8 @@ def buy_signal9(data, symbol = ticker):
 
     buy =  open_condition & ibr_condition & (data['Close'] <= ema_50) & (data['RSI14'] <= 50)#close_condition
     is_long = True
-    return buy, days, profit, description, verdict, is_long, ignore
+    sell = False
+    return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal10(data, symbol = ticker):
     allowed_symbols = ['NQ', 'SMH', 'ES', 'QQQ']
@@ -633,8 +642,9 @@ def buy_signal10(data, symbol = ticker):
 
     buy = low_condition & ibr_condition & (data['ValueCharts'] < 0)  #& macd_histogram_condition
     is_long = True
-    return buy, days, profit, description, verdict, is_long, ignore
-   
+    sell = False
+    return buy, sell, days, profit, description, verdict, is_long, ignore
+
 def buy_signal11(data, symbol = ticker):
     allowed_symbols = []
     ignore = False if symbol in allowed_symbols else True
@@ -646,7 +656,8 @@ def buy_signal11(data, symbol = ticker):
 
     buy = False#(data['Close'] < data['SMA50']) & (data['Close'] < data['SMA200']) & (data['High'] < data['High'].shift(1)) & (data['High'].shift(1) < data['High'].shift(2)) & (data['RSI2'] > 10)
 
-    return buy, days, profit, description, verdict, is_long, ignore
+    sell = False
+    return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal12(data, symbol = ticker):
     allowed_symbols = ['NQ']
@@ -660,7 +671,8 @@ def buy_signal12(data, symbol = ticker):
 
     buy = (data['Volume'] < data['Volume'].shift(2)) & (data['ValueCharts'] < 2) & (data['SMA50'] > data['SMA200']) & (data['ER']<0.5)
     is_long = True
-    return buy, days, profit, description, verdict, is_long, ignore
+    sell = False
+    return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal13(data, symbol = ticker):
     allowed_symbols = ['CL']
@@ -672,7 +684,8 @@ def buy_signal13(data, symbol = ticker):
 
     buy = (data['Close'] > data['SMA100']) & (data['RSI2'] <= 60) & (data['ValueCharts'] > -4) & (data['IBR'] <= 0.2)
     is_long = True
-    return buy, days, profit, description, verdict, is_long, ignore
+    sell = False
+    return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal14(data, symbol = ticker):
     allowed_symbols = ['SMH']
@@ -684,7 +697,8 @@ def buy_signal14(data, symbol = ticker):
 
     buy = (data['Low'] == data['Low'].rolling(window=4).min()) & (data['IBR'] <= 0.3) & (data['ER'] > 0.3)
     is_long = True
-    return buy, days, profit, description, verdict, is_long, ignore
+    sell = False
+    return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal15(data, symbol = ticker):
     allowed_symbols = ['CL']
@@ -696,7 +710,8 @@ def buy_signal15(data, symbol = ticker):
 
     buy = (data['ER'] > 0.2) & (data['RSI14'] >= 40) & (data['IBR'] <= 0.2)
     is_long = True
-    return buy, days, profit, description, verdict, is_long, ignore
+    sell = False
+    return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal16(data, symbol = ticker):
     allowed_symbols = ['SMH']
@@ -708,7 +723,8 @@ def buy_signal16(data, symbol = ticker):
 
     buy = (data['High'] > data['Close'].shift(1)) & (data['IBR'] <= 0.5) & (data['Close']>data['SMA100']) #& (data['High'] < data['SMA10']) 
     is_long = True
-    return buy, days, profit, description, verdict, is_long, ignore
+    sell = False
+    return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal17(data, symbol = ticker):
     allowed_symbols = ['SMH', 'NQ']
@@ -720,7 +736,8 @@ def buy_signal17(data, symbol = ticker):
 
     buy = (data['RSI2'] <= 20) & (data['IBR'] <= 0.3) & (data['ER'] >= 0.3) #& (data['Stoch'] <= 10)
     is_long = True
-    return buy, days, profit, description, verdict, is_long, ignore
+    sell = False
+    return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal18(data, symbol = ticker):
     allowed_symbols = ['CL']
@@ -731,7 +748,8 @@ def buy_signal18(data, symbol = ticker):
     verdict = "2/1"
     buy = (data['Open'].shift(1) <= data['Open'].rolling(window=2).min()) & (data['IBR'] <= 0.2) & (data['ER'] <= 0.6) & (data['Stoch'] >= 10)
     is_long = True
-    return buy, days, profit, description, verdict, is_long, ignore
+    sell = False
+    return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal19(data, symbol = ticker):
     allowed_symbols = ['GC', 'SI']
@@ -742,8 +760,20 @@ def buy_signal19(data, symbol = ticker):
     verdict = "1/1"
     buy = (data['Vix'] <= data['Vix'].shift(1)) & (data['RSI14'] >= 30) & (data['IBR'] <= 0.5) & (data['RSI5'] < 90)
     is_long = True
-    return buy, days, profit, description, verdict, is_long, ignore
+    sell = False
+    return buy, sell, days, profit, description, verdict, is_long, ignore
 
+def buy_signal20(data, symbol = ticker):
+    allowed_symbols = ['SPY', 'QQQ', 'ES', 'NQ', 'SOXX']
+    ignore = False if symbol in allowed_symbols else True
+    days = 8
+    profit = 3
+    description = "Experimental Long signal"
+    verdict = "8/3"
+    buy = (data['Hurst'] > 0.4) & (data['RSI2'] < 40) & (data['RSI5Breadth'] < 60)#(data['IBR'] <= 0.2) & (data['CCI'] < 100) #& (data['ValueCharts'] < 0)
+    sell = (data['RSI2SemisBreadth'].shift(1) > 50) & (data['RSI2SemisBreadth'] < 50)
+    is_long = True
+    return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def og_buy_signal(data, symbol = ticker):
     allowed_symbols = ['SPY']
@@ -755,7 +785,9 @@ def og_buy_signal(data, symbol = ticker):
     buy = ((data['RSI2'] < RSI2Buy) & (data['RSI5'] < RSI5Buy) & (                                 #RSI2 and RSI5 below threashold
         (data['VolumeEMADiff'] < VolumeEMAThreashold) | (data['Volatility'] < VolumeEMAThreashold)) & (  #Volume less than EMAThreashold
         ((data['Close'] - data['Close'].shift(1)) / data['Close'].shift(1) > -MaxDecline)))               #Decline less than 4%    
-    return buy, 0, 0, description, verdict, is_long, ignore
+    
+    sell = og_sell_signal(data, symbol = symbol)
+    return buy, sell, 0, 0, description, verdict, is_long, ignore
 
 def og_new_buy_signal(data, symbol = ticker):
     allowed_symbols = ['SPY']
@@ -768,7 +800,8 @@ def og_new_buy_signal(data, symbol = ticker):
         (data['VolumeEMADiff'] < VolumeEMAThreashold) | (data['Volatility'] < VolumeEMAThreashold)) & (  #Volume less than EMAThreashold
         ((data['Close'] - data['Close'].shift(1)) / data['Close'].shift(1) > -MaxDecline)) &            #Decline less than 4%   
         (data['RSI5Breadth'] < 90) &(data['RSI5Breadth'] > 20) & (data['ValueCharts']>-12) & (data['Stoch']<40))    #New Conditions            
-    return buy, 0, 0, description, verdict, is_long, ignore    
+    sell = og_new_sell_signal(data, symbol = symbol)
+    return buy, sell, 0, 0, description, verdict, is_long, ignore    
 
 def og_sell_signal(data, symbol = ticker):
     allowed_symbols = ['SPY']
