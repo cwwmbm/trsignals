@@ -767,6 +767,7 @@ def buy_signal20(data, symbol = ticker):
     allowed_symbols = ['SPY', 'QQQ', 'ES', 'NQ', 'SOXX']
     ignore = False if symbol in allowed_symbols else True
     days = 8
+    
     profit = 3
     description = "Experimental Long signal"
     verdict = "8/3"
