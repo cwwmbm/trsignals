@@ -452,6 +452,7 @@ def add_indicators(data):
     data['CCI'] = cci  # Assign the cci Series to the CCI column in the data DataFrame
     # Calculate SMA(50) and SMA(200)
     data['SMA10'] = data['Close'].rolling(window=10).mean()
+    data['SMA20'] = data['Close'].rolling(window=20).mean()
     data['SMA50'] = data['Close'].rolling(window=50).mean()
     data['SMA100'] = data['Close'].rolling(window=100).mean()
     data['SMA200'] = data['Close'].rolling(window=200).mean()
@@ -483,6 +484,10 @@ def add_indicators(data):
     data['VFI20'] = vfi(data, period=20)
     data['VFI80'] = vfi(data, period=80)
     data['VFI10'] = vfi(data, period=10)
+    data['EMAMomentum'] = (data['Close'] - data['EMA8'])/data['Close']*100
+    data['EMAMomentum2'] = (data['EMA20'] - data['EMA100'])/data['EMA20']*100
+    data['SMAMomentum'] = (data['SMA50'] - data['SMA200'])/data['SMA50']*100
+    data['SMAMomentum2'] = (data['SMA20'] - data['SMA50'])/data['SMA20']*100
     data = data.drop(columns=['StochSlow'])
     #data['StochFast'] = ta.momentum.stoch(data['High'], data['Low'], data['Close'], window=14, smooth_window=3, fastd=True)
     data['Sell'] = False
@@ -764,15 +769,15 @@ def buy_signal19(data, symbol = ticker):
     return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal20(data, symbol = ticker):
-    allowed_symbols = ['SPY', 'QQQ', 'ES', 'NQ', 'SOXX']
+    allowed_symbols = ['SPY', 'QQQ', 'ES', 'NQ']
     ignore = False if symbol in allowed_symbols else True
-    days = 8
-    
-    profit = 3
+    days = 20
+
+    profit = 20
     description = "Experimental Long signal"
     verdict = "8/3"
-    buy = (data['Hurst'] > 0.4) & (data['RSI2'] < 40) & (data['RSI5Breadth'] < 60)#(data['IBR'] <= 0.2) & (data['CCI'] < 100) #& (data['ValueCharts'] < 0)
-    sell = (data['RSI2SemisBreadth'].shift(1) > 50) & (data['RSI2SemisBreadth'] < 50)
+    buy = (data['RSI2'] < 40) & (data['RSI5Breadth'] < 60) & (data['IBR'] < 0.2)#&(data['Hurst'] > 0.4)#& (data['RSI5Breadth'] < 60)#(data['IBR'] <= 0.2) & (data['CCI'] < 100) #& (data['ValueCharts'] < 0)
+    sell = ((data['RSI2SemisBreadth'].shift(1) > 50) & (data['RSI2SemisBreadth'] < 50)) | (data['Vix'] > 40)
     is_long = True
     return buy, sell, days, profit, description, verdict, is_long, ignore
 

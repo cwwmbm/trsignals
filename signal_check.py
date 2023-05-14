@@ -33,7 +33,7 @@ yf_symbols = [symbol+'=F' if symbol in ['NQ', 'ES', 'RTY', 'CL', 'GC', 'SI', 'HG
 symbol_mapping = {symbol: yf_symbol for symbol, yf_symbol in zip(symbols, yf_symbols)}
 full_data = dt.get_bulk_data(yf_symbols)
 vix_close = full_data['Close', '^VIX']
-breadth = full_data['Close', 'SPY'] / full_data['Close', 'RSP']
+breadth = full_data['Close', 'RSP'] / full_data['Close', 'SPY']
 qqq_to_spy = full_data['Close']['QQQ'] / full_data['Close']['SPY']
 smh_to_spy = full_data['Close']['SMH'] / full_data['Close']['SPY']
 
