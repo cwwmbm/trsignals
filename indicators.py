@@ -488,6 +488,10 @@ def add_indicators(data):
     data['EMAMomentum2'] = (data['EMA20'] - data['EMA100'])/data['EMA20']*100
     data['SMAMomentum'] = (data['SMA50'] - data['SMA200'])/data['SMA50']*100
     data['SMAMomentum2'] = (data['SMA20'] - data['SMA50'])/data['SMA20']*100
+    data['LowestClose2'] = np.where(data['Close'] <= data['Close'].shift(1), 1, -1)
+    data['LowestClose3'] = np.where(data['Close'] <= data['Close'].rolling(window=3).min(), 1, -1)
+    data['HighestClose2'] = np.where(data['Close'] >= data['Close'].shift(1), 1, -1)
+    data['HighestClose3'] = np.where(data['Close'] >= data['Close'].rolling(window=3).max(), 1, -1)
     data = data.drop(columns=['StochSlow'])
     #data['StochFast'] = ta.momentum.stoch(data['High'], data['Low'], data['Close'], window=14, smooth_window=3, fastd=True)
     data['Sell'] = False
@@ -780,6 +784,20 @@ def buy_signal20(data, symbol = ticker):
     sell = ((data['RSI2SemisBreadth'].shift(1) > 50) & (data['RSI2SemisBreadth'] < 50)) | (data['Vix'] > 40)
     is_long = True
     return buy, sell, days, profit, description, verdict, is_long, ignore
+
+def buy_signal21(data, symbol = ticker):
+    allowed_symbols = ['SPY']
+    ignore = False if symbol in allowed_symbols else True
+    days = 1
+
+    profit = 1
+    description = "Close<200SMA, RSI2<40, RSI2SemisBreadth>30. Bear market long signal"
+    verdict = "1/1"
+    buy = (data['SMAMomentum'] < 0) & (data['RSI2'] < 40) & (data['RSI2SemisBreadth'] > 30)
+    sell = False
+    is_long = True
+    return buy, sell, days, profit, description, verdict, is_long, ignore
+
 
 def og_buy_signal(data, symbol = ticker):
     allowed_symbols = ['SPY']
