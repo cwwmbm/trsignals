@@ -229,146 +229,6 @@ def stochastic_oscillator(data, k_period=14, d_period=3, column_high='High', col
 
     return data
 
-#Calculating signals for TradeIN and TradeOUT.
-def long_strat(data, days, prof_closes, is_long = True, start_capital = 15000, point_multiplier = point_multiplier):
-    signals = data
-    signals['LongTradeIn'] = False
-    signals['LongTradeOut'] = False
-    signals['HoldLong'] = False
-    signals['DaysInTrade'] = 0
-    signals['ProfitableCloses'] = 0
-    signals['RollingPnL'] = 0
-    signals['TradePnL'] = 0
-    signals['TradeEntry'] = 0
-    #signals['TradeInvestment'] = 0
-
-    for i, row in signals.iterrows():
-        signals['HoldLong'].at[i] = (signals['HoldLong'].shift(1).at[i] and not signals['LongTradeOut'].shift(1).at[i] and (i>0)) or ( #If previously long and not trade out on previous day
-                                    signals['LongTradeIn'].shift(1).at[i] and i>0)                                            #Or if Enetering trade on previous day
-        signals['LongTradeIn'].at[i] = signals['Buy'].at[i] and not signals['HoldLong'].at[i]
-        signals['DaysInTrade'].at[i] = signals['DaysInTrade'].shift(1).at[i] + 1 if (signals['HoldLong'].at[i] and i>0) else 0
-        #if i>0:
-        #    signals['TradeInvestment'].at[i] = signals['RollingPnL'].at[i] if (signals['LongTradeIn'].at[i]) else signals['TradeInvestment'].shift(1).at[i] if signals['HoldLong'].at[i] else 0
-        if (signals['HoldLong'].at[i] and i>0):
-            if (is_long):
-               #signals['ProfitableCloses'].at[i] = (signals['ProfitableCloses'].shift(1).at[i] + 1) if (signals['TradePnL'].at[i] > 0) else signals['ProfitableCloses'].shift(1).at[i]
-               signals['ProfitableCloses'].at[i] = signals['ProfitableCloses'].shift(1).at[i] + 1 if (signals['Close'].at[i] > signals['Close'].shift(1).at[i]) else signals['ProfitableCloses'].shift(1).at[i]
-            else:
-               signals['ProfitableCloses'].at[i] = signals['ProfitableCloses'].shift(1).at[i] + 1 if (signals['Close'].at[i] < signals['Close'].shift(1).at[i]) else signals['ProfitableCloses'].shift(1).at[i] 
-
-        signals['LongTradeOut'].at[i] = ((signals['Sell'].at[i] and signals['HoldLong'].at[i]) or (signals['DaysInTrade'].at[i] >= days) or (signals['ProfitableCloses'].at[i] >= prof_closes))
-        signals['TradeEntry'].at[i] = signals['Close'].at[i] if signals['LongTradeIn'].at[i] else signals['TradeEntry'].shift(1).at[i] if signals['HoldLong'].at[i] else 0
-        #signals['TradePnL'].at[i] = (signals['TradePnL'].shift(1).at[i] + (signals['Close'].at[i] - signals['Close'].shift(1).at[i])) if (signals['HoldLong'].at[i] and i>0) else 0
-        signals['TradePnL'].at[i] = (signals['Close'].at[i] - signals['TradeEntry'].at[i]) / signals['TradeEntry'].at[i] if signals['HoldLong'].at[i] else 0
-
-        #Calculate rolling PnL for the strategy
-        if i == 0:
-            signals['RollingPnL'].at[i] = start_capital
-        elif signals['HoldLong'].at[i]: 
-            #signals['RollingPnL'].at[i] = signals['RollingPnL'].shift(1).at[i] + signals['Close'].at[i] - signals['Close'].shift(1).at[i]
-            signals['RollingPnL'].at[i] = (1+signals['%Change'].at[i])*signals['RollingPnL'].shift(1).at[i] if is_long else (1-signals['%Change'].at[i])*signals['RollingPnL'].shift(1).at[i]
-        else:
-            signals['RollingPnL'].at[i] = signals['RollingPnL'].shift(1).at[i]    
-
-
-    signals['RollingPnL'] = signals['RollingPnL']#*point_multiplier
-    #signals['TradePnL'] = signals['TradePnL']*point_multiplier
-    signals['TradePnL'] = -1*Leverage*signals['TradePnL'] if not is_long else Leverage*signals['TradePnL']
-    # Calculate the running maximum of the 'RollingPnL' column
-    signals['RunningMax'] = signals['RollingPnL'].cummax()
-
-    # Calculate the drawdown as the difference between the running maximum and the current 'RollingPnL' value
-    signals['Drawdown'] = (signals['RunningMax'] - signals['RollingPnL'])/signals['RunningMax']
-    #signals['TradePnL'] = signals['TradePnL'].apply(format_dollar_value)
-    #signals['RollingPnL'] = signals['RollingPnL'].apply(format_dollar_value)
-
-    return signals
-
-#Original Main Strategy
-def og_strat(data, days = 0, profit = 0, set_sell = True, external_count = 0, start_capital = 15000):
-    # Main Trading signals
-    #data['MainBuy'] = False
-    if set_sell: data['Sell'] = False
-    data['OneDayBuy'] = False
-    data['HoldLong'] = False
-    data['LongTradeIn'] = False
-    data['LongTradeOut'] = False
-    data['DaysInTrade'] = 0
-    data['ProfitableCloses'] = 0
-    data['RollingPnL'] = 0
-    data['TradePnL'] = 0
-    data['TradeEntry'] = 0
-    ExternalBuy = False
-    if external_count > 0:
-        for i in range (0, external_count):
-            buy_column = 'Buy' + str(i)
-            hold_column = 'HoldLong' + str(i)
-            ExternalBuy = ExternalBuy | data[buy_column] | data[hold_column]
-    else:
-        ExternalBuy = True
-    if set_sell:
-        data['Sell'] = ((data['RSI2'] > RSI2Sell) & (data['RSI5'] > RSI5Sell)) | (                            #RSI2 and RSI5 above threashold
-            (data['Close'].shift(1) > data['EMA8'].shift(1)) & (data['Close'] < data['EMA8'])) | (            #Crossing EMA8 down
-            (ExitOnVolatility) & ((data['VolumeEMADiff'] >= VolumeEMAThreashold))) | (                        #Volume more than EMAThreashold !!!!!!!!!!!DOESNT WORK - INVESTIGATE!!!!!!!!
-            #(data['Close'] - data['Close'].shift(1)) / data['Close'].shift(1) < -MaxDecline) | (              #Decline more than 4%
-            (data['VolumeEMADiff'] > VolumeEMAThreashold) & (data['Volatility'] > VolatilityThreashold))      #Big volume and volatility  
-    
-    # Add one day buy signal
-    data['OneDayBuy'] = False
-    data['OneDayBuy'] = (((data['Close'] <=  data['Close'].rolling(DownDays).min()) & (data['VolumeEMADiff'] < -VolumeEMAThreasholdBuy) & (LowVolumeBuy))) | ( #Low volume buy
-            (data['Close'] < data['Close'].shift(1)) & (pd.to_datetime(data['Date']).dt.dayofweek == 0) & (MondayBuy))                                          #Monday buy
-                                                                                                         
-
-
-    # Calculate days when entering and exiting trades
-    #data['OneDayArm'] = False
-
-    for i, row in data.iterrows():
-        if i == 0:
-            data['HoldLong'].at[i] = False
-            data['LongTradeOut'].at[i] = False
-            data['TradeEntry'].at[i] = 0
-            data['TradePnL'].at[i] = 0
-            data['RollingPnL'].at[i] = start_capital
-        else:
-            data['HoldLong'].at[i] = ((data['HoldLong'].shift(1).at[i] and not data['LongTradeOut'].shift(1).at[i]) or ( #If previously long and not trade out on previous day
-                                        data['LongTradeIn'].shift(1).at[i]) or (                                        #Or if Enetering trade on previous day
-                                        data['OneDayBuy'].shift(1).at[i]))                                              #Or if one day buy on previous day??? Do we need this?
-            data['LongTradeIn'].at[i] = data['Buy'].at[i] and not data['HoldLong'].at[i]
-            data['DaysInTrade'].at[i] = data['DaysInTrade'].shift(1).at[i] + 1 if (data['HoldLong'].at[i] and i>0) else 0
-            if (data['HoldLong'].at[i]):
-                data['ProfitableCloses'].at[i] = data['ProfitableCloses'].shift(1).at[i] + 1 if (data['Close'].at[i] > data['Close'].shift(1).at[i]) else data['ProfitableCloses'].shift(1).at[i]
-            data['TradeEntry'].at[i] = data['Close'].at[i] if (((data['LongTradeIn'].at[i] or data['OneDayBuy'].at[i])) and data['TradeEntry'].shift(1).at[i] == 0) else data['TradeEntry'].shift(1).at[i] if data['HoldLong'].at[i] else 0
-            data['TradePnL'].at[i] = data['TradePnL'].shift(1).at[i] + data['%Change'].at[i] if data['HoldLong'].at[i] else 0
-            #(data['Close'].at[i] - data['TradeEntry'].at[i]) / data['TradeEntry'].at[i] if data['HoldLong'].at[i] else 0
-            data['LongTradeOut'].at[i] = (data['Sell'].at[i] and data['HoldLong'].at[i]) or (                           #If sell signal and hold long
-                                        data['OneDayBuy'].shift(1).at[i] and not data['HoldLong'].shift(1).at[i] and not data['Buy'].shift(1).at[i]) or ( #Or if one day buy and not hold long on previous day (and not buy signal today)
-                                        data['TradePnL'].at[i] < -stop_loss)                                            #Or if hit stoploss 
-            if (days > 0):
-                data['LongTradeOut'].at[i] = data['LongTradeOut'].at[i] or (data['DaysInTrade'].at[i] >= days) or (data['ProfitableCloses'].at[i] >= profit)
-            #data['TradeEntry'].at[i] = data['Close'].at[i] if (data['LongTradeIn'].at[i] or data['OneDayBuy'].at[i]) else data['TradeEntry'].shift(1).at[i] if data['HoldLong'].at[i] else 0
-
-
-        #Calculate rolling PnL for the strategy
-        if i == 0:
-            data['RollingPnL'].at[i] = start_capital
-        elif data['HoldLong'].at[i]: 
-            #signals['RollingPnL'].at[i] = signals['RollingPnL'].shift(1).at[i] + signals['Close'].at[i] - signals['Close'].shift(1).at[i]
-            data['RollingPnL'].at[i] = (1+data['%Change'].at[i])*data['RollingPnL'].shift(1).at[i]
-        else:
-            data['RollingPnL'].at[i] = data['RollingPnL'].shift(1).at[i]   
-
-    # Calculate the running maximum of the 'RollingPnL' column
-    data['RunningMax'] = data['RollingPnL'].cummax()
-
-    # Calculate the drawdown as the difference between the running maximum and the current 'RollingPnL' value
-    data['Drawdown'] = (data['RunningMax'] - data['RollingPnL'])/data['RunningMax']
-    #signals['TradePnL'] = signals['TradePnL'].apply(format_dollar_value)
-    #signals['RollingPnL'] = signals['RollingPnL'].apply(format_dollar_value)
-
-    return data
-
-
 #Calculating Kaufman Efficiency Ratio
 def kaufman_efficiency_ratio(data, period=10, column_close='Close'):
     """
@@ -408,7 +268,7 @@ def kaufman_efficiency_ratio(data, period=10, column_close='Close'):
 
 def hurst_exponent(data):
     H = lambda x: compute_Hc(x)[0]
-    window = 200
+    window = 100
     hurst = data['Close'].rolling(window).apply(H)
     return hurst
 
@@ -437,7 +297,6 @@ def vfi(df, period=40, coef=0.2, vcoef=2.5):
     vfimov = vfii.ewm(span=3).mean()
     
     return vfimov
-
 
 def macd_histogram(data, fast_period=12, slow_period=26, signal_period=9):
     macd_indicator = ta.trend.MACD(data['Close'], window_fast=fast_period, window_slow=slow_period, window_sign=signal_period)
@@ -492,6 +351,10 @@ def add_indicators(data):
     data['LowestClose3'] = np.where(data['Close'] <= data['Close'].rolling(window=3).min(), 1, -1)
     data['HighestClose2'] = np.where(data['Close'] >= data['Close'].shift(1), 1, -1)
     data['HighestClose3'] = np.where(data['Close'] >= data['Close'].rolling(window=3).max(), 1, -1)
+    data['ATR20'] = ta.volatility.average_true_range(data['High'], data['Low'], data['Close'], window=20)
+    data['ATR50'] = ta.volatility.average_true_range(data['High'], data['Low'], data['Close'], window=50)
+    data['ATRVelocity'] = data['ATR20'] - data['ATR50']
+    data['ChangeVelocity'] = (data['Close'] - data['Close'].shift(1)) / data['ATR20'].shift(1)
     data = data.drop(columns=['StochSlow'])
     #data['StochFast'] = ta.momentum.stoch(data['High'], data['Low'], data['Close'], window=14, smooth_window=3, fastd=True)
     data['Sell'] = False
@@ -798,7 +661,6 @@ def buy_signal21(data, symbol = ticker):
     is_long = True
     return buy, sell, days, profit, description, verdict, is_long, ignore
 
-
 def og_buy_signal(data, symbol = ticker):
     allowed_symbols = ['SPY']
     ignore = False if symbol in allowed_symbols else True
@@ -820,10 +682,11 @@ def og_new_buy_signal(data, symbol = ticker):
     verdict = "OG Long Spy strategy with few extra conditions"
     is_long = True
     
-    buy = ((data['RSI2'] < RSI2Buy) & (data['RSI5'] < RSI5Buy) & (                                 #RSI2 and RSI5 below threashold
-        (data['VolumeEMADiff'] < VolumeEMAThreashold) | (data['Volatility'] < VolumeEMAThreashold)) & (  #Volume less than EMAThreashold
-        ((data['Close'] - data['Close'].shift(1)) / data['Close'].shift(1) > -MaxDecline)) &            #Decline less than 4%   
-        (data['RSI5Breadth'] < 90) &(data['RSI5Breadth'] > 20) & (data['ValueCharts']>-12) & (data['Stoch']<40))    #New Conditions            
+    buy = ((data['RSI2'] < RSI2Buy) & #(data['RSI5'] < RSI5Buy) &                                  #RSI2 and RSI5 below threashold
+        ((data['VolumeEMADiff'] < VolumeEMAThreashold) | (data['Volatility'] < VolumeEMAThreashold)) & (  #Volume less than EMAThreashold
+        ((data['Close'] - data['Close'].shift(1)) / data['Close'].shift(1) > -MaxDecline))            #Decline less than 4%   
+        & (data['Stoch']<30) & (data['SMAMomentum']>0) & (data['ER']<0.7))                          #New Conditions
+        #(data['RSI5Breadth'] < 90) &(data['RSI5Breadth'] > 20) & (data['ValueCharts']>-12) & (data['Stoch']<40))    #New Conditions            
     sell = og_new_sell_signal(data, symbol = symbol)
     return buy, sell, 0, 0, description, verdict, is_long, ignore    
 
@@ -839,13 +702,13 @@ def og_sell_signal(data, symbol = ticker):
     return sell#, 0, 0, description, verdict, is_long, ignore
 
 def og_new_sell_signal(data, symbol = ticker):
-    allowed_symbols = ['SPY']
+    allowed_symbols = ['SPY', 'ES']
     
     sell = ((data['RSI2'] > RSI2Sell) & (data['RSI5'] > RSI5Sell)) | (                                #RSI2 and RSI5 above threashold
             (data['Close'].shift(1) > data['EMA8'].shift(1)) & (data['Close'] < data['EMA8'])) | (            #Crossing EMA8 down
             (ExitOnVolatility) & ((data['VolumeEMADiff'] >= VolumeEMAThreashold))) | (                        #Volume more than EMAThreashold !!!!!!!!!!!DOESNT WORK - INVESTIGATE!!!!!!!!
             #(data['Close'] - data['Close'].shift(1)) / data['Close'].shift(1) < -MaxDecline) | (              #Decline more than 4%
-            (data['VolumeEMADiff'] > VolumeEMAThreashold) & (data['Volatility'] > VolatilityThreashold)) | (      #Big volume and volatility  
-            data['Hurst'] < 0.4)
+            (data['VolumeEMADiff'] > VolumeEMAThreashold) & (data['Volatility'] > VolatilityThreashold)       #Big volume and volatility  
+            | (data['SMAMomentum'] <0))                                                                 #New Condition
 
     return sell#, 0, 0, description, verdict, is_long, ignore

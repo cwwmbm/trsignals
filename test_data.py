@@ -5,6 +5,7 @@ from config import *
 from ib_insync import IB, Future, util, Stock
 from pushbullet import Pushbullet
 import time
+import backtest as bt
 
 start_time = time.perf_counter()
 if (ticker == 'NQ' or ticker == 'ES' or ticker == 'RTY' or ticker == 'CL' or ticker == 'GC' or ticker == 'SI' or ticker == 'HG'):
@@ -23,12 +24,14 @@ data = ind.add_indicators(data)
 signals = pd.DataFrame()
 
 buy_signals = [ind.buy_signal1, ind.buy_signal2, ind.buy_signal3, ind.buy_signal4, ind.buy_signal5, ind.buy_signal6, ind.buy_signal7, ind.buy_signal8, ind.buy_signal9, ind.buy_signal10, 
-               ind.buy_signal11, ind.buy_signal12, ind.buy_signal13, ind.buy_signal14, ind.buy_signal15, ind.buy_signal16, ind.buy_signal17, ind.buy_signal18, ind.buy_signal19, ind.buy_signal20,ind.og_buy_signal, ind.og_new_buy_signal ]
+               ind.buy_signal11, ind.buy_signal12, ind.buy_signal13, ind.buy_signal14, ind.buy_signal15, ind.buy_signal16, ind.buy_signal17, ind.buy_signal18, ind.buy_signal19, ind.buy_signal20, ind.buy_signal21,
+               ind.og_buy_signal, ind.og_new_buy_signal ]
 for buy_signal in buy_signals:
     data_temp = data.copy()
     data_temp['Buy'], data_temp['Sell'], days, profit, description, verdict, is_long, ignore = buy_signal(data)
 
-    data_temp = ind.long_strat(data_temp, days, profit) if days>0 else ind.og_strat(data_temp, set_sell = False)
+    #data_temp = ind.long_strat(data_temp, days, profit) if days>0 else ind.og_strat(data_temp, set_sell = False)
+    data_temp = bt.execute_strategy(data_temp, days, profit, is_long)
     max_drawdown = data_temp['Drawdown'].max()
     formatted_drawdown = '{:.2%}'.format(max_drawdown)
     latest_rolling_pnl = ind.format_dollar_value(data_temp['RollingPnL'].iloc[-1] - 15000)

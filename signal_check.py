@@ -8,6 +8,7 @@ from config import *
 #from pushbullet import Pushbullet
 import time
 import streamlit as st
+import backtest as bt
 
 #def send_push_notification(title, message, api_key):
 #    pb = Pushbullet(api_key)
@@ -27,7 +28,7 @@ signals = pd.DataFrame()
 symbols = ['NQ', 'ES', 'CL', 'GC', 'SI', 'SPY', 'SMH', 'QQQ', 'SOXX','^VIX', 'RSP']
 
 buy_signals = [ind.buy_signal1, ind.buy_signal2, ind.buy_signal3, ind.buy_signal4, ind.buy_signal5, ind.buy_signal6, ind.buy_signal7, ind.buy_signal8, ind.buy_signal9, ind.buy_signal10, 
-               ind.buy_signal11, ind.buy_signal12, ind.buy_signal13, ind.buy_signal14, ind.buy_signal15, ind.buy_signal16, ind.buy_signal17, ind.buy_signal18, ind.buy_signal19, ind.buy_signal20, ind.buy_signal21,
+               ind.buy_signal11, ind.buy_signal12, ind.buy_signal13, ind.buy_signal14, ind.buy_signal15, ind.buy_signal16, ind.buy_signal17, ind.buy_signal18, ind.buy_signal19, ind.buy_signal20, ind.buy_signal21, 
                ind.og_buy_signal, ind.og_new_buy_signal]
 
 yf_symbols = [symbol+'=F' if symbol in ['NQ', 'ES', 'RTY', 'CL', 'GC', 'SI', 'HG'] else symbol for symbol in symbols]
@@ -64,7 +65,8 @@ for symbol, yf_symbol in symbol_mapping.items():
         data_temp = data.copy()
         data_temp['Buy'], data_temp['Sell'], days, profit, description, verdict, is_long, ignore = buy_signal(data_temp, symbol)
         if not ignore:
-            data_temp = ind.long_strat(data_temp, days, profit) if days>0 else ind.og_strat(data_temp, set_sell=False)
+            #data_temp = ind.long_strat(data_temp, days, profit) if days>0 else ind.og_strat(data_temp, set_sell=False)
+            data_temp = bt.execute_strategy(data_temp, days, profit)
             #find TradePnL in % and store it as string with % sign in the end
             trade_pnl = str(round(data_temp['TradePnL'].iloc[-1]*100,2)) + '%'
             signals = signals._append([{'Symbol': symbol,'Signal': buy_signal.__name__, 'Buy signal?': data_temp['LongTradeIn'].iloc[-1], 'HoldLong?': data_temp['HoldLong'].iloc[-1], 'Sell signal?': data_temp['LongTradeOut'].iloc[-1],
