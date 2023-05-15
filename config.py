@@ -1,6 +1,6 @@
 ticker = 'SPY'
 point_multiplier = 20
-api_key = "o.NY8sxIj2MVxOW8GLtH8xylLpNHQegRAE" #API key for Pushbullet
+api_key = "" #API key for Pushbullet
 VolatilityPeriod = 5
 RSI2Buy = 15
 RSI5Buy = 35
