@@ -633,11 +633,11 @@ def buy_signal19(data, symbol = ticker):
 def buy_signal20(data, symbol = ticker):
     allowed_symbols = ['SPY', 'QQQ', 'ES', 'NQ']
     ignore = False if symbol in allowed_symbols else True
-    days = 20
+    days = 50
 
-    profit = 20
+    profit = 50
     description = "Experimental Long signal"
-    verdict = "8/3"
+    verdict = ""
     buy = (data['RSI2'] < 40) & (data['RSI5Breadth'] < 60) & (data['IBR'] < 0.2)#&(data['Hurst'] > 0.4)#& (data['RSI5Breadth'] < 60)#(data['IBR'] <= 0.2) & (data['CCI'] < 100) #& (data['ValueCharts'] < 0)
     sell = ((data['RSI2SemisBreadth'].shift(1) > 50) &
             (data['RSI2SemisBreadth'] < 50)) | (data['Vix'] > 40) | (data['ChangeVelocity'] > 1)

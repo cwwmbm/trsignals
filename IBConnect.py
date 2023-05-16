@@ -128,7 +128,7 @@ def indicator_tryout(data, days, profit, is_long, is_sell = False):
     results = bt.backtest_ind(data, days, profit, is_long, 'SMAMomentum2', 'both', 0, 0, 1, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'SMAMomentum2', 'both', 0, 0, 1, og)
     running_results = running_results._append(results.head(3))
     print (results.head(5))
-    if (ticker not in ['NQ', 'ES', 'GC', 'SI', 'HG', 'RTY', 'YM']):
+    if (ticker not in ['NQ', 'ES', 'GC', 'SI', 'HG', 'RTY', 'YM', 'CL']):
         results = bt.backtest_ind(data, days, profit, is_long, 'VFI80', 'both', -8, 8, 2, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'VFI80', 'both', -8, 8, 2, og)
         running_results = running_results._append(results.head(3))
         print (results.head(5))
@@ -243,13 +243,14 @@ def main():
     data = ind.add_indicators(data)
 
    
-    
-    data['Buy'], data['Sell'], days, profit, description, verdict, is_long, ignore = ind.buy_signal20(data)
+    buy_signal = ind.buy_signal20
+    #buy_signal = ind.og_new_buy_signal
+    data['Buy'], data['Sell'], days, profit, description, verdict, is_long, ignore = buy_signal(data)
     #data['Buy'], data['Sell'], days, profit, description, verdict, is_long, ignore = ind.og_new_buy_signal(data)
     #data['Buy'] = data['Buy'] & (data['RSI2'] < 40) & (data['RSI2SemisBreadth'] > 30) #& (data['RSI5RiskBreadth'] > 30)
-    #data['Buy'] = data['Buy'] & (data['SMAMomentum']>0) & (data['ER']<0.7)
+    #data['Buy'] = data['Buy'] & (data['RSI5RiskBreadth']>30)# & (data['ER']<0.7)
     #data['Sell'] = ind.og_new_sell_signal(data) #| (data['RSI14RiskBreadth'] > 70)
-    #data['Sell'] = data['Sell'] | (data['RSI5Breadth'] <50) #| (data['VFI40'] < -4)  #| (data['RSI2Breadth'] < 20)
+    #data['Sell'] = data['Sell'] | (data['SMAMomentum'] <0) #| (data['VFI40'] < -4)  #| (data['RSI2Breadth'] < 20)
     
     
     
@@ -267,7 +268,7 @@ def main():
     data = bt.execute_strategy(data, days, profit, is_long)
     #data = ind.long_strat(data,days,profit, is_long)
     print_stats(data, days, profit, description)
-    data.to_csv('NQ.csv')
+    data.to_csv(f'CSV/{ticker}_{buy_signal.__name__}.csv')
 
     end_time = time.perf_counter()
 
