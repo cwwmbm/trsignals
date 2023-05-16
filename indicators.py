@@ -328,6 +328,8 @@ def add_indicators(data):
     data['RSI5SemisBreadth'] = ta.momentum.RSIIndicator(data['Semisbreadth'], window=5).rsi()
     data['RSI14SemisBreadth'] = ta.momentum.RSIIndicator(data['Semisbreadth'], window=14).rsi()
     data['EMA8'] = ta.trend.ema_indicator(data['Close'], window=8)
+    data['EMA8CrossUp'] = np.where((data['Close'] > data['EMA8']) & (data['Close'].shift(1) < data['EMA8'].shift(1)), 1, -1)
+    data['EMA8CrossDown'] = np.where((data['Close'] < data['EMA8']) & (data['Close'].shift(1) > data['EMA8'].shift(1)), 1, -1)
     data['EMA20'] = ta.trend.ema_indicator(data['Close'], window=20)
     data['EMA100'] = ta.trend.ema_indicator(data['Close'], window=100)
     data['VolumeEMADiff'] = (data['Volume'] - ta.trend.ema_indicator(data['Volume'], window=8)) / ta.trend.ema_indicator(data['Volume'], window=8)
@@ -359,13 +361,6 @@ def add_indicators(data):
     #data['StochFast'] = ta.momentum.stoch(data['High'], data['Low'], data['Close'], window=14, smooth_window=3, fastd=True)
     data['Sell'] = False
     return data
-
-def custom_return(buy_signal, days, profit, description, verdict):
-    import inspect
-
-    frame = inspect.currentframe().f_back
-    assignments = frame.f_code.co_argcount
-    return (buy_signal, days, profit, description, verdict) if assignments > 1 else buy_signal
 
 def buy_signal1 (data, symbol = ticker):
     allowed_symbols = []
@@ -644,7 +639,8 @@ def buy_signal20(data, symbol = ticker):
     description = "Experimental Long signal"
     verdict = "8/3"
     buy = (data['RSI2'] < 40) & (data['RSI5Breadth'] < 60) & (data['IBR'] < 0.2)#&(data['Hurst'] > 0.4)#& (data['RSI5Breadth'] < 60)#(data['IBR'] <= 0.2) & (data['CCI'] < 100) #& (data['ValueCharts'] < 0)
-    sell = ((data['RSI2SemisBreadth'].shift(1) > 50) & (data['RSI2SemisBreadth'] < 50)) | (data['Vix'] > 40)
+    sell = ((data['RSI2SemisBreadth'].shift(1) > 50) &
+            (data['RSI2SemisBreadth'] < 50)) | (data['Vix'] > 40) | (data['ChangeVelocity'] > 1)
     is_long = True
     return buy, sell, days, profit, description, verdict, is_long, ignore
 
@@ -660,6 +656,19 @@ def buy_signal21(data, symbol = ticker):
     sell = False
     is_long = True
     return buy, sell, days, profit, description, verdict, is_long, ignore
+
+def buy_signal22(data, symbol = ticker): #Just some tests, not a real signal
+    allowed_symbols = ['SPY', 'QQQ', 'ES', 'NQ']
+    ignore = False if symbol in allowed_symbols else True
+    days = 5
+
+    profit = 5
+    description = "Experimental Long signal"
+    verdict = ""
+    buy = (data['RSI2RiskBreadth'] > 95) & (data['RSI5RiskBreadth'] > 85)
+    sell = False#((data['RSI2SemisBreadth'].shift(1) > 50) & (data['RSI2SemisBreadth'] < 50)) | (data['Vix'] > 40)
+    is_long = True
+    return buy, sell, days, profit, description, verdict, is_long, ignore    
 
 def og_buy_signal(data, symbol = ticker):
     allowed_symbols = ['SPY']
@@ -705,10 +714,10 @@ def og_new_sell_signal(data, symbol = ticker):
     allowed_symbols = ['SPY', 'ES']
     
     sell = ((data['RSI2'] > RSI2Sell) & (data['RSI5'] > RSI5Sell)) | (                                #RSI2 and RSI5 above threashold
-            (data['Close'].shift(1) > data['EMA8'].shift(1)) & (data['Close'] < data['EMA8'])) | (            #Crossing EMA8 down
+            #(data['Close'].shift(1) > data['EMA8'].shift(1)) & (data['Close'] < data['EMA8'])) | (            #Crossing EMA8 down
             (ExitOnVolatility) & ((data['VolumeEMADiff'] >= VolumeEMAThreashold))) | (                        #Volume more than EMAThreashold !!!!!!!!!!!DOESNT WORK - INVESTIGATE!!!!!!!!
             #(data['Close'] - data['Close'].shift(1)) / data['Close'].shift(1) < -MaxDecline) | (              #Decline more than 4%
-            (data['VolumeEMADiff'] > VolumeEMAThreashold) & (data['Volatility'] > VolatilityThreashold)       #Big volume and volatility  
-            | (data['SMAMomentum'] <0))                                                                 #New Condition
+            ((data['VolumeEMADiff'] > VolumeEMAThreashold) & (data['Volatility'] > VolatilityThreashold))       #Big volume and volatility  
+            | (data['SMAMomentum'] <0) | (data['EMA8CrossDown'] > 0))                                           #New Condition
 
     return sell#, 0, 0, description, verdict, is_long, ignore
