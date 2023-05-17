@@ -2,3 +2,12 @@
 venv/
 *.csv
 CSV/
+test.py
+quandlVIX.py
+s_ch.py
+main.py
+android.py
+IBconnect.py
+strategy.py
+test_data.py
+

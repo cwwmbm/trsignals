@@ -345,17 +345,20 @@ def add_indicators(data):
     data['VFI20'] = vfi(data, period=20)
     data['VFI80'] = vfi(data, period=80)
     data['VFI10'] = vfi(data, period=10)
-    data['EMAMomentum'] = (data['Close'] - data['EMA8'])/data['Close']*100
-    data['EMAMomentum2'] = (data['EMA20'] - data['EMA100'])/data['EMA20']*100
-    data['SMAMomentum'] = (data['SMA50'] - data['SMA200'])/data['SMA50']*100
-    data['SMAMomentum2'] = (data['SMA20'] - data['SMA50'])/data['SMA20']*100
+    data['Close_EMA8'] = (data['Close'] - data['EMA8'])/data['Close']*100
+    data['EMA20_EMA100'] = (data['EMA20'] - data['EMA100'])/data['EMA20']*100
+    data['SMA50_SMA200'] = (data['SMA50'] - data['SMA200'])/data['SMA50']*100
+    data['SMA20_SMA50'] = (data['SMA20'] - data['SMA50'])/data['SMA20']*100
+    data['Close_SMA200'] = (data['Close'] - data['SMA200'])/data['Close']*100
+    data['Close_SMA50'] = (data['Close'] - data['SMA50'])/data['Close']*100
+    data['Close_SMA20'] = (data['Close'] - data['SMA20'])/data['Close']*100
     data['LowestClose2'] = np.where(data['Close'] <= data['Close'].shift(1), 1, -1)
     data['LowestClose3'] = np.where(data['Close'] <= data['Close'].rolling(window=3).min(), 1, -1)
     data['HighestClose2'] = np.where(data['Close'] >= data['Close'].shift(1), 1, -1)
     data['HighestClose3'] = np.where(data['Close'] >= data['Close'].rolling(window=3).max(), 1, -1)
     data['ATR20'] = ta.volatility.average_true_range(data['High'], data['Low'], data['Close'], window=20)
     data['ATR50'] = ta.volatility.average_true_range(data['High'], data['Low'], data['Close'], window=50)
-    data['ATRVelocity'] = data['ATR20'] - data['ATR50']
+    data['ATR20_ATR50'] = data['ATR20'] - data['ATR50']
     data['ChangeVelocity'] = (data['Close'] - data['Close'].shift(1)) / data['ATR20'].shift(1)
     data = data.drop(columns=['StochSlow'])
     #data['StochFast'] = ta.momentum.stoch(data['High'], data['Low'], data['Close'], window=14, smooth_window=3, fastd=True)
@@ -583,14 +586,14 @@ def buy_signal15(data, symbol = ticker):
 def buy_signal16(data, symbol = ticker):
     allowed_symbols = ['SMH']
     ignore = False if symbol in allowed_symbols else True
-    days = 3
+    days = 4
     profit = 1
-    description = "Long SMH: high[0] > close[1], IBR[0] <= 50, Close > SMA100"
+    description = "high[0] > close[1], IBR[0] <= 50, SMA50>SMA200, Hurst > 0.4"
     verdict = "Great results for SMH but not for SOXX. Suspect."
 
-    buy = (data['High'] > data['Close'].shift(1)) & (data['IBR'] <= 0.5) & (data['Close']>data['SMA100']) #& (data['High'] < data['SMA10']) 
+    buy = (data['High'] > data['Close'].shift(1)) & (data['IBR'] <= 0.5) & (data['SMA50_SMA200']>0) & (data['Hurst'] > 0.4)#& (data['Close']>data['SMA100']) #& (data['High'] < data['SMA10']) 
     is_long = True
-    sell = False
+    sell = (data['VFI40'] < -2)
     return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal17(data, symbol = ticker):
@@ -652,7 +655,7 @@ def buy_signal21(data, symbol = ticker):
     profit = 1
     description = "Close<200SMA, RSI2<40, RSI2SemisBreadth>30. Bear market long signal"
     verdict = "1/1"
-    buy = (data['SMAMomentum'] < 0) & (data['RSI2'] < 40) & (data['RSI2SemisBreadth'] > 30)
+    buy = (data['SMA50_SMA200'] < 0) & (data['RSI2'] < 40) & (data['RSI2SemisBreadth'] > 30)
     sell = False
     is_long = True
     return buy, sell, days, profit, description, verdict, is_long, ignore
@@ -694,7 +697,7 @@ def og_new_buy_signal(data, symbol = ticker):
     buy = ((data['RSI2'] < RSI2Buy) & #(data['RSI5'] < RSI5Buy) &                                  #RSI2 and RSI5 below threashold
         ((data['VolumeEMADiff'] < VolumeEMAThreashold) | (data['Volatility'] < VolumeEMAThreashold)) & (  #Volume less than EMAThreashold
         ((data['Close'] - data['Close'].shift(1)) / data['Close'].shift(1) > -MaxDecline))            #Decline less than 4%   
-        & (data['Stoch']<30) & (data['SMAMomentum']>0) & (data['ER']<0.7))                          #New Conditions
+        & (data['Stoch']<30) & (data['SMA50_SMA200']>0) & (data['ER']<0.7))                          #New Conditions
         #(data['RSI5Breadth'] < 90) &(data['RSI5Breadth'] > 20) & (data['ValueCharts']>-12) & (data['Stoch']<40))    #New Conditions            
     sell = og_new_sell_signal(data, symbol = symbol)
     return buy, sell, 0, 0, description, verdict, is_long, ignore    
@@ -718,6 +721,6 @@ def og_new_sell_signal(data, symbol = ticker):
             (ExitOnVolatility) & ((data['VolumeEMADiff'] >= VolumeEMAThreashold))) | (                        #Volume more than EMAThreashold !!!!!!!!!!!DOESNT WORK - INVESTIGATE!!!!!!!!
             #(data['Close'] - data['Close'].shift(1)) / data['Close'].shift(1) < -MaxDecline) | (              #Decline more than 4%
             ((data['VolumeEMADiff'] > VolumeEMAThreashold) & (data['Volatility'] > VolatilityThreashold))       #Big volume and volatility  
-            | (data['SMAMomentum'] <0) | (data['EMA8CrossDown'] > 0))                                           #New Condition
+            | (data['SMA50_SMA200'] <0) | (data['EMA8CrossDown'] > 0))                                           #New Condition
 
     return sell#, 0, 0, description, verdict, is_long, ignore

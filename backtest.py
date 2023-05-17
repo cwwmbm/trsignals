@@ -9,7 +9,7 @@ def backtest_days(data, max_days = 10, is_long = True, og = False):
     results = pd.DataFrame()
     for i in range(1, max_days+1):
         for k in range(1, i+1):
-            signals = ind.og_strat(data, days = i, profit = k, set_sell=False) if og else ind.long_strat(data, i, k, is_long)
+            signals = execute_strategy(data, i, k, is_long)
             results.at[i*10+k, 'Days'] = i
             results.at[i*10+k, 'Prf'] = k
             results.at[i*10+k, 'PnL'] = signals['RollingPnL'].iloc[-1]

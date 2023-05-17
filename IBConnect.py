@@ -87,24 +87,22 @@ def print_stats(data, days = 0, profit = 0, description = "Original Strategy"):
 def indicator_tryout(data, days, profit, is_long, is_sell = False):
     running_results = pd.DataFrame(columns=['Buysell', 'Indicator', 'Condition', 'Value', 'PnL', 'MaxDD', 'Trades', '%Pstv', 'CAGR','Sharpe', 'Sortino'])
     og = True if days == 0 else False
-    
+    results = bt.backtest_ind(data, days, profit, is_long, 'Close_EMA8', 'both', -10, 10, 1, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'Close_EMA8', 'both', -10, 10, 1, og)
+    running_results = running_results._append(results.head(3))
+    print (results.head(5))    
     results = bt.backtest_ind(data, days, profit, is_long, 'EMA8CrossUp', 'both', 0, 0, 1, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'EMA8CrossUp', 'both', 0, 0, 1, og)
     running_results = running_results._append(results.head(3))
     print (results.head(5))
     results = bt.backtest_ind(data, days, profit, is_long, 'EMA8CrossDown', 'both', 0, 0, 1, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'EMA8CrossDown', 'both', 0, 0, 1, og)
     running_results = running_results._append(results.head(3))
     print (results.head(5))
-    
-    results = bt.backtest_ind(data, days, profit, is_long, 'EMAMomentum', 'both', 0, 0, 1, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'EMAMomentum', 'both', 0, 0, 1, og)
-    running_results = running_results._append(results.head(3))
-    print (results.head(5))
-    results = bt.backtest_ind(data, days, profit, is_long, 'ATRVelocity', 'both', 0, 0, 1, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'ATRVelocity', 'both', 0, 0, 1, og)
+    results = bt.backtest_ind(data, days, profit, is_long, 'ATR20_ATR50', 'both', 0, 0, 1, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'ATR20_ATR50', 'both', 0, 0, 1, og)
     running_results = running_results._append(results.head(3))
     print (results.head(5))
     results = bt.backtest_ind(data, days, profit, is_long, 'ChangeVelocity', 'both', -2, 2, 0.5, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'ChangeVelocity', 'both', -2, 2, 0.5, og)
     running_results = running_results._append(results.head(3))
     print (results.head(5))
-    results = bt.backtest_ind(data, days, profit, is_long, 'EMAMomentum2', 'both', 0, 0, 1, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'EMAMomentum2', 'both', 0, 0, 1, og)
+    results = bt.backtest_ind(data, days, profit, is_long, 'EMA20_EMA100', 'both', 0, 0, 1, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'EMA20_EMA100', 'both', 0, 0, 1, og)
     running_results = running_results._append(results.head(3))
     print (results.head(5))
     results = bt.backtest_ind(data, days, profit, is_long, 'LowestClose2', 'both', 0, 0, 1, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'LowestClose2', 'both', 0, 0, 1, og)
@@ -121,14 +119,23 @@ def indicator_tryout(data, days, profit, is_long, is_sell = False):
     print (results.head(5))
     
     #"""
-    results = bt.backtest_ind(data, days, profit, is_long, 'SMAMomentum', 'both', 0, 0, 1, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'SMAMomentum', 'both', 0, 0, 1, og)
+    results = bt.backtest_ind(data, days, profit, is_long, 'SMA50_SMA200', 'both', 0, 0, 1, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'SMA50_SMA200', 'both', 0, 0, 1, og)
     running_results = running_results._append(results.head(3))
     print (results.head(5))
     #"""
-    results = bt.backtest_ind(data, days, profit, is_long, 'SMAMomentum2', 'both', 0, 0, 1, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'SMAMomentum2', 'both', 0, 0, 1, og)
+    results = bt.backtest_ind(data, days, profit, is_long, 'SMA20_SMA50', 'both', 0, 0, 1, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'SMA20_SMA50', 'both', 0, 0, 1, og)
     running_results = running_results._append(results.head(3))
     print (results.head(5))
-    if (ticker not in ['NQ', 'ES', 'GC', 'SI', 'HG', 'RTY', 'YM', 'CL']):
+    results = bt.backtest_ind(data, days, profit, is_long, 'Close_SMA200', 'both', 0, 0, 1, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'Close_SMA200', 'both', 0, 0, 1, og)
+    running_results = running_results._append(results.head(3))
+    print (results.head(5))
+    results = bt.backtest_ind(data, days, profit, is_long, 'Close_SMA50', 'both', 0, 0, 1, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'Close_SMA50', 'both', 0, 0, 1, og)
+    running_results = running_results._append(results.head(3))
+    print (results.head(5))
+    results = bt.backtest_ind(data, days, profit, is_long, 'Close_SMA20', 'both', 0, 0, 1, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'Close_SMA20', 'both', 0, 0, 1, og)
+    running_results = running_results._append(results.head(3))
+    print (results.head(5))
+    if (ticker not in ['NQ', 'ES', 'GC', 'SI', 'HG', 'RTY', 'YM', 'CL', 'SOXX']):
         results = bt.backtest_ind(data, days, profit, is_long, 'VFI80', 'both', -8, 8, 2, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'VFI80', 'both', -8, 8, 2, og)
         running_results = running_results._append(results.head(3))
         print (results.head(5))
@@ -145,16 +152,17 @@ def indicator_tryout(data, days, profit, is_long, is_sell = False):
     results = bt.backtest_ind(data, days, profit, is_long, 'Vix', 'both', 10, 50, 5, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'Vix', 'both', 10, 50, 5, og)
     print (results.head(5))
     running_results = running_results._append(results.head(3))
-
-    results = bt.backtest_ind(data, days, profit, is_long, 'RSI14Breadth', 'both', 20, 80, 10, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'RSI14Breadth', 'both', 20, 80, 10, og)
-    print (results.head(5))
-    running_results = running_results._append(results.head(3))
-    results = bt.backtest_ind(data, days, profit, is_long, 'RSI2Breadth', 'both', 10, 90, 10, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'RSI2Breadth', 'both', 10, 90, 10, og)
-    print (results.head(5))
-    running_results = running_results._append(results.head(3))
-    results = bt.backtest_ind(data, days, profit, is_long, 'RSI5Breadth', 'both', 20, 80, 10, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'RSI5Breadth', 'both', 20, 80, 10, og)
-    print (results.head(5))
-    running_results = running_results._append(results.head(3))
+    #Check if the first date is earlier than 2003
+    if (data['Date'].dt.year[0] >= 2003):
+        results = bt.backtest_ind(data, days, profit, is_long, 'RSI14Breadth', 'both', 20, 80, 10, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'RSI14Breadth', 'both', 20, 80, 10, og)
+        print (results.head(5))
+        running_results = running_results._append(results.head(3))
+        results = bt.backtest_ind(data, days, profit, is_long, 'RSI2Breadth', 'both', 10, 90, 10, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'RSI2Breadth', 'both', 10, 90, 10, og)
+        print (results.head(5))
+        running_results = running_results._append(results.head(3))
+        results = bt.backtest_ind(data, days, profit, is_long, 'RSI5Breadth', 'both', 20, 80, 10, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'RSI5Breadth', 'both', 20, 80, 10, og)
+        print (results.head(5))
+        running_results = running_results._append(results.head(3))
     results = bt.backtest_ind(data, days, profit, is_long, 'RSI14RiskBreadth', 'both', 20, 80, 10, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'RSI14RiskBreadth', 'both', 20, 80, 10, og)
     print (results.head(5))
     running_results = running_results._append(results.head(3))
@@ -206,7 +214,6 @@ def indicator_tryout(data, days, profit, is_long, is_sell = False):
 
     running_results = running_results.sort_values(by=['Sharpe'], ascending=False)
     print(running_results)
-    running_results.to_csv(f'backtest_results_{is_sell}.csv')
     return(running_results)
     #print(running_results)
 
@@ -234,24 +241,22 @@ def main():
         contract = Stock(ticker, 'ARCA')
         yfticker = ticker
 
-    data = dt.get_data_yf(yfticker, 20, False) #True for local data, False for Yahoo Finance
-    #vix_data = dt.get_data_yf('^VIX', 20, False)
-    #Add VIX data to dataframe
-    #data['VIX'] = vix_data['Close']
+    data = dt.get_data_yf(yfticker, 25, False) #True for local data, False for Yahoo Finance
     data = dt.normalize_dataframe(data) #Capitalize the column names
     data = dt.clean_holidays(data) #Remove holidays
     data = ind.add_indicators(data)
 
    
-    buy_signal = ind.buy_signal20
+    buy_signal = ind.buy_signal16
     #buy_signal = ind.og_new_buy_signal
     data['Buy'], data['Sell'], days, profit, description, verdict, is_long, ignore = buy_signal(data)
-    #data['Buy'], data['Sell'], days, profit, description, verdict, is_long, ignore = ind.og_new_buy_signal(data)
-    #data['Buy'] = data['Buy'] & (data['RSI2'] < 40) & (data['RSI2SemisBreadth'] > 30) #& (data['RSI5RiskBreadth'] > 30)
-    #data['Buy'] = data['Buy'] & (data['RSI5RiskBreadth']>30)# & (data['ER']<0.7)
-    #data['Sell'] = ind.og_new_sell_signal(data) #| (data['RSI14RiskBreadth'] > 70)
-    #data['Sell'] = data['Sell'] | (data['SMAMomentum'] <0) #| (data['VFI40'] < -4)  #| (data['RSI2Breadth'] < 20)
-    
+    #data['Buy'] = data['Buy'] #& (data['HighestClose2'] >0)# & (data['ER']<0.7)
+    #data['Sell'] = data['Sell'] | (data['VFI40'] < -2)# | (data['Close_EMA8'] < -1)
+
+    if (data['Date'].dt.year[0] >= 2003):
+        print('Starting in 2003 or later')
+    else:
+        print(f'Starting in {data["Date"].dt.year[0]}')
     
     
     #results = indicator_tryout(data, days, profit, is_long, is_sell = False)    
@@ -259,14 +264,11 @@ def main():
     #results = bt.backtest_ind(data, days, profit, is_long, 'RSI5Breadth', 'both', 10, 90, 10, og = False)
     if len(results) >0:
         results = results.sort_values(by=['Sharpe'], ascending=False)
-        results.to_csv('backtest_results.csv')
-    #results = bt.backtest_sell_ind(data, days, profit, is_long, 'Hurst', 'both', 0, 1, 0.1, False)
-    #data['Sell'] = (data['Hurst'] < 0.5)
-    #results = bt.backtest_days(data, 5, is_long)
+        results.to_csv('CSV/backtest_results.csv')
+
+    results = bt.backtest_days(data, 5, is_long)
     print(results.head(20))
-    #data = ind.og_strat(data, set_sell=False)
     data = bt.execute_strategy(data, days, profit, is_long)
-    #data = ind.long_strat(data,days,profit, is_long)
     print_stats(data, days, profit, description)
     data.to_csv(f'CSV/{ticker}_{buy_signal.__name__}.csv')
 

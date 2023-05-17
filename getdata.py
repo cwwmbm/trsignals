@@ -88,9 +88,10 @@ def get_data_ib(ib, contract, useRTH = True, Local = False, period = '1 D', barS
 def get_data_yf(ticker, years=1, Local=False):
     start_date = pd.to_datetime("today") - pd.DateOffset(years=years)
     end_date = (dtm.now() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    #end_date = "2011-01-01"
     if Local:
         print("Using local csv")
-        data_symbol = pd.read_csv('NQ_yf.csv', index_col='Date', parse_dates=True)
+        data_symbol = pd.read_csv(f'CSV/{ticker}_yf.csv', index_col='Date', parse_dates=True)
     else:
         print("Using yahoo finance")
         tickers = [ticker, '^VIX', 'SPY', 'RSP', 'QQQ', 'SMH']
@@ -108,7 +109,7 @@ def get_data_yf(ticker, years=1, Local=False):
         data_symbol['SemisBreadth'] = smh_to_spy
         #remove rows with empty Close values
         data_symbol = data_symbol[data_symbol['Close'].notna()]
-        data_symbol.to_csv('NQ_yf.csv')
+        data_symbol.to_csv(f'CSV/{ticker}_yf.csv')
     #vix_data = dt.get_data_yf('^VIX', 20, False)
     
     return data_symbol
