@@ -247,10 +247,10 @@ def main():
     data = ind.add_indicators(data)
 
    
-    buy_signal = ind.buy_signal16
+    buy_signal = ind.buy_signal5
     #buy_signal = ind.og_new_buy_signal
     data['Buy'], data['Sell'], days, profit, description, verdict, is_long, ignore = buy_signal(data)
-    #data['Buy'] = data['Buy'] #& (data['HighestClose2'] >0)# & (data['ER']<0.7)
+    data['Buy'] = data['Buy'] # & (data['ER']<0.7)
     #data['Sell'] = data['Sell'] | (data['VFI40'] < -2)# | (data['Close_EMA8'] < -1)
 
     if (data['Date'].dt.year[0] >= 2003):
@@ -266,7 +266,7 @@ def main():
         results = results.sort_values(by=['Sharpe'], ascending=False)
         results.to_csv('CSV/backtest_results.csv')
 
-    results = bt.backtest_days(data, 5, is_long)
+    #results = bt.backtest_days(data, 5, is_long)
     print(results.head(20))
     data = bt.execute_strategy(data, days, profit, is_long)
     print_stats(data, days, profit, description)

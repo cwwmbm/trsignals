@@ -426,7 +426,7 @@ def buy_signal5 (data, symbol = ticker):
     profit = 1
     description = 'Long NQ: ER >= 0.5, IBR <= 0.8'
     verdict = 'Low profit but low drawdown.'
-    buy = (pd.notna(data['ER'])) & (data['ER'] >= 0.5) & (data['IBR'] <= 0.8)
+    buy = (pd.notna(data['ER'])) & (data['ER'] >= 0.5) & (data['IBR'] <= 0.8) & (data['RSI14SemisBreadth'] >30)
     is_long = True
     sell = False
     return buy, sell, days, profit, description, verdict, is_long, ignore
