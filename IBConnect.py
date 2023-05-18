@@ -247,17 +247,11 @@ def main():
     data = ind.add_indicators(data)
 
    
-    buy_signal = ind.buy_signal5
+    buy_signal = ind.buy_signal19
     #buy_signal = ind.og_new_buy_signal
     data['Buy'], data['Sell'], days, profit, description, verdict, is_long, ignore = buy_signal(data)
-    data['Buy'] = data['Buy'] # & (data['ER']<0.7)
-    #data['Sell'] = data['Sell'] | (data['VFI40'] < -2)# | (data['Close_EMA8'] < -1)
-
-    if (data['Date'].dt.year[0] >= 2003):
-        print('Starting in 2003 or later')
-    else:
-        print(f'Starting in {data["Date"].dt.year[0]}')
-    
+    #data['Buy'] = data['Buy']  & (data['MACDHist']>0)
+    #data['Sell'] = data['Sell'] | (data['VFI40'] < -2)# | (data['Close_EMA8'] < -1)    
     
     #results = indicator_tryout(data, days, profit, is_long, is_sell = False)    
     #results = results._append(indicator_tryout(data, days, profit, is_long, is_sell = True))
