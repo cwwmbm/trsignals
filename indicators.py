@@ -318,6 +318,8 @@ def add_indicators(data):
     data['RSI2'] = ta.momentum.RSIIndicator(data['Close'], window=2).rsi()
     data['RSI5'] = ta.momentum.RSIIndicator(data['Close'], window=5).rsi()
     data['RSI14'] = ta.momentum.RSIIndicator(data['Close'], window=14).rsi()
+    data['RSIBuy'] = np.where((data['RSI2'] <= 15) & (data['RSI5'] <= 35), 1, -1)
+    data['RSISell'] = np.where((data['RSI2'] >= 95) & (data['RSI5'] >= 70), 1, -1)
     data['RSI2Breadth'] = ta.momentum.RSIIndicator(data['Breadth'], window=2).rsi()
     data['RSI5Breadth'] = ta.momentum.RSIIndicator(data['Breadth'], window=5).rsi()
     data['RSI14Breadth'] = ta.momentum.RSIIndicator(data['Breadth'], window=14).rsi()
@@ -459,7 +461,7 @@ def buy_signal7 (data, symbol = ticker):
    #return (data['Close'].shift(1) <= data['Close'].shift(3)) & (data['IBR'] <= 0.4) #& (data['Close'].pct_change(periods=10) < 0) #Hold 3 days profit 1
 
 def buy_signal8(data, symbol = ticker):
-    allowed_symbols = ['NQ']
+    allowed_symbols = ['NQ', 'QQQ']
     ignore = False if symbol in allowed_symbols else True
     days = 3
     profit = 1
@@ -591,9 +593,9 @@ def buy_signal16(data, symbol = ticker):
     description = "high[0] > close[1], IBR[0] <= 50, SMA50>SMA200, Hurst > 0.4"
     verdict = "Great results for SMH but not for SOXX. Suspect."
 
-    buy = (data['High'] > data['Close'].shift(1)) & (data['IBR'] <= 0.5) & (data['SMA50_SMA200']>0) #& (data['Hurst'] > 0.4)#& (data['Close']>data['SMA100']) #& (data['High'] < data['SMA10']) 
+    buy = (data['High'] > data['Close'].shift(1)) & (data['IBR'] <= 0.5) #& (data['SMA50_SMA200']>0) #& (data['Hurst'] > 0.4)#& (data['Close']>data['SMA100']) #& (data['High'] < data['SMA10']) 
     is_long = True
-    sell = (data['VFI40'] < -2)
+    sell = (data['VFI40'] < -2) | (data['RSI14RiskBreadth'] > 70)
     return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal17(data, symbol = ticker):
@@ -641,7 +643,7 @@ def buy_signal20(data, symbol = ticker):
     profit = 50
     description = "Experimental Long signal"
     verdict = ""
-    buy = (data['RSI2'] < 40) & (data['IBR'] < 0.2) & (data['RSI5Breadth'] < 60)#&(data['RSI2SemisBreadth']>20) #(data['Hurst'] > 0.4)#& (data['RSI5Breadth'] < 60)#(data['IBR'] <= 0.2) & (data['CCI'] < 100) #& (data['ValueCharts'] < 0)
+    buy = (data['RSI2'] < 40) & (data['IBR'] < 0.2) & (data['RSI5Breadth'] < 60)# &(data['RSI2SemisBreadth']>20) #& (data['RSI5Breadth'] < 60) &(data['RSI2SemisBreadth']>20) & (data['Hurst'] > 0.4)#& (data['RSI5Breadth'] < 60)#(data['IBR'] <= 0.2) & (data['CCI'] < 100) #& (data['ValueCharts'] < 0)
     sell = ((data['RSI2SemisBreadth'].shift(1) > 50) &
             (data['RSI2SemisBreadth'] < 50)) | (data['Vix'] > 40) | (data['ChangeVelocity'] > 1) | (data['RSI2SemisBreadth'] < 10)
     is_long = True

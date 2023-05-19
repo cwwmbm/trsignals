@@ -25,7 +25,7 @@ start_time = time.perf_counter()
 #Add indicators to the table
 #data = ind.add_indicators(data)
 signals = pd.DataFrame()
-symbols = ['NQ', 'ES', 'CL', 'GC', 'SI', 'SPY', 'SMH', 'QQQ', 'SOXX','^VIX', 'RSP']
+symbols = ['NQ', 'ES', 'CL', 'GC', 'SI', 'SPY', 'SMH', 'QQQ', 'SOXX','^VIX', 'RSP', 'IWM']
 
 buy_signals = [ind.buy_signal1, ind.buy_signal2, ind.buy_signal3, ind.buy_signal4, ind.buy_signal5, ind.buy_signal6, ind.buy_signal7, ind.buy_signal8, ind.buy_signal9, ind.buy_signal10, 
                ind.buy_signal11, ind.buy_signal12, ind.buy_signal13, ind.buy_signal14, ind.buy_signal15, ind.buy_signal16, ind.buy_signal17, ind.buy_signal18, ind.buy_signal19, ind.buy_signal20, ind.buy_signal21, 
@@ -45,7 +45,7 @@ for symbol, yf_symbol in symbol_mapping.items():
     data= full_data.xs(yf_symbol, axis=1, level=1, drop_level=False)
     status.text('Getting data for ' + symbol + '...')
     bar.progress(i)
-    i+=0.125
+    i+=0.11
     print('Getting data for ' + symbol + '...')
     data.columns = data.columns.droplevel(1)  # Reset column level
     data = data.copy()
