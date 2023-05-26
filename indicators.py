@@ -145,6 +145,34 @@ def cagr(data, periods_per_year=252):
     cagr = round(cagr*100, 2)
     return cagr
 
+#Calculate Kelly Criterion - does't work properly
+def kelly_criterion(data):
+    """
+    Calculate the Kelly Criterion of a set of returns.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        Data containing the 'RollingPnL' column.
+
+    Returns
+    -------
+    float
+        The Kelly Criterion.
+
+    """
+    # Calculate daily returns
+    data['DailyReturn'] = data['RollingPnL'].pct_change()
+    # Drop NaN values from the 'DailyReturn' column
+    data = data.dropna(subset=['DailyReturn'])
+    # Calculate the average daily return considering only non-zero RollingPnL values
+    average_daily_return = data.loc[data['RollingPnL'] != 0, 'DailyReturn'].mean()
+    # Calculate the standard deviation of daily returns considering only non-zero RollingPnL values
+    daily_return_std = data.loc[data['RollingPnL'] != 0, 'DailyReturn'].std()
+    # Calculate the Kelly Criterion
+    kelly_criterion = average_daily_return / daily_return_std**2
+    return kelly_criterion
+
 #Convert numbers to dollars
 def format_dollar_value(value):
     return f"${value:,.2f}"
@@ -329,6 +357,14 @@ def add_indicators(data):
     data['RSI2SemisBreadth'] = ta.momentum.RSIIndicator(data['Semisbreadth'], window=2).rsi()
     data['RSI5SemisBreadth'] = ta.momentum.RSIIndicator(data['Semisbreadth'], window=5).rsi()
     data['RSI14SemisBreadth'] = ta.momentum.RSIIndicator(data['Semisbreadth'], window=14).rsi()
+    data['RSI14FinancialsBreadth'] = ta.momentum.RSIIndicator(data['Financialsbreadth'], window=14).rsi()
+    data['RSI14EnergyBreadth'] = ta.momentum.RSIIndicator(data['Energybreadth'], window=14).rsi()
+    data['RSI14UtilitiesBreadth'] = ta.momentum.RSIIndicator(data['Utilitiesbreadth'], window=14).rsi()
+    data['RSI14IndustrialsBreadth'] = ta.momentum.RSIIndicator(data['Industrialsbreadth'], window=14).rsi()
+    data['RSI5FinancialsBreadth'] = ta.momentum.RSIIndicator(data['Financialsbreadth'], window=5).rsi()
+    data['RSI5EnergyBreadth'] = ta.momentum.RSIIndicator(data['Energybreadth'], window=5).rsi()
+    data['RSI5UtilitiesBreadth'] = ta.momentum.RSIIndicator(data['Utilitiesbreadth'], window=5).rsi()
+    data['RSI5IndustrialsBreadth'] = ta.momentum.RSIIndicator(data['Industrialsbreadth'], window=5).rsi()
     data['EMA8'] = ta.trend.ema_indicator(data['Close'], window=8)
     data['EMA8CrossUp'] = np.where((data['Close'] > data['EMA8']) & (data['Close'].shift(1) < data['EMA8'].shift(1)), 1, -1)
     data['EMA8CrossDown'] = np.where((data['Close'] < data['EMA8']) & (data['Close'].shift(1) > data['EMA8'].shift(1)), 1, -1)
@@ -448,7 +484,7 @@ def buy_signal6 (data, symbol = ticker):
    #return (pd.notna(data['CCI'])) & (data['CCI'] <= -150) & (data['IBR'] <= 0.4) #Hold 4 days proft 1 (could do 3 and 1). Potentiall 9 and 5.
 
 def buy_signal7 (data, symbol = ticker):
-    allowed_symbols = ['NQ', 'SMH', 'ES', 'QQQ']
+    allowed_symbols = ['NQ', 'SMH', 'ES', 'QQQ', 'FXI','AAPL']
     ignore = False if symbol in allowed_symbols else True
     days = 3
     profit = 1
@@ -499,7 +535,7 @@ def buy_signal9(data, symbol = ticker):
     return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal10(data, symbol = ticker):
-    allowed_symbols = ['NQ', 'SMH', 'ES', 'QQQ']
+    allowed_symbols = ['NQ', 'SMH', 'ES', 'QQQ', 'AAPL', 'ORCL']
     ignore = False if symbol in allowed_symbols else True
     days = 3  # You can set the days_to_hold value here
     profit = 1  # You can set the profit target value here
@@ -532,7 +568,7 @@ def buy_signal11(data, symbol = ticker):
     return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal12(data, symbol = ticker):
-    allowed_symbols = ['NQ']
+    allowed_symbols = []
     ignore = False if symbol in allowed_symbols else True
     days = 9  # You can set the days_to_hold value here
     profit = 9  # You can set the profit target value here
@@ -541,7 +577,7 @@ def buy_signal12(data, symbol = ticker):
 
 
 
-    buy = (data['Volume'] < data['Volume'].shift(2)) & (data['ValueCharts'] < 2) & (data['SMA50'] > data['SMA200']) & (data['ER']<0.5)
+    buy = False#(data['Volume'] < data['Volume'].shift(2)) & (data['ValueCharts'] < 2) & (data['SMA50'] > data['SMA200']) & (data['ER']<0.5)
     is_long = True
     sell = False
     return buy, sell, days, profit, description, verdict, is_long, ignore
@@ -586,7 +622,7 @@ def buy_signal15(data, symbol = ticker):
     return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal16(data, symbol = ticker):
-    allowed_symbols = ['SMH', 'QQQ']
+    allowed_symbols = ['SMH', 'QQQ', 'ORCL']
     ignore = False if symbol in allowed_symbols else True
     days = 4
     profit = 1
@@ -636,7 +672,7 @@ def buy_signal19(data, symbol = ticker):
     return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal20(data, symbol = ticker):
-    allowed_symbols = ['SPY', 'QQQ', 'ES', 'NQ', 'IWM']
+    allowed_symbols = ['SPY', 'QQQ', 'ES', 'NQ', 'IWM', 'AAPL']
     ignore = False if symbol in allowed_symbols else True
     days = 50
 
@@ -674,6 +710,20 @@ def buy_signal22(data, symbol = ticker): #Just some tests, not a real signal
     sell = False#((data['RSI2SemisBreadth'].shift(1) > 50) & (data['RSI2SemisBreadth'] < 50)) | (data['Vix'] > 40)
     is_long = True
     return buy, sell, days, profit, description, verdict, is_long, ignore    
+
+def buy_signal23(data, symbol = ticker):
+    allowed_symbols = ['FXI']
+    ignore = False if symbol in allowed_symbols else True
+    days = 3
+
+    profit = 1
+    description = "low[0] >= highest(low,2)[0], close[1] <= lowest(close,5)[1], rsi(close,2)[0] >= 15"
+    verdict = ""
+    buy = (data['IBR']<0.2) & (data['RSI2']>15)#(data['Low'] >= data['Low'].rolling(window=2).max()) & (data['Close'].shift(1) <= data['Close'].rolling(window=5).min().shift(1)) & (data['RSI2'] >= 15) & (data['Vix'] < 20)
+    #buy = (data['IBR'] <= 0.3) & (data['Hurst'] > 0.5) #& (data['ValueCharts'] <= 10) &
+    sell = (data['Close_SMA200'] > 0)#((data['RSI2SemisBreadth'].shift(1) > 50) & (data['RSI2SemisBreadth'] < 50)) | (data['Vix'] > 40)
+    is_long = True
+    return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def og_buy_signal(data, symbol = ticker):
     allowed_symbols = ['SPY']

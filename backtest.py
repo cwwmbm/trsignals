@@ -171,8 +171,10 @@ def backtest_sell_ind(data, days_in_trade, profitable_close, is_long, column_nam
 def execute_strategy (data, days, profit, is_long = True):
     if days == 0:
         results = og_strat(data)
+        #print('og_strat'+str(is_long)+str(days)+str(profit))
     else:
         results = long_strat(data, days, profit, is_long)
+        #print('long_strat'+str(is_long)+str(days)+str(profit))
     return results
 
 #Original Main Strategy
@@ -270,6 +272,7 @@ def long_strat(data, days, prof_closes, is_long = True, start_capital = 15000, p
     signals['RollingPnL'] = 0
     signals['TradePnL'] = 0
     signals['TradeEntry'] = 0
+    baddates = pd.DataFrame()
     #signals['TradeInvestment'] = 0
 
     for i, row in signals.iterrows():
@@ -299,9 +302,12 @@ def long_strat(data, days, prof_closes, is_long = True, start_capital = 15000, p
             signals['RollingPnL'].at[i] = (1+signals['%Change'].at[i])*signals['RollingPnL'].shift(1).at[i] if is_long else (1-signals['%Change'].at[i])*signals['RollingPnL'].shift(1).at[i]
         else:
             signals['RollingPnL'].at[i] = signals['RollingPnL'].shift(1).at[i]    
+        #check if RollingPnL is N/A
+        #if pd.isnull(row['RollingPnL']):
+        #    baddates = baddates.append(row)
 
 
-    signals['RollingPnL'] = signals['RollingPnL']#*point_multiplier
+    #signals['RollingPnL'] = signals['RollingPnL']#*point_multiplier
     #signals['TradePnL'] = signals['TradePnL']*point_multiplier
     signals['TradePnL'] = -1*Leverage*signals['TradePnL'] if not is_long else Leverage*signals['TradePnL']
     # Calculate the running maximum of the 'RollingPnL' column
@@ -311,5 +317,5 @@ def long_strat(data, days, prof_closes, is_long = True, start_capital = 15000, p
     signals['Drawdown'] = (signals['RunningMax'] - signals['RollingPnL'])/signals['RunningMax']
     #signals['TradePnL'] = signals['TradePnL'].apply(format_dollar_value)
     #signals['RollingPnL'] = signals['RollingPnL'].apply(format_dollar_value)
-
+    baddates.to_csv('baddates.csv')
     return signals

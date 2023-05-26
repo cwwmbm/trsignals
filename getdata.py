@@ -86,20 +86,26 @@ def get_data_ib(ib, contract, useRTH = True, Local = False, period = '1 D', barS
 """
 #Function to get the data from Yahoo Finance
 def get_data_yf(ticker, years=1, Local=False):
-    start_date = pd.to_datetime("today") - pd.DateOffset(years=years)
+    start_date = (pd.to_datetime("today") - pd.DateOffset(years=years)).strftime("%Y")
     end_date = (dtm.now() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-    #end_date = "2011-01-01"
+    start_date += "-01-01"
+    #end_date = "2023-01-01"
+    print(f"Start date: {start_date}, End date: {end_date}")
     if Local:
         print("Using local csv")
         data_symbol = pd.read_csv(f'CSV/{ticker}_yf.csv', index_col='Date', parse_dates=True)
     else:
         print("Using yahoo finance")
-        tickers = [ticker, '^VIX', 'SPY', 'RSP', 'QQQ', 'SMH']
+        tickers = [ticker, '^VIX', 'SPY', 'RSP', 'QQQ', 'SMH', 'XLF','XLE', 'XLU', 'XLI']
         data = yf.download(tickers, start=start_date, end=end_date)
         vix = data['Close']['^VIX']
         rsp_to_spy = data['Close']['RSP'] / data['Close']['SPY']
         qqq_to_spy = data['Close']['QQQ'] / data['Close']['SPY']
         smh_to_spy = data['Close']['SMH'] / data['Close']['SPY']
+        xlf_to_spy = data['Close']['XLF'] / data['Close']['SPY']
+        xle_to_spy = data['Close']['XLE'] / data['Close']['SPY']
+        xlu_to_spy = data['Close']['XLU'] / data['Close']['SPY']
+        xli_to_spy = data['Close']['XLI'] / data['Close']['SPY']
         data_symbol = data.xs(ticker, axis=1, level=1, drop_level=False)
         data_symbol.columns = data_symbol.columns.droplevel(1)  # Reset column level
         data_symbol = data_symbol.copy()
@@ -107,6 +113,11 @@ def get_data_yf(ticker, years=1, Local=False):
         data_symbol['Breadth'] = rsp_to_spy
         data_symbol['RiskBreadth'] = qqq_to_spy
         data_symbol['SemisBreadth'] = smh_to_spy
+        data_symbol['FinancialsBreadth'] = xlf_to_spy
+        data_symbol['EnergyBreadth'] = xle_to_spy
+        data_symbol['UtilitiesBreadth'] = xlu_to_spy
+        data_symbol['IndustrialsBreadth'] = xli_to_spy
+
         #remove rows with empty Close values
         data_symbol = data_symbol[data_symbol['Close'].notna()]
         data_symbol.to_csv(f'CSV/{ticker}_yf.csv')
@@ -179,7 +190,8 @@ def get_full_data(ib, Local = False, years = 1, symbol = ticker):
 def get_bulk_data(symbols, years = 1):
     today = datetime.datetime.now()
     end_date = (dtm.now() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-    start_date = pd.to_datetime("today") - pd.DateOffset(years=years)
+    start_date = (pd.to_datetime("today") - pd.DateOffset(years=years)).strftime("%Y")
+    start_date += "-01-01"
     data = yf.download(symbols, start=start_date, end=end_date)
     return data
 

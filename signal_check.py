@@ -25,7 +25,7 @@ start_time = time.perf_counter()
 #Add indicators to the table
 #data = ind.add_indicators(data)
 signals = pd.DataFrame()
-symbols = ['NQ', 'ES', 'CL', 'GC', 'SI', 'SPY', 'SMH', 'QQQ', 'SOXX','^VIX', 'RSP', 'IWM']
+symbols = ['NQ', 'ES', 'CL', 'GC', 'SI', 'SPY', 'SMH', 'QQQ', 'SOXX','^VIX', 'XLI','XLU','XLE','XLF','RSP', 'IWM', 'FXI', 'AAPL']
 
 buy_signals = [ind.buy_signal1, ind.buy_signal2, ind.buy_signal3, ind.buy_signal4, ind.buy_signal5, ind.buy_signal6, ind.buy_signal7, ind.buy_signal8, ind.buy_signal9, ind.buy_signal10, 
                ind.buy_signal11, ind.buy_signal12, ind.buy_signal13, ind.buy_signal14, ind.buy_signal15, ind.buy_signal16, ind.buy_signal17, ind.buy_signal18, ind.buy_signal19, ind.buy_signal20, ind.buy_signal21, 
@@ -38,14 +38,18 @@ vix_close = full_data['Close', '^VIX']
 breadth = full_data['Close', 'RSP'] / full_data['Close', 'SPY']
 qqq_to_spy = full_data['Close']['QQQ'] / full_data['Close']['SPY']
 smh_to_spy = full_data['Close']['SMH'] / full_data['Close']['SPY']
+xlf_to_spy = full_data['Close']['XLF'] / full_data['Close']['SPY']
+xle_to_spy = full_data['Close']['XLE'] / full_data['Close']['SPY']
+xlu_to_spy = full_data['Close']['XLU'] / full_data['Close']['SPY']
+xli_to_spy = full_data['Close']['XLI'] / full_data['Close']['SPY']
 
 for symbol, yf_symbol in symbol_mapping.items():
-    if symbol in ['^VIX', 'RSP']:
+    if symbol in ['^VIX', 'RSP', 'XLI','XLU','XLE','XLF']:
         continue
     data= full_data.xs(yf_symbol, axis=1, level=1, drop_level=False)
     status.text('Getting data for ' + symbol + '...')
     bar.progress(i)
-    i+=0.11
+    i+=0.04
     print('Getting data for ' + symbol + '...')
     data.columns = data.columns.droplevel(1)  # Reset column level
     data = data.copy()
@@ -53,6 +57,10 @@ for symbol, yf_symbol in symbol_mapping.items():
     data['Breadth'] = breadth
     data['RiskBreadth'] = qqq_to_spy
     data['SemisBreadth'] = smh_to_spy
+    data['FinancialsBreadth'] = xlf_to_spy
+    data['EnergyBreadth'] = xle_to_spy
+    data['UtilitiesBreadth'] = xlu_to_spy
+    data['IndustrialsBreadth'] = xli_to_spy
     data = dt.normalize_dataframe(data)
     data = data.drop(columns = ['Adj close'])
     data = dt.clean_holidays(data)
@@ -67,7 +75,6 @@ for symbol, yf_symbol in symbol_mapping.items():
         if not ignore:
             #data_temp = ind.long_strat(data_temp, days, profit) if days>0 else ind.og_strat(data_temp, set_sell=False)
             data_temp = bt.execute_strategy(data_temp, days, profit)
-            #find TradePnL in % and store it as string with % sign in the end
             trade_pnl = str(round(data_temp['TradePnL'].iloc[-1]*100,2)) + '%'
             signals = signals._append([{'Symbol': symbol,'Signal': buy_signal.__name__, 'Buy signal?': data_temp['LongTradeIn'].iloc[-1], 'HoldLong?': data_temp['HoldLong'].iloc[-1], 'Sell signal?': data_temp['LongTradeOut'].iloc[-1],
                                         'Days': days, 'Profit': profit, 'TradePnL': trade_pnl,'Description': description,'Verdict': verdict, 'Date': data_temp['Date'].iloc[-1]}])

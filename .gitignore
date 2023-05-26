@@ -7,7 +7,7 @@ quandlVIX.py
 s_ch.py
 main.py
 android.py
-IBconnect.py
+#IBconnect.py
 strategy.py
-test_data.py
+#test_data.py
 __pycache__/
