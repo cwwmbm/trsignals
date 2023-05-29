@@ -33,7 +33,7 @@ buy_signals = [ind.buy_signal1, ind.buy_signal2, ind.buy_signal3, ind.buy_signal
 
 yf_symbols = [symbol+'=F' if symbol in ['NQ', 'ES', 'RTY', 'CL', 'GC', 'SI', 'HG'] else symbol for symbol in symbols]
 symbol_mapping = {symbol: yf_symbol for symbol, yf_symbol in zip(symbols, yf_symbols)}
-full_data = dt.get_bulk_data(yf_symbols)
+full_data = dt.get_bulk_data(yf_symbols, years = 2)
 vix_close = full_data['Close', '^VIX']
 breadth = full_data['Close', 'RSP'] / full_data['Close', 'SPY']
 qqq_to_spy = full_data['Close']['QQQ'] / full_data['Close']['SPY']
@@ -76,8 +76,16 @@ for symbol, yf_symbol in symbol_mapping.items():
             #data_temp = ind.long_strat(data_temp, days, profit) if days>0 else ind.og_strat(data_temp, set_sell=False)
             data_temp = bt.execute_strategy(data_temp, days, profit)
             trade_pnl = str(round(data_temp['TradePnL'].iloc[-1]*100,2)) + '%'
+            #Calculate Kelly Criterion
+            number_of_trades = data_temp['LongTradeOut'].value_counts().get(True, 0)
+            trade_out_rows = data_temp[data_temp['LongTradeOut']]
+            num_profitable_trades = (trade_out_rows['TradePnL'] > 0).sum()
+            percentage_profitable_trades = (num_profitable_trades / number_of_trades)
+            average_positive_trade_pnl = trade_out_rows[trade_out_rows['TradePnL'] > 0]['TradePnL'].mean()
+            average_negative_trade_pnl = trade_out_rows[trade_out_rows['TradePnL'] < 0]['TradePnL'].mean()
+            kelly = (percentage_profitable_trades - ((1 - percentage_profitable_trades) / (average_positive_trade_pnl / (-average_negative_trade_pnl))))*100
             signals = signals._append([{'Symbol': symbol,'Signal': buy_signal.__name__, 'Buy signal?': data_temp['LongTradeIn'].iloc[-1], 'HoldLong?': data_temp['HoldLong'].iloc[-1], 'Sell signal?': data_temp['LongTradeOut'].iloc[-1],
-                                        'Days': days, 'Profit': profit, 'TradePnL': trade_pnl,'Description': description,'Verdict': verdict, 'Date': data_temp['Date'].iloc[-1]}])
+                                        'Days': days, 'Profit': profit, 'TradePnL': trade_pnl,'Kelly': (str(round(kelly,2))+"%"),'Description': description,'Verdict': verdict}])
 
 status.text('Done')
 bar.progress(100)           

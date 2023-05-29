@@ -257,6 +257,12 @@ def stochastic_oscillator(data, k_period=14, d_period=3, column_high='High', col
 
     return data
 
+#calculate stoch_rsi
+def stoch_rsi(data):
+    stoch_rsi = ta.momentum.StochRSIIndicator(data['Close']).stochrsi()
+    return stoch_rsi
+
+
 #Calculating Kaufman Efficiency Ratio
 def kaufman_efficiency_ratio(data, period=10, column_close='Close'):
     """
@@ -377,6 +383,8 @@ def add_indicators(data):
     data['Stoch'] = ta.momentum.stoch(data['High'], data['Low'], data['Close'], window=14, smooth_window=3)
     data['StochSlow'] = data['Stoch'].rolling(window=3).mean()
     data['StochOscilator'] = data['Stoch'] - data['StochSlow']
+    data['StochRSI14'] = ta.momentum.stochrsi(data['Close'], window=14)
+    data['StochRSI5'] = ta.momentum.stochrsi(data['Close'], window=5)
     data['ValueCharts'] = value_charts(data)
     data['MACDHist'] = macd_histogram(data)
     data['VFI40'] = vfi(data)
@@ -406,13 +414,13 @@ def add_indicators(data):
 def buy_signal1 (data, symbol = ticker):
     allowed_symbols = []
     ignore = False if symbol in allowed_symbols else True
-    days = 5
-    profit = 5
+    days = 1
+    profit = 1
     description= 'Long NQ: Open <= High 1 day ago, High 3 days ago <= Open 8 days ago, EMA 100 > EMA 100 2 days ago, IBR < 0.4, ER <= 0.4'
     verdict = 'Bad results after 2020'
-    buy = False #(data['Open'] <= data['High'].shift(1)) & (data['High'].shift(3) <= data['Open'].shift(8)) & (data['EMA100'] > data['EMA100'].shift(2))&(data['IBR']<0.4) & (data['ER'] <= 0.4)
+    buy = True #(data['Open'] <= data['High'].shift(1)) & (data['High'].shift(3) <= data['Open'].shift(8)) & (data['EMA100'] > data['EMA100'].shift(2))&(data['IBR']<0.4) & (data['ER'] <= 0.4)
     #return custom_return(buy, days, profit, description, verdict)
-    is_long = True
+    is_long = False
     sell = False
     return buy, sell, days, profit, description, verdict, is_long, ignore
 
@@ -514,28 +522,20 @@ def buy_signal8(data, symbol = ticker):
     return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal9(data, symbol = ticker):
-    allowed_symbols = ['NQ', 'SMH']
+    allowed_symbols = ['SPY', 'QQQ']
     ignore = False if symbol in allowed_symbols else True
-    days = 5
-    profit = 2
-    description = "Long NQ: Close<= EMA(50), Open[1] = Lowest Open in 3 days, IBR <= 20, RSI14 <= 50"
-    verdict = "5/2. Great results. Low drawdown. Some discrepancy with build alpha"
+    days = 100
+    profit = 100
+    description = "Stoch < 30, MACD < 0, IBR <= 0.2"
+    verdict = "Great results. Low drawdown."
 
-    ema_50 = data['Close'].ewm(span=50).mean()
-    lowest_open_3_days = data['Open'].rolling(window=3).min().shift(1)
-
-    #close_condition = data['Close'] < ema_50
-    #rsi_condition = 
-    open_condition = data['Open'].shift(1) <= lowest_open_3_days
-    ibr_condition = data['IBR'] <= 0.2
-
-    buy =  open_condition & ibr_condition & (data['Close'] <= ema_50) & (data['RSI14'] <= 50)#close_condition
+    buy = (data['Stoch']<30) & (data['MACDHist']< 0) &(data['IBR'] <= 0.2) #& open_condition #& (data['Close'] <= ema_50) #& (data['RSI14'] <= 50)#close_condition
     is_long = True
-    sell = False
+    sell = (data['RSI14IndustrialsBreadth'] < 40) | (data['Stoch'] > 20)#False
     return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal10(data, symbol = ticker):
-    allowed_symbols = ['NQ', 'SMH', 'ES', 'QQQ', 'AAPL', 'ORCL']
+    allowed_symbols = ['SMH', 'QQQ', 'AAPL', 'SPY']
     ignore = False if symbol in allowed_symbols else True
     days = 3  # You can set the days_to_hold value here
     profit = 1  # You can set the profit target value here
@@ -548,7 +548,7 @@ def buy_signal10(data, symbol = ticker):
     ibr_condition = data['IBR'] <= 0.50
     #macd_histogram_condition = data['MACDHist'] <= 0
 
-    buy = low_condition & ibr_condition & (data['ValueCharts'] < 0)  #& macd_histogram_condition
+    buy = low_condition & ibr_condition #& (data['ValueCharts'] < 0)  #& macd_histogram_condition
     is_long = True
     sell = False
     return buy, sell, days, profit, description, verdict, is_long, ignore

@@ -222,6 +222,15 @@ def indicator_tryout(data, days, profit, is_long, is_sell = False):
     results = bt.backtest_ind(data, days, profit, is_long, 'Stoch', 'both', 10, 90, 10, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'Stoch', 'both', 10, 90, 10, og)
     running_results = running_results._append(results.head(3))
     print (results.head(5))
+    results = bt.backtest_ind(data, days, profit, is_long, 'StochRSI14', 'both', 20, 90, 10, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'StochRSI14', 'both', 20, 90, 10, og)
+    running_results = running_results._append(results.head(3))
+    print (results.head(5))
+    results = bt.backtest_ind(data, days, profit, is_long, 'StochRSI5', 'both', 20, 90, 10, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'StochRSI5', 'both', 20, 90, 10, og)
+    running_results = running_results._append(results.head(3))
+    print (results.head(5))
+    results = bt.backtest_ind(data, days, profit, is_long, 'RSI14', 'both', 20, 90, 10, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'RSI14', 'both', 20, 90, 10, og)
+    running_results = running_results._append(results.head(3))
+    print (results.head(5))
     results = bt.backtest_ind(data, days, profit, is_long, 'RSI5', 'both', 20, 90, 10, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'RSI5', 'both', 20, 90, 10, og)
     running_results = running_results._append(results.head(3))
     print (results.head(5))
@@ -276,20 +285,20 @@ def main():
         contract = Stock(ticker, 'ARCA')
         yfticker = ticker
 
-    data = dt.get_data_yf(yfticker, years=20, Local = False) #True for local data, False for Yahoo Finance
+    data = dt.get_data_yf(yfticker, years=25, Local = False) #True for local data, False for Yahoo Finance
     data = dt.normalize_dataframe(data) #Capitalize the column names
     data = dt.clean_holidays(data) #Remove holidays
     data = ind.add_indicators(data)
 
-    buy_signal = ind.buy_signal16
+    buy_signal = ind.buy_signal9
     #buy_signal = ind.og_new_buy_signal
     data['Buy'], data['Sell'], days, profit, description, verdict, is_long, ignore = buy_signal(data)
-    #data['Buy'] = data['Buy']  & (data['RSI14EnergyBreadth'] < 70)#& (data['RSI5SemisBreadth']>50)
-    #data['Sell'] = data['Sell'] | (data['RSI14EnergyBreadth'] > 50)# | (data['Close_EMA8'] < -1)    
+    data['Buy'] = data['Buy']   
+    data['Sell'] = data['Sell']
     
     #results = indicator_tryout(data, days, profit, is_long, is_sell = False)    
     #results = results._append(indicator_tryout(data, days, profit, is_long, is_sell = True))
-    #results = bt.backtest_ind(data, days, profit, is_long, 'RSI5Breadth', 'both', 10, 90, 10, og = False)
+    #results = bt.backtest_ind(data, days, profit, is_long, 'IBR', 'both', 0.1, 1, 0.1, og = False)
     if len(results) >0:
         results = results.sort_values(by=['Sharpe'], ascending=False)
         results.to_csv('CSV/backtest_results.csv')
