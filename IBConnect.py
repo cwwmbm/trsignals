@@ -90,6 +90,9 @@ def indicator_tryout(data, days, profit, is_long, is_sell = False):
     running_results = pd.DataFrame(columns=['Buysell', 'Indicator', 'Condition', 'Value', 'PnL', 'MaxDD', 'Trades', '%Pstv', 'CAGR','Sharpe', 'Sortino'])
     og = True if days == 0 else False
 
+    results = bt.backtest_ind(data, days, profit, is_long, 'SPYBull', 'both', 0, 0, 1, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'SPYBull', 'both', 0, 0, 1, og)
+    print (results.head(5))
+    running_results = running_results._append(results.head(3))
     results = bt.backtest_ind(data, days, profit, is_long, 'RSI14FinancialsBreadth', 'both', 10, 90, 10, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'RSI14FinancialsBreadth', 'both', 10, 90, 10, og)
     print (results.head(5))
     running_results = running_results._append(results.head(3))
@@ -222,12 +225,6 @@ def indicator_tryout(data, days, profit, is_long, is_sell = False):
     results = bt.backtest_ind(data, days, profit, is_long, 'Stoch', 'both', 10, 90, 10, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'Stoch', 'both', 10, 90, 10, og)
     running_results = running_results._append(results.head(3))
     print (results.head(5))
-    results = bt.backtest_ind(data, days, profit, is_long, 'StochRSI14', 'both', 20, 90, 10, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'StochRSI14', 'both', 20, 90, 10, og)
-    running_results = running_results._append(results.head(3))
-    print (results.head(5))
-    results = bt.backtest_ind(data, days, profit, is_long, 'StochRSI5', 'both', 20, 90, 10, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'StochRSI5', 'both', 20, 90, 10, og)
-    running_results = running_results._append(results.head(3))
-    print (results.head(5))
     results = bt.backtest_ind(data, days, profit, is_long, 'RSI14', 'both', 20, 90, 10, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'RSI14', 'both', 20, 90, 10, og)
     running_results = running_results._append(results.head(3))
     print (results.head(5))
@@ -290,15 +287,16 @@ def main():
     data = dt.clean_holidays(data) #Remove holidays
     data = ind.add_indicators(data)
 
-    buy_signal = ind.buy_signal9
+    buy_signal = ind.buy_signal16
     #buy_signal = ind.og_new_buy_signal
     data['Buy'], data['Sell'], days, profit, description, verdict, is_long, ignore = buy_signal(data)
-    data['Buy'] = data['Buy']   
+    #data['Buy'] = data['Buy'] & (data['SMA50_SMA200']>0)
+    #data['Buy'] = data['Buy'] & (data['Spybull']>0)
     data['Sell'] = data['Sell']
     
     #results = indicator_tryout(data, days, profit, is_long, is_sell = False)    
     #results = results._append(indicator_tryout(data, days, profit, is_long, is_sell = True))
-    #results = bt.backtest_ind(data, days, profit, is_long, 'IBR', 'both', 0.1, 1, 0.1, og = False)
+    #results = bt.backtest_ind(data, days, profit, is_long, 'SPYBull', 'both', 0, 0, 1, og = False)
     if len(results) >0:
         results = results.sort_values(by=['Sharpe'], ascending=False)
         results.to_csv('CSV/backtest_results.csv')

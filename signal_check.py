@@ -2,6 +2,7 @@ import pandas as pd
 #import nest_asyncio
 #nest_asyncio.apply()
 import getdata as dt
+import numpy as np
 import indicators as ind
 from config import *
 #from ib_insync import IB, Future, util, Stock
@@ -42,6 +43,10 @@ xlf_to_spy = full_data['Close']['XLF'] / full_data['Close']['SPY']
 xle_to_spy = full_data['Close']['XLE'] / full_data['Close']['SPY']
 xlu_to_spy = full_data['Close']['XLU'] / full_data['Close']['SPY']
 xli_to_spy = full_data['Close']['XLI'] / full_data['Close']['SPY']
+spy50 = full_data['Close']['SPY'].rolling(50).mean()
+spy200 = full_data['Close']['SPY'].rolling(200).mean()
+        
+
 
 for symbol, yf_symbol in symbol_mapping.items():
     if symbol in ['^VIX', 'RSP', 'XLI','XLU','XLE','XLF']:
@@ -61,6 +66,7 @@ for symbol, yf_symbol in symbol_mapping.items():
     data['EnergyBreadth'] = xle_to_spy
     data['UtilitiesBreadth'] = xlu_to_spy
     data['IndustrialsBreadth'] = xli_to_spy
+    data['SPYBull'] = np.where(spy50>spy200, 1, -1)
     data = dt.normalize_dataframe(data)
     data = data.drop(columns = ['Adj close'])
     data = dt.clean_holidays(data)

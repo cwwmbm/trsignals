@@ -339,6 +339,7 @@ def macd_histogram(data, fast_period=12, slow_period=26, signal_period=9):
 
 def add_indicators(data):
     data['%Change'] = Leverage*data['Close'].pct_change()
+    data['SPYBull'] = data['Spybull']
     data['Hurst'] = hurst_exponent(data)
     data['IBR'] = data.apply(internal_bar_ratio, axis=1)
     cci = get_cci(data, 20)
@@ -383,8 +384,6 @@ def add_indicators(data):
     data['Stoch'] = ta.momentum.stoch(data['High'], data['Low'], data['Close'], window=14, smooth_window=3)
     data['StochSlow'] = data['Stoch'].rolling(window=3).mean()
     data['StochOscilator'] = data['Stoch'] - data['StochSlow']
-    data['StochRSI14'] = ta.momentum.stochrsi(data['Close'], window=14)
-    data['StochRSI5'] = ta.momentum.stochrsi(data['Close'], window=5)
     data['ValueCharts'] = value_charts(data)
     data['MACDHist'] = macd_histogram(data)
     data['VFI40'] = vfi(data)
@@ -407,6 +406,7 @@ def add_indicators(data):
     data['ATR20_ATR50'] = data['ATR20'] - data['ATR50']
     data['ChangeVelocity'] = (data['Close'] - data['Close'].shift(1)) / data['ATR20'].shift(1)
     data = data.drop(columns=['StochSlow'])
+    data = data.drop(columns=['Spybull'])
     #data['StochFast'] = ta.momentum.stoch(data['High'], data['Low'], data['Close'], window=14, smooth_window=3, fastd=True)
     data['Sell'] = False
     return data

@@ -6,6 +6,7 @@ import datetime
 from config import *
 import pandas_market_calendars as mcal
 from datetime import datetime as dtm, timedelta
+import numpy as np
 """"
 def ib_connect():
     # Create an IB instance
@@ -116,7 +117,10 @@ def get_data_yf(ticker, years=1, Local=False):
         data_symbol['FinancialsBreadth'] = xlf_to_spy
         data_symbol['EnergyBreadth'] = xle_to_spy
         data_symbol['UtilitiesBreadth'] = xlu_to_spy
-        data_symbol['IndustrialsBreadth'] = xli_to_spy
+        data_symbol['IndustrialsBreadth'] = xli_to_spy        
+        spy50 = data['Close']['SPY'].rolling(50).mean()
+        spy200 = data['Close']['SPY'].rolling(200).mean()
+        data_symbol['SPYBull'] = np.where(spy50>spy200, 1, -1)
 
         #remove rows with empty Close values
         data_symbol = data_symbol[data_symbol['Close'].notna()]
