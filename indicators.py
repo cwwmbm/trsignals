@@ -342,6 +342,8 @@ def add_indicators(data):
     data['SPYBull'] = data['Spybull']
     data['Hurst'] = hurst_exponent(data)
     data['IBR'] = data.apply(internal_bar_ratio, axis=1)
+    data['IBR2'] = data['IBR'].rolling(window=2).mean()
+    data['IBR3'] = data['IBR'].rolling(window=3).mean()
     cci = get_cci(data, 20)
     data['CCI'] = cci  # Assign the cci Series to the CCI column in the data DataFrame
     # Calculate SMA(50) and SMA(200)
@@ -405,6 +407,10 @@ def add_indicators(data):
     data['ATR50'] = ta.volatility.average_true_range(data['High'], data['Low'], data['Close'], window=50)
     data['ATR20_ATR50'] = data['ATR20'] - data['ATR50']
     data['ChangeVelocity'] = (data['Close'] - data['Close'].shift(1)) / data['ATR20'].shift(1)
+    data['HigherCloses2'] = np.where((data['Close'] > data['Close'].shift(1)) & (data['Close'].shift(1) > data['Close'].shift(2)), 1, -1)
+    data['HigherCloses3'] = np.where((data['Close'] > data['Close'].shift(1)) & (data['Close'].shift(1) > data['Close'].shift(2)) & (data['Close'].shift(2) > data['Close'].shift(3)), 1, -1)
+    data['LowerCloses2'] = np.where((data['Close'] < data['Close'].shift(1)) & (data['Close'].shift(1) < data['Close'].shift(2)), 1, -1)
+    data['LowerCloses3'] = np.where((data['Close'] < data['Close'].shift(1)) & (data['Close'].shift(1) < data['Close'].shift(2)) & (data['Close'].shift(2) < data['Close'].shift(3)), 1, -1)
     data = data.drop(columns=['StochSlow'])
     data = data.drop(columns=['Spybull'])
     #data['StochFast'] = ta.momentum.stoch(data['High'], data['Low'], data['Close'], window=14, smooth_window=3, fastd=True)
@@ -420,12 +426,12 @@ def buy_signal1 (data, symbol = ticker):
     verdict = 'Bad results after 2020'
     buy = True #(data['Open'] <= data['High'].shift(1)) & (data['High'].shift(3) <= data['Open'].shift(8)) & (data['EMA100'] > data['EMA100'].shift(2))&(data['IBR']<0.4) & (data['ER'] <= 0.4)
     #return custom_return(buy, days, profit, description, verdict)
-    is_long = False
+    is_long = True
     sell = False
     return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal2 (data, symbol = ticker):
-    allowed_symbols = ['NQ', 'QQQ']
+    allowed_symbols = ['SPY', 'QQQ']
     ignore = False if symbol in allowed_symbols else True
     days = 2
     profit = 1
@@ -466,7 +472,7 @@ def buy_signal4 (data, symbol = ticker):
    #return (data['SMA50'] > data['SMA200']) & (data['Low'] == data['Low'].rolling(window=3).max()) & (data['IBR'] <= 80) #Hold 2 days profit 2
 
 def buy_signal5 (data, symbol = ticker):
-    allowed_symbols = ['NQ', 'QQQ']
+    allowed_symbols = ['QQQ', 'SPY']
     ignore = False if symbol in allowed_symbols else True
     days = 2
     profit = 1
@@ -481,7 +487,7 @@ def buy_signal5 (data, symbol = ticker):
 def buy_signal6 (data, symbol = ticker):
     allowed_symbols = ['NQ', 'ES']
     ignore = False if symbol in allowed_symbols else True  
-    days = 1
+    days = 4
     profit = 1
     description = 'Long NQ: CCI <= -150, IBR <= 0.4'
     verdict = 'Very low drawdowns. Decent results with OG strat'
@@ -505,7 +511,7 @@ def buy_signal7 (data, symbol = ticker):
    #return (data['Close'].shift(1) <= data['Close'].shift(3)) & (data['IBR'] <= 0.4) #& (data['Close'].pct_change(periods=10) < 0) #Hold 3 days profit 1
 
 def buy_signal8(data, symbol = ticker):
-    allowed_symbols = ['NQ', 'QQQ']
+    allowed_symbols = ['QQQ', 'SPY']
     ignore = False if symbol in allowed_symbols else True
     days = 3
     profit = 1
@@ -516,7 +522,7 @@ def buy_signal8(data, symbol = ticker):
     value_charts_condition = data['ValueCharts'] > -12
     rsi_condition = data['RSI2'] <= 90
 
-    buy = kama_er_condition & value_charts_condition & rsi_condition & (data['IBR'] <= 0.8) & (data['RSI5Breadth'] < 80)
+    buy = kama_er_condition & value_charts_condition & rsi_condition & (data['IBR'] <= 0.8) #& (data['RSI5Breadth'] < 80)
     is_long = True
     sell = False
     return buy, sell, days, profit, description, verdict, is_long, ignore
@@ -631,7 +637,7 @@ def buy_signal16(data, symbol = ticker):
 
     buy = (data['High'] > data['Close'].shift(1)) & (data['IBR'] <= 0.5) #& (data['SMA50_SMA200']>0) #& (data['Hurst'] > 0.4)#& (data['Close']>data['SMA100']) #& (data['High'] < data['SMA10']) 
     is_long = True
-    sell = (data['VFI40'] < -2) | (data['RSI14RiskBreadth'] > 70)
+    sell = False#(data['VFI40'] < -2) | (data['RSI14RiskBreadth'] > 70)
     return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal17(data, symbol = ticker):

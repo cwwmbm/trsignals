@@ -97,9 +97,11 @@ def get_data_yf(ticker, years=1, Local=False):
         data_symbol = pd.read_csv(f'CSV/{ticker}_yf.csv', index_col='Date', parse_dates=True)
     else:
         print("Using yahoo finance")
-        tickers = [ticker, '^VIX', 'SPY', 'RSP', 'QQQ', 'SMH', 'XLF','XLE', 'XLU', 'XLI']
+        tickers = [ticker, '^VIX', 'SPY', 'RSP', 'QQQ', 'SMH', 'XLF','XLE', 'XLU', 'XLI', 'SOXX']
         data = yf.download(tickers, start=start_date, end=end_date)
         vix = data['Close']['^VIX']
+        qqq = data['Close']['QQQ']
+        soxx = data['Close']['SOXX']
         rsp_to_spy = data['Close']['RSP'] / data['Close']['SPY']
         qqq_to_spy = data['Close']['QQQ'] / data['Close']['SPY']
         smh_to_spy = data['Close']['SMH'] / data['Close']['SPY']
@@ -111,6 +113,8 @@ def get_data_yf(ticker, years=1, Local=False):
         data_symbol.columns = data_symbol.columns.droplevel(1)  # Reset column level
         data_symbol = data_symbol.copy()
         data_symbol['VIX'] = vix
+        data_symbol['QQQ'] = qqq
+        data_symbol['SOXX'] = soxx
         data_symbol['Breadth'] = rsp_to_spy
         data_symbol['RiskBreadth'] = qqq_to_spy
         data_symbol['SemisBreadth'] = smh_to_spy

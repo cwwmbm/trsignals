@@ -26,7 +26,7 @@ start_time = time.perf_counter()
 #Add indicators to the table
 #data = ind.add_indicators(data)
 signals = pd.DataFrame()
-symbols = ['NQ', 'ES', 'CL', 'GC', 'SI', 'SPY', 'SMH', 'QQQ', 'SOXX','^VIX', 'XLI','XLU','XLE','XLF','RSP', 'IWM', 'FXI', 'AAPL']
+symbols = ['SPY', 'SMH', 'QQQ', 'SOXX','^VIX', 'XLI','XLU','XLE','XLF','RSP', 'IWM', 'FXI', 'AAPL']
 
 buy_signals = [ind.buy_signal1, ind.buy_signal2, ind.buy_signal3, ind.buy_signal4, ind.buy_signal5, ind.buy_signal6, ind.buy_signal7, ind.buy_signal8, ind.buy_signal9, ind.buy_signal10, 
                ind.buy_signal11, ind.buy_signal12, ind.buy_signal13, ind.buy_signal14, ind.buy_signal15, ind.buy_signal16, ind.buy_signal17, ind.buy_signal18, ind.buy_signal19, ind.buy_signal20, ind.buy_signal21, 
@@ -34,7 +34,7 @@ buy_signals = [ind.buy_signal1, ind.buy_signal2, ind.buy_signal3, ind.buy_signal
 
 yf_symbols = [symbol+'=F' if symbol in ['NQ', 'ES', 'RTY', 'CL', 'GC', 'SI', 'HG'] else symbol for symbol in symbols]
 symbol_mapping = {symbol: yf_symbol for symbol, yf_symbol in zip(symbols, yf_symbols)}
-full_data = dt.get_bulk_data(yf_symbols, years = 2)
+full_data = dt.get_bulk_data(yf_symbols, years = 1)
 vix_close = full_data['Close', '^VIX']
 breadth = full_data['Close', 'RSP'] / full_data['Close', 'SPY']
 qqq_to_spy = full_data['Close']['QQQ'] / full_data['Close']['SPY']
