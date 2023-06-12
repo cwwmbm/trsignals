@@ -23,6 +23,7 @@ data = ind.add_indicators(data)
 
 print("SPY: " + str(round(100*data['Close'].pct_change().iloc[-1], 2)) + "%")
 print("QQQ: " + str(round(100*data['Qqq'].pct_change().iloc[-1], 2)) + "%")
+print("IWM: " + str(round(100*data['Iwm'].pct_change().iloc[-1], 2)) + "%")
 print("SOXX: " + str(round(100*data['Soxx'].pct_change().iloc[-1], 2)) + "%")
 print("Today's Close: " + str(round(data['Close'].iloc[-1], 2)))
 print("EMA8: " + str(round(data['EMA8'].iloc[-1], 2)))
