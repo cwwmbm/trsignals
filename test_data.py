@@ -45,7 +45,7 @@ for buy_signal in buy_signals:
     percentage_profitable_trades = '{:.2%}'.format(percentage_profitable_trades)
 
 
-    signals = signals._append([{'Signal': buy_signal.__name__, 'RollingPnL': latest_rolling_pnl, 'MaxDD': formatted_drawdown, 'TradeNumber': number_of_trades, 'ProfitableTrades': percentage_profitable_trades,'Days': days, 'Profit': profit}])
+    signals = signals._append([{'Signal': buy_signal.__name__, 'Subscribe': not ignore,'RollingPnL': latest_rolling_pnl, 'MaxDD': formatted_drawdown, 'TradeNumber': number_of_trades, 'ProfitableTrades': percentage_profitable_trades,'Days': days, 'Profit': profit}])
 
 print(signals)
 

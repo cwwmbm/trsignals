@@ -498,7 +498,7 @@ def buy_signal6 (data, symbol = ticker):
    #return (pd.notna(data['CCI'])) & (data['CCI'] <= -150) & (data['IBR'] <= 0.4) #Hold 4 days proft 1 (could do 3 and 1). Potentiall 9 and 5.
 
 def buy_signal7 (data, symbol = ticker):
-    allowed_symbols = ['NQ', 'SMH', 'ES', 'QQQ', 'FXI','AAPL']
+    allowed_symbols = ['NQ', 'SMH', 'ES', 'QQQ', 'FXI','AAPL', 'SOXX']
     ignore = False if symbol in allowed_symbols else True
     days = 3
     profit = 1
@@ -541,7 +541,7 @@ def buy_signal9(data, symbol = ticker):
     return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal10(data, symbol = ticker):
-    allowed_symbols = ['SMH', 'QQQ', 'AAPL', 'SPY']
+    allowed_symbols = ['SMH']
     ignore = False if symbol in allowed_symbols else True
     days = 3  # You can set the days_to_hold value here
     profit = 1  # You can set the profit target value here
@@ -628,7 +628,7 @@ def buy_signal15(data, symbol = ticker):
     return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal16(data, symbol = ticker):
-    allowed_symbols = ['SMH', 'QQQ', 'ORCL']
+    allowed_symbols = ['SMH', 'QQQ', 'ORCL', 'SOXX']
     ignore = False if symbol in allowed_symbols else True
     days = 4
     profit = 1
@@ -678,7 +678,7 @@ def buy_signal19(data, symbol = ticker):
     return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal20(data, symbol = ticker):
-    allowed_symbols = ['SPY', 'QQQ', 'ES', 'NQ', 'IWM', 'AAPL']
+    allowed_symbols = ['SPY', 'QQQ', 'ES', 'NQ', 'IWM', 'AAPL', 'SOXX']
     ignore = False if symbol in allowed_symbols else True
     days = 50
 
