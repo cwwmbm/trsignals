@@ -228,7 +228,7 @@ def og_strat(data, days = 0, profit = 0, external_count = 0, start_capital = 150
             data['HoldLong'].at[i] = ((data['HoldLong'].shift(1).at[i] and not data['LongTradeOut'].shift(1).at[i]) or ( #If previously long and not trade out on previous day
                                         data['LongTradeIn'].shift(1).at[i]) or (                                        #Or if Enetering trade on previous day
                                         data['OneDayBuy'].shift(1).at[i]))                                              #Or if one day buy on previous day??? Do we need this?
-            data['LongTradeIn'].at[i] = data['Buy'].at[i] and not data['HoldLong'].at[i]
+            data['LongTradeIn'].at[i] = (data['Buy'].at[i] or data['OneDayBuy'].at[i]) and not data['HoldLong'].at[i]
             data['DaysInTrade'].at[i] = data['DaysInTrade'].shift(1).at[i] + 1 if (data['HoldLong'].at[i] and i>0) else 0
             if (data['HoldLong'].at[i]):
                 data['ProfitableCloses'].at[i] = data['ProfitableCloses'].shift(1).at[i] + 1 if (data['Close'].at[i] > data['Close'].shift(1).at[i]) else data['ProfitableCloses'].shift(1).at[i]
@@ -278,7 +278,8 @@ def long_strat(data, days, prof_closes, is_long = True, start_capital = 15000, p
     for i, row in signals.iterrows():
         signals['HoldLong'].at[i] = (signals['HoldLong'].shift(1).at[i] and not signals['LongTradeOut'].shift(1).at[i] and (i>0)) or ( #If previously long and not trade out on previous day
                                     signals['LongTradeIn'].shift(1).at[i] and i>0)                                            #Or if Enetering trade on previous day
-        signals['LongTradeIn'].at[i] = signals['Buy'].at[i] and not signals['HoldLong'].at[i]
+        #signals['LongTradeIn'].at[i] = signals['Buy'].at[i] and not signals['HoldLong'].at[i]
+        signals['LongTradeIn'].at[i] = signals['Buy'].at[i] and not (signals['HoldLong'].at[i] and not signals['LongTradeOut'].at[i])
         signals['DaysInTrade'].at[i] = signals['DaysInTrade'].shift(1).at[i] + 1 if (signals['HoldLong'].at[i] and i>0) else 0
         #if i>0:
         #    signals['TradeInvestment'].at[i] = signals['RollingPnL'].at[i] if (signals['LongTradeIn'].at[i]) else signals['TradeInvestment'].shift(1).at[i] if signals['HoldLong'].at[i] else 0
