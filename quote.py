@@ -21,6 +21,8 @@ data = dt.normalize_dataframe(data) #Capitalize the column names
 data = dt.clean_holidays(data) #Remove holidays
 data = ind.add_indicators(data)
 
+# print(data['Volume_EMA'].iloc[-1])
+
 print("SPY: " + str(round(100*data['Close'].pct_change().iloc[-1], 2)) + "%")
 print("QQQ: " + str(round(100*data['Qqq'].pct_change().iloc[-1], 2)) + "%")
 print("IWM: " + str(round(100*data['Iwm'].pct_change().iloc[-1], 2)) + "%")
@@ -30,3 +32,4 @@ print("EMA8: " + str(round(data['EMA8'].iloc[-1], 2)))
 print("RSI2: " + str(round(data['RSI2'].iloc[-1], 2)))
 print("RSI5: " + str(round(data['RSI5'].iloc[-1], 2)))
 print("Stoch: " + str(round(data['Stoch'].iloc[-1], 2)))
+print("Volume EMA: " + str(round(100*data['VolumeEMADiff'].iloc[-1], 2))+"%")
