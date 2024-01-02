@@ -94,7 +94,21 @@ for symbol, yf_symbol in symbol_mapping.items():
                                         'Days': days, 'Profit': profit, 'TradePnL': trade_pnl,'Kelly': (str(round(kelly,2))+"%"),'Description': description,'Verdict': verdict}])
 
 status.text('Done')
-bar.progress(100)           
+bar.progress(100)   
+data1 = dt.get_data_yf('SPY', years=1, Local = False) #True for local data, False for Yahoo Finance
+data1 = dt.normalize_dataframe(data1) #Capitalize the column names
+data1 = dt.clean_holidays(data1) #Remove holidays
+data1 = ind.add_indicators(data1)
+st.write("SPY: " + str(round(100*data1['Close'].pct_change().iloc[-1], 2)) + "%")
+st.write("QQQ: " + str(round(100*data1['Qqq'].pct_change().iloc[-1], 2)) + "%")
+st.write("IWM: " + str(round(100*data1['Iwm'].pct_change().iloc[-1], 2)) + "%")
+st.write("SOXX: " + str(round(100*data1['Soxx'].pct_change().iloc[-1], 2)) + "%")
+st.write("Today's Close: " + str(round(data1['Close'].iloc[-1], 2)))
+st.write("EMA8: " + str(round(data1['EMA8'].iloc[-1], 2)))
+st.write("RSI2: " + str(round(data1['RSI2'].iloc[-1], 2)))
+st.write("RSI5: " + str(round(data1['RSI5'].iloc[-1], 2)))
+st.write("Stoch: " + str(round(data1['Stoch'].iloc[-1], 2)))
+st.write("Volume EMA: " + str(round(100*data1['VolumeEMADiff'].iloc[-1], 2))+"%")        
 st.write(signals)
 buy_signals = signals[signals['Buy signal?'] == True]
 sell_signals = signals[signals['Sell signal?'] == True]
@@ -110,20 +124,7 @@ else:
     title = "Signals Update"
     message = "Buy signals: " + str(buy_signals['Signal'].tolist()) + "Sell signals: " + str(sell_signals['Signal'].tolist())
     #send_push_notification(title, message, api_key)
-data1 = dt.get_data_yf('SPY', years=1, Local = False) #True for local data, False for Yahoo Finance
-data1 = dt.normalize_dataframe(data1) #Capitalize the column names
-data1 = dt.clean_holidays(data1) #Remove holidays
-data1 = ind.add_indicators(data1)
-st.write("SPY: " + str(round(100*data1['Close'].pct_change().iloc[-1], 2)) + "%")
-st.write("QQQ: " + str(round(100*data1['Qqq'].pct_change().iloc[-1], 2)) + "%")
-st.write("IWM: " + str(round(100*data1['Iwm'].pct_change().iloc[-1], 2)) + "%")
-print("SOXX: " + str(round(100*data1['Soxx'].pct_change().iloc[-1], 2)) + "%")
-print("Today's Close: " + str(round(data1['Close'].iloc[-1], 2)))
-print("EMA8: " + str(round(data1['EMA8'].iloc[-1], 2)))
-print("RSI2: " + str(round(data1['RSI2'].iloc[-1], 2)))
-print("RSI5: " + str(round(data1['RSI5'].iloc[-1], 2)))
-print("Stoch: " + str(round(data1['Stoch'].iloc[-1], 2)))
-print("Volume EMA: " + str(round(100*data1['VolumeEMADiff'].iloc[-1], 2))+"%")
+
 print (signals)
 print(message)
 #data['Buy'] = (data['Close'].shift(1) <= data['Close'].shift(3)) & (data['IBR'] <= 0.4) #& (data['Close'].pct_change(periods=10) < 0) #Hold 3 days profit 1
