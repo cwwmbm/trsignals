@@ -132,7 +132,7 @@ def get_data_yf(ticker, years=1, Local=False):
 
         #remove rows with empty Close values
         data_symbol = data_symbol[data_symbol['Close'].notna()]
-        data_symbol.to_csv(f'CSV/{ticker}_yf.csv')
+        # data_symbol.to_csv(f'CSV/{ticker}_yf.csv')
     #vix_data = dt.get_data_yf('^VIX', 20, False)
     
     return data_symbol
