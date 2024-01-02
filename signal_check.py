@@ -114,9 +114,9 @@ data1 = dt.get_data_yf('SPY', years=1, Local = False) #True for local data, Fals
 data1 = dt.normalize_dataframe(data1) #Capitalize the column names
 data1 = dt.clean_holidays(data1) #Remove holidays
 data1 = ind.add_indicators(data1)
-print("SPY: " + str(round(100*data1['Close'].pct_change().iloc[-1], 2)) + "%")
-print("QQQ: " + str(round(100*data1['Qqq'].pct_change().iloc[-1], 2)) + "%")
-print("IWM: " + str(round(100*data1['Iwm'].pct_change().iloc[-1], 2)) + "%")
+st.write("SPY: " + str(round(100*data1['Close'].pct_change().iloc[-1], 2)) + "%")
+st.write("QQQ: " + str(round(100*data1['Qqq'].pct_change().iloc[-1], 2)) + "%")
+st.write("IWM: " + str(round(100*data1['Iwm'].pct_change().iloc[-1], 2)) + "%")
 print("SOXX: " + str(round(100*data1['Soxx'].pct_change().iloc[-1], 2)) + "%")
 print("Today's Close: " + str(round(data1['Close'].iloc[-1], 2)))
 print("EMA8: " + str(round(data1['EMA8'].iloc[-1], 2)))
