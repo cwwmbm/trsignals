@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import ta
 from config import *
-import mplfinance as mpf
+# import mplfinance as mpf
 from numpy import cumsum, log, polyfit, sqrt, std, subtract
 from hurst import compute_Hc
 

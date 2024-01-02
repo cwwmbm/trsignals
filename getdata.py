@@ -1,6 +1,6 @@
 #from ib_insync import IB, Future, util, Stock
 import yfinance as yf
-import quandl
+# import quandl
 import pandas as pd
 import datetime
 from config import *

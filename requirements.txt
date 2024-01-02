@@ -2,9 +2,9 @@ yfinance
 pandas
 numpy
 hurst
-matplotlib
-quandl
+# matplotlib
+# quandl
 datetime
-mplfinance
+# mplfinance
 ta
 pandas_market_calendars
