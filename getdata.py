@@ -139,11 +139,11 @@ def get_data_yf(ticker, years=1, Local=False):
 
 def get_data_quandl():
     # Set your API key
-    quandl.ApiConfig.api_key = '3hAmwu7_u6y5g4P37Sbo'
+    # quandl.ApiConfig.api_key = '3hAmwu7_u6y5g4P37Sbo'
     # Get VIX futures data
     #vx1 = quandl.get('CHRIS/CBOE_VX1', start_date='2000-01-01', end_date='2023-04-11')
     #vx4 = quandl.get('CHRIS/CBOE_VX4', start_date='2000-01-01', end_date='2023-04-11')
-    data = quandl.get('NASDAQOMX/NDX', start_date='2000-01-01', end_date='2023-04-20')
+    # data = quandl.get('NASDAQOMX/NDX', start_date='2000-01-01', end_date='2023-04-20')
     #data = quandl.get('CHRIS/CME_NQ1', start_date='2000-01-01', end_date='2023-04-20')
     data = data.rename(columns={
         "Trade Date": "Date",

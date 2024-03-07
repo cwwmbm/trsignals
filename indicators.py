@@ -545,7 +545,7 @@ def buy_signal10(data, symbol = ticker):
     ignore = False if symbol in allowed_symbols else True
     days = 3  # You can set the days_to_hold value here
     profit = 1  # You can set the profit target value here
-    description = "Long NQ: Low 1 day ago <= Lowest Low in 2 days, IBR <= 50, ValueCharts <= 0"
+    description = "Long NQ: Low 1 day ago <= Lowest Low in 2 days, IBR <= 50"
     verdict = "3/1, great results, investigate overfitting."
 
     lowest_low_2_days = data['Low'].rolling(window=2).min().shift(1)
@@ -654,13 +654,13 @@ def buy_signal17(data, symbol = ticker):
     return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal18(data, symbol = ticker):
-    allowed_symbols = ['CL']
+    allowed_symbols = ['CL', 'GDX']
     ignore = False if symbol in allowed_symbols else True
     days = 2
     profit = 1
     description = "Long CL: open[1] <= lowest(open,2)[0], IBR[0] <= 20, Stochastics(14)[0] >= 10"
     verdict = "2/1"
-    buy = (data['Open'].shift(1) <= data['Open'].rolling(window=2).min()) & (data['IBR'] <= 0.2) & (data['ER'] <= 0.6) & (data['Stoch'] >= 10)
+    buy = (data['IBR'] <= 0.2) & (data['ER'] <= 0.6) & (data['Stoch'] >= 10) & (data['RSI14EnergyBreadth']<60) & (data['RSI14EnergyBreadth']>30)# & (data['Open'].shift(1) <= data['Open'].rolling(window=2).min()) & 
     is_long = True
     sell = False
     return buy, sell, days, profit, description, verdict, is_long, ignore
@@ -720,14 +720,14 @@ def buy_signal22(data, symbol = ticker): #Just some tests, not a real signal
 def buy_signal23(data, symbol = ticker):
     allowed_symbols = ['FXI']
     ignore = False if symbol in allowed_symbols else True
-    days = 3
+    days = 2
 
     profit = 1
     description = "low[0] >= highest(low,2)[0], close[1] <= lowest(close,5)[1], rsi(close,2)[0] >= 15"
     verdict = ""
-    buy = (data['IBR']<0.2) & (data['RSI2']>15)#(data['Low'] >= data['Low'].rolling(window=2).max()) & (data['Close'].shift(1) <= data['Close'].rolling(window=5).min().shift(1)) & (data['RSI2'] >= 15) & (data['Vix'] < 20)
+    buy = True; #(data['IBR']<0.2) & (data['RSI2']>15)#(data['Low'] >= data['Low'].rolling(window=2).max()) & (data['Close'].shift(1) <= data['Close'].rolling(window=5).min().shift(1)) & (data['RSI2'] >= 15) & (data['Vix'] < 20)
     #buy = (data['IBR'] <= 0.3) & (data['Hurst'] > 0.5) #& (data['ValueCharts'] <= 10) &
-    sell = (data['Close_SMA200'] > 0)#((data['RSI2SemisBreadth'].shift(1) > 50) & (data['RSI2SemisBreadth'] < 50)) | (data['Vix'] > 40)
+    sell = False #(data['Close_SMA200'] > 0)#((data['RSI2SemisBreadth'].shift(1) > 50) & (data['RSI2SemisBreadth'] < 50)) | (data['Vix'] > 40)
     is_long = True
     return buy, sell, days, profit, description, verdict, is_long, ignore
 

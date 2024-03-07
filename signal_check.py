@@ -19,14 +19,9 @@ bar = st.progress(0)
 status = st.empty()
 i=0
 start_time = time.perf_counter()
-#ib = IB()
-#Get historical data from yfinance and real time data for today from IB and combined them in one table
-#data = dt.get_full_data(ib, False)
-#data = dt.clean_holidays(data) #Remove holidays
-#Add indicators to the table
-#data = ind.add_indicators(data)
+
 signals = pd.DataFrame()
-symbols = ['SPY', 'SMH', 'QQQ', 'SOXX','^VIX', 'XLI','XLU','XLE','XLF','RSP', 'IWM', 'FXI', 'AAPL']
+symbols = ['SPY', 'SMH', 'QQQ', 'SOXX','^VIX', 'XLI','XLU','XLE','XLF','RSP', 'IWM', 'FXI', 'AAPL', 'GDX']
 
 buy_signals = [ind.buy_signal1, ind.buy_signal2, ind.buy_signal3, ind.buy_signal4, ind.buy_signal5, ind.buy_signal6, ind.buy_signal7, ind.buy_signal8, ind.buy_signal9, ind.buy_signal10, 
                ind.buy_signal11, ind.buy_signal12, ind.buy_signal13, ind.buy_signal14, ind.buy_signal15, ind.buy_signal16, ind.buy_signal17, ind.buy_signal18, ind.buy_signal19, ind.buy_signal20, ind.buy_signal21, 
