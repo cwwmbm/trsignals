@@ -374,6 +374,9 @@ def add_indicators(data):
     data['RSI5EnergyBreadth'] = ta.momentum.RSIIndicator(data['Energybreadth'], window=5).rsi()
     data['RSI5UtilitiesBreadth'] = ta.momentum.RSIIndicator(data['Utilitiesbreadth'], window=5).rsi()
     data['RSI5IndustrialsBreadth'] = ta.momentum.RSIIndicator(data['Industrialsbreadth'], window=5).rsi()
+    data['RSI2GoldBreadth'] = ta.momentum.RSIIndicator(data['Goldbreadth'], window=2).rsi()
+    data['RSI5GoldBreadth'] = ta.momentum.RSIIndicator(data['Goldbreadth'], window=5).rsi()
+    data['RSI14GoldBreadth'] = ta.momentum.RSIIndicator(data['Goldbreadth'], window=14).rsi()
     data['EMA8'] = ta.trend.ema_indicator(data['Close'], window=8)
     data['EMA8CrossUp'] = np.where((data['Close'] > data['EMA8']) & (data['Close'].shift(1) < data['EMA8'].shift(1)), 1, -1)
     data['EMA8CrossDown'] = np.where((data['Close'] < data['EMA8']) & (data['Close'].shift(1) > data['EMA8'].shift(1)), 1, -1)
@@ -498,7 +501,7 @@ def buy_signal6 (data, symbol = ticker):
    #return (pd.notna(data['CCI'])) & (data['CCI'] <= -150) & (data['IBR'] <= 0.4) #Hold 4 days proft 1 (could do 3 and 1). Potentiall 9 and 5.
 
 def buy_signal7 (data, symbol = ticker):
-    allowed_symbols = ['NQ', 'SMH', 'ES', 'QQQ', 'FXI','AAPL', 'SOXX']
+    allowed_symbols = ['NQ', 'SMH', 'ES', 'QQQ', 'FXI','AAPL', 'SOXX', 'MSFT']
     ignore = False if symbol in allowed_symbols else True
     days = 3
     profit = 1
@@ -628,7 +631,7 @@ def buy_signal15(data, symbol = ticker):
     return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal16(data, symbol = ticker):
-    allowed_symbols = ['SMH', 'QQQ', 'ORCL', 'SOXX']
+    allowed_symbols = ['SMH', 'QQQ', 'ORCL', 'SOXX', 'MSFT']
     ignore = False if symbol in allowed_symbols else True
     days = 4
     profit = 1
@@ -654,7 +657,7 @@ def buy_signal17(data, symbol = ticker):
     return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal18(data, symbol = ticker):
-    allowed_symbols = ['CL', 'GDX']
+    allowed_symbols = ['GDX', 'INDA']
     ignore = False if symbol in allowed_symbols else True
     days = 2
     profit = 1
@@ -678,7 +681,7 @@ def buy_signal19(data, symbol = ticker):
     return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal20(data, symbol = ticker):
-    allowed_symbols = ['SPY', 'QQQ', 'ES', 'NQ', 'IWM', 'AAPL', 'SOXX']
+    allowed_symbols = ['SPY', 'QQQ', 'IWM', 'AAPL', 'SOXX', 'CSCO', 'MSFT', 'FNGU']
     ignore = False if symbol in allowed_symbols else True
     days = 50
 
@@ -725,9 +728,23 @@ def buy_signal23(data, symbol = ticker):
     profit = 1
     description = "low[0] >= highest(low,2)[0], close[1] <= lowest(close,5)[1], rsi(close,2)[0] >= 15"
     verdict = ""
-    buy = True; #(data['IBR']<0.2) & (data['RSI2']>15)#(data['Low'] >= data['Low'].rolling(window=2).max()) & (data['Close'].shift(1) <= data['Close'].rolling(window=5).min().shift(1)) & (data['RSI2'] >= 15) & (data['Vix'] < 20)
+    buy = (data['LowerCloses2'] > 0) & (data['RSI5SemisBreadth']>40)#& (data['RSI14SemisBreadth']>40) #& (data['ValueCharts'] < 0) 
+    #True; #(data['IBR']<0.2) & (data['RSI2']>15)#(data['Low'] >= data['Low'].rolling(window=2).max()) & (data['Close'].shift(1) <= data['Close'].rolling(window=5).min().shift(1)) & (data['RSI2'] >= 15) & (data['Vix'] < 20)
     #buy = (data['IBR'] <= 0.3) & (data['Hurst'] > 0.5) #& (data['ValueCharts'] <= 10) &
     sell = False #(data['Close_SMA200'] > 0)#((data['RSI2SemisBreadth'].shift(1) > 50) & (data['RSI2SemisBreadth'] < 50)) | (data['Vix'] > 40)
+    is_long = True
+    return buy, sell, days, profit, description, verdict, is_long, ignore
+
+def buy_signal24(data, symbol = ticker):
+    allowed_symbols = ['GDX']
+    ignore = False if symbol in allowed_symbols else True
+    days = 2
+
+    profit = 1
+    description = "Testing"
+    verdict = ""
+    buy = (data['RSI5GoldBreadth'] > 60) & (data['RSI14UtilitiesBreadth'] < 50)
+    sell = False 
     is_long = True
     return buy, sell, days, profit, description, verdict, is_long, ignore
 

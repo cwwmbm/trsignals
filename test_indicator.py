@@ -16,9 +16,9 @@ start_time = time.perf_counter()
 
 signals = pd.DataFrame()
 results = pd.DataFrame()
-symbols = ['SPY', 'SMH', 'QQQ', 'SOXX','^VIX', 'XLI','XLU','XLE','XLF','RSP', 'IWM', 'FXI', 'AAPL', 'GDX', 'IBB', 'GLD', 'SLV']
+symbols = ['SPY', 'SMH', 'QQQ', 'SOXX','^VIX', 'XLI','XLU','XLE','XLF','RSP', 'IWM', 'FXI', 'AAPL', 'GDX', 'IBB', 'GLD', 'SLV', 'EEM', 'INDA', 'USO', 'CPER', 'UNG', 'XLK', 'IBM', 'CSCO']
 
-buy_signal = ind.buy_signal18
+buy_signal = ind.buy_signal20
 
 yf_symbols = [symbol+'=F' if symbol in ['NQ', 'ES', 'RTY', 'CL', 'GC', 'SI', 'HG'] else symbol for symbol in symbols]
 symbol_mapping = {symbol: yf_symbol for symbol, yf_symbol in zip(symbols, yf_symbols)}
@@ -31,13 +31,15 @@ xlf_to_spy = full_data['Close']['XLF'] / full_data['Close']['SPY']
 xle_to_spy = full_data['Close']['XLE'] / full_data['Close']['SPY']
 xlu_to_spy = full_data['Close']['XLU'] / full_data['Close']['SPY']
 xli_to_spy = full_data['Close']['XLI'] / full_data['Close']['SPY']
+gold_to_spy = full_data['Close']['GLD'] / full_data['Close']['SPY']
+# full_data['Goldbreadth'] = gold_to_spy
 spy50 = full_data['Close']['SPY'].rolling(50).mean()
 spy200 = full_data['Close']['SPY'].rolling(200).mean()
         
 
 
 for symbol, yf_symbol in symbol_mapping.items():
-    if symbol in ['^VIX', 'RSP', 'XLI','XLU','XLE','XLF']:
+    if symbol in ['^VIX', 'RSP']:
         continue
     data= full_data.xs(yf_symbol, axis=1, level=1, drop_level=False)
 
@@ -53,6 +55,7 @@ for symbol, yf_symbol in symbol_mapping.items():
     data['EnergyBreadth'] = xle_to_spy
     data['UtilitiesBreadth'] = xlu_to_spy
     data['IndustrialsBreadth'] = xli_to_spy
+    data['GoldBreadth'] = gold_to_spy
     data['SPYBull'] = np.where(spy50>spy200, 1, -1)
     data = dt.normalize_dataframe(data)
     data = data.drop(columns = ['Adj close'])
@@ -62,6 +65,7 @@ for symbol, yf_symbol in symbol_mapping.items():
 
     # data_temp = data.copy()
     data['Buy'], data['Sell'], days, profit, description, verdict, is_long, ignore = buy_signal(data, symbol)
+    # data['Buy'] = data['Buy'] & (data['IBR'] < 0.1)
 
     data = bt.execute_strategy(data, days, profit)
     # number_of_trades = data['LongTradeOut'].value_counts().get(True, 0)

@@ -21,10 +21,12 @@ i=0
 start_time = time.perf_counter()
 
 signals = pd.DataFrame()
-symbols = ['SPY', 'SMH', 'QQQ', 'SOXX','^VIX', 'XLI','XLU','XLE','XLF','RSP', 'IWM', 'FXI', 'AAPL', 'GDX']
+symbols = ['SPY', 'SMH', 'QQQ', 'SOXX','^VIX', 'XLI','XLU','XLE','XLF','RSP', 'IWM', 'FXI', 'AAPL', 'CSCO', 'GDX', 'INDA', 'GLD', 'MSFT', 'FNGU']
+# symbols = ['XLI','XLU','XLE','XLF','RSP', 'GDX', 'INDA', 'GLD']
 
 buy_signals = [ind.buy_signal1, ind.buy_signal2, ind.buy_signal3, ind.buy_signal4, ind.buy_signal5, ind.buy_signal6, ind.buy_signal7, ind.buy_signal8, ind.buy_signal9, ind.buy_signal10, 
                ind.buy_signal11, ind.buy_signal12, ind.buy_signal13, ind.buy_signal14, ind.buy_signal15, ind.buy_signal16, ind.buy_signal17, ind.buy_signal18, ind.buy_signal19, ind.buy_signal20, ind.buy_signal21, 
+                ind.buy_signal24,
                ind.og_buy_signal, ind.og_new_buy_signal]
 
 yf_symbols = [symbol+'=F' if symbol in ['NQ', 'ES', 'RTY', 'CL', 'GC', 'SI', 'HG'] else symbol for symbol in symbols]
@@ -38,6 +40,7 @@ xlf_to_spy = full_data['Close']['XLF'] / full_data['Close']['SPY']
 xle_to_spy = full_data['Close']['XLE'] / full_data['Close']['SPY']
 xlu_to_spy = full_data['Close']['XLU'] / full_data['Close']['SPY']
 xli_to_spy = full_data['Close']['XLI'] / full_data['Close']['SPY']
+gold_to_spy = full_data['Close']['GLD'] / full_data['Close']['SPY']
 spy50 = full_data['Close']['SPY'].rolling(50).mean()
 spy200 = full_data['Close']['SPY'].rolling(200).mean()
         
@@ -45,6 +48,7 @@ spy200 = full_data['Close']['SPY'].rolling(200).mean()
 
 for symbol, yf_symbol in symbol_mapping.items():
     if symbol in ['^VIX', 'RSP', 'XLI','XLU','XLE','XLF']:
+    # if symbol in ['SPY', 'QQQ', 'SMH', '^VIX', 'RSP', 'XLI','XLU','XLE','XLF']:
         continue
     data= full_data.xs(yf_symbol, axis=1, level=1, drop_level=False)
     status.text('Getting data for ' + symbol + '...')
@@ -61,6 +65,7 @@ for symbol, yf_symbol in symbol_mapping.items():
     data['EnergyBreadth'] = xle_to_spy
     data['UtilitiesBreadth'] = xlu_to_spy
     data['IndustrialsBreadth'] = xli_to_spy
+    data['GoldBreadth'] = gold_to_spy
     data['SPYBull'] = np.where(spy50>spy200, 1, -1)
     data = dt.normalize_dataframe(data)
     data = data.drop(columns = ['Adj close'])
@@ -72,7 +77,7 @@ for symbol, yf_symbol in symbol_mapping.items():
     #time.sleep(5)
     for buy_signal in buy_signals:
         data_temp = data.copy()
-        data_temp['Buy'], data_temp['Sell'], days, profit, description, verdict, is_long, ignore = buy_signal(data_temp, symbol)
+        data_temp['Buy'], data_temp['Sell'], days, profit, description, verdict, is_long, ignore = buy_signal(data_temp, symbol)         
         if not ignore:
             #data_temp = ind.long_strat(data_temp, days, profit) if days>0 else ind.og_strat(data_temp, set_sell=False)
             data_temp = bt.execute_strategy(data_temp, days, profit)

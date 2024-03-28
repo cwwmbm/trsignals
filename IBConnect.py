@@ -89,6 +89,18 @@ def print_stats(data, days = 0, profit = 0, description = "Original Strategy"):
 def indicator_tryout(data, days, profit, is_long, is_sell = False):
     running_results = pd.DataFrame(columns=['Buysell', 'Indicator', 'Condition', 'Value', 'PnL', 'MaxDD', 'Trades', '%Pstv', 'CAGR','Sharpe', 'Sortino'])
     og = True if days == 0 else False
+    results = bt.backtest_ind(data, days, profit, is_long, 'LowerCloses2', 'both', 0, 0, 1, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'LowestClose2', 'both', 0, 0, 1, og)
+    running_results = running_results._append(results.head(3))
+    print (results.head(5))
+    results = bt.backtest_ind(data, days, profit, is_long, 'LowerCloses3', 'both', 0, 0, 1, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'LowestClose3', 'both', 0, 0, 1, og)
+    running_results = running_results._append(results.head(3))
+    print (results.head(5))
+    results = bt.backtest_ind(data, days, profit, is_long, 'HigherCloses2', 'both', 0, 0, 1, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'HighestClose2', 'both', 0, 0, 1, og)
+    running_results = running_results._append(results.head(3))
+    print (results.head(5))
+    results = bt.backtest_ind(data, days, profit, is_long, 'HigherCloses3', 'both', 0, 0, 1, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'HighestClose3', 'both', 0, 0, 1, og)
+    running_results = running_results._append(results.head(3))
+    print (results.head(5))
     results = bt.backtest_ind(data, days, profit, is_long, '%Change', 'both', -0.06, 0.06, 0.01, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, '%Change', 'both', -0.06, 0.06, 0.01, og)
     running_results = running_results._append(results.head(3))
     print (results.head(5))    
@@ -125,6 +137,7 @@ def indicator_tryout(data, days, profit, is_long, is_sell = False):
     results = bt.backtest_ind(data, days, profit, is_long, 'HighestClose3', 'both', 0, 0, 1, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'HighestClose3', 'both', 0, 0, 1, og)
     running_results = running_results._append(results.head(3))
     print (results.head(5))
+
     
 
     #"""
@@ -269,6 +282,15 @@ def indicator_tryout(data, days, profit, is_long, is_sell = False):
     results = bt.backtest_ind(data, days, profit, is_long, 'RSI5IndustrialsBreadth', 'both', 10, 90, 10, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'RSI5IndustrialsBreadth', 'both', 10, 90, 10, og)
     print (results.head(5))
     running_results = running_results._append(results.head(3))
+    results = bt.backtest_ind(data, days, profit, is_long, 'RSI2GoldBreadth', 'both', 10, 90, 10, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'RSI2GoldBreadth', 'both', 10, 90, 10, og)
+    print (results.head(5))
+    running_results = running_results._append(results.head(3))
+    results = bt.backtest_ind(data, days, profit, is_long, 'RSI5GoldBreadth', 'both', 10, 90, 10, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'RSI2GoldBreadth', 'both', 10, 90, 10, og)
+    print (results.head(5))
+    running_results = running_results._append(results.head(3))
+    results = bt.backtest_ind(data, days, profit, is_long, 'RSI14GoldBreadth', 'both', 10, 90, 10, og) if not is_sell else bt.backtest_sell_ind(data, days, profit, is_long, 'RSI2GoldBreadth', 'both', 10, 90, 10, og)
+    print (results.head(5))
+    running_results = running_results._append(results.head(3))
 
     running_results = running_results.sort_values(by=['Sharpe'], ascending=False)
     print(running_results)
@@ -299,31 +321,37 @@ def main():
         contract = Stock(ticker, 'ARCA')
         yfticker = ticker
 
-    data = dt.get_data_yf(yfticker, years=30, Local = False) #True for local data, False for Yahoo Finance
+    data = dt.get_data_yf(yfticker, years=24, Local = False) #True for local data, False for Yahoo Finance
     data = dt.normalize_dataframe(data) #Capitalize the column names
     data = dt.clean_holidays(data) #Remove holidays
     data = ind.add_indicators(data)
 
-    buy_signal = ind.buy_signal18
+    buy_signal = ind.buy_signal20
     # buy_signal = ind.og_new_buy_signal
     data['Buy'], data['Sell'], days, profit, description, verdict, is_long, ignore = buy_signal(data)
     # data['Buy'] = data['Buy'] & (data['IBR2'] > 0.1) & (data['IBR3'] < 0.4) #(data['RSI5SemisBreadth'] > 40) & 
-    data['Buy'] = data['Buy']
-    #data['Sell'] = data['Sell'] | (data['ValueCharts'] <-4)
+    data['Buy'] = data['Buy'] #& (data['SMA50_SMA200']>0) #& (data['IBR']<0.3)#
+    # data['Sell'] = data['Sell'] | (data['Stoch'] <10)
     
     # results = indicator_tryout(data, days, profit, is_long, is_sell = False)    
     #results = results._append(indicator_tryout(data, days, profit, is_long, is_sell = True))
-    # results = bt.backtest_ind(data, days, profit, is_long, 'SPYBull', 'both', 0, 0, 1, og = False)
+    # results = bt.backtest_ind(data, days, profit, is_long, 'RSI2GoldBreadth', 'both', 0, 100, 10, og=False)
+    # print(results.head(20))
+    # results = bt.backtest_ind(data, days, profit, is_long, 'RSI5GoldBreadth', 'both', 0, 100, 10, og=False)
+    # print(results.head(20))
+    # results = bt.backtest_ind(data, days, profit, is_long, 'RSI14GoldBreadth', 'both', 0, 100, 10, og=False)
+    # print(results.head(20))
     if len(results) >0:
         results = results.sort_values(by=['Sharpe'], ascending=False)
-        results.to_csv('CSV/backtest_results.csv')
+        # results.to_csv('CSV/backtest_results.csv')
+        print(results.head(20))
 
-    #results = bt.backtest_days(data, 5, is_long)
-    print(results.head(20))
+    # results = bt.backtest_days(data, 5, is_long)
+    
     data = bt.execute_strategy(data, days, profit, is_long)
     #print(data.head(20))
     print_stats(data, days, profit, description)
-    data.to_csv(f'CSV/{ticker}_{buy_signal.__name__}.csv')
+    # data.to_csv(f'CSV/{ticker}_{buy_signal.__name__}.csv')
 
     end_time = time.perf_counter()
 

@@ -90,14 +90,14 @@ def get_data_yf(ticker, years=1, Local=False):
     start_date = (pd.to_datetime("today") - pd.DateOffset(years=years)).strftime("%Y")
     end_date = (dtm.now() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
     start_date += "-01-01"
-    #end_date = "2023-01-01"
+    # end_date = "2018-01-01"
     print(f"Start date: {start_date}, End date: {end_date}")
     if Local:
         print("Using local csv")
         data_symbol = pd.read_csv(f'CSV/{ticker}_yf.csv', index_col='Date', parse_dates=True)
     else:
         print("Using yahoo finance")
-        tickers = [ticker, '^VIX', 'SPY', 'RSP', 'QQQ', 'SMH', 'IWM', 'XLF','XLE', 'XLU', 'XLI', 'SOXX']
+        tickers = [ticker, '^VIX', 'SPY', 'RSP', 'QQQ', 'SMH', 'IWM', 'XLF','XLE', 'XLU', 'XLI', 'SOXX', 'GLD']
         data = yf.download(tickers, start=start_date, end=end_date)
         vix = data['Close']['^VIX']
         qqq = data['Close']['QQQ']
@@ -117,7 +117,8 @@ def get_data_yf(ticker, years=1, Local=False):
         data_symbol['VIX'] = vix
         data_symbol['QQQ'] = qqq
         data_symbol['SOXX'] = soxx
-        data_symbol['IWM'] = rsp_to_spy
+        data_symbol['IWM'] = iwm
+        data_symbol['SPY']  = data['Close']['SPY']
         data_symbol['Breadth'] = rsp_to_spy
         data_symbol['RiskBreadth'] = qqq_to_spy
         data_symbol['SemisBreadth'] = smh_to_spy
@@ -126,6 +127,7 @@ def get_data_yf(ticker, years=1, Local=False):
         data_symbol['UtilitiesBreadth'] = xlu_to_spy
         data_symbol['IndustrialsBreadth'] = xli_to_spy     
         data_symbol['IWMBreadth'] = iwm_to_spy
+        data_symbol['GoldBreadth'] = data['Close']['GLD'] / data['Close']['SPY']
         spy50 = data['Close']['SPY'].rolling(50).mean()
         spy200 = data['Close']['SPY'].rolling(200).mean()
         data_symbol['SPYBull'] = np.where(spy50>spy200, 1, -1)

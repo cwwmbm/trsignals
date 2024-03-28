@@ -23,7 +23,7 @@ data = ind.add_indicators(data)
 
 # print(data['Volume_EMA'].iloc[-1])
 
-print("SPY: " + str(round(100*data['Close'].pct_change().iloc[-1], 2)) + "%")
+print("SPY: " + str(round(100*data['Spy'].pct_change().iloc[-1], 2)) + "%")
 print("QQQ: " + str(round(100*data['Qqq'].pct_change().iloc[-1], 2)) + "%")
 print("IWM: " + str(round(100*data['Iwm'].pct_change().iloc[-1], 2)) + "%")
 print("SOXX: " + str(round(100*data['Soxx'].pct_change().iloc[-1], 2)) + "%")
