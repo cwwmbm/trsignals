@@ -321,16 +321,16 @@ def main():
         contract = Stock(ticker, 'ARCA')
         yfticker = ticker
 
-    data = dt.get_data_yf(yfticker, years=24, Local = False) #True for local data, False for Yahoo Finance
+    data = dt.get_data_yf(yfticker, years=30, Local = False) #True for local data, False for Yahoo Finance
     data = dt.normalize_dataframe(data) #Capitalize the column names
     data = dt.clean_holidays(data) #Remove holidays
     data = ind.add_indicators(data)
 
-    buy_signal = ind.buy_signal20
+    buy_signal = ind.buy_signal4
     # buy_signal = ind.og_new_buy_signal
     data['Buy'], data['Sell'], days, profit, description, verdict, is_long, ignore = buy_signal(data)
     # data['Buy'] = data['Buy'] & (data['IBR2'] > 0.1) & (data['IBR3'] < 0.4) #(data['RSI5SemisBreadth'] > 40) & 
-    data['Buy'] = data['Buy'] #& (data['SMA50_SMA200']>0) #& (data['IBR']<0.3)#
+    data['Buy'] = data['Buy'] & (data['RSI2GoldBreadth']>50) & (data['Stoch'] < 90) & (data['RSI14SemisBreadth'] > 40)
     # data['Sell'] = data['Sell'] | (data['Stoch'] <10)
     
     # results = indicator_tryout(data, days, profit, is_long, is_sell = False)    
@@ -341,12 +341,14 @@ def main():
     # print(results.head(20))
     # results = bt.backtest_ind(data, days, profit, is_long, 'RSI14GoldBreadth', 'both', 0, 100, 10, og=False)
     # print(results.head(20))
+
+
+    # results = bt.backtest_days(data, 5, is_long)
+
     if len(results) >0:
         results = results.sort_values(by=['Sharpe'], ascending=False)
         # results.to_csv('CSV/backtest_results.csv')
         print(results.head(20))
-
-    # results = bt.backtest_days(data, 5, is_long)
     
     data = bt.execute_strategy(data, days, profit, is_long)
     #print(data.head(20))

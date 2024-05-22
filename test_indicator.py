@@ -18,7 +18,7 @@ signals = pd.DataFrame()
 results = pd.DataFrame()
 symbols = ['SPY', 'SMH', 'QQQ', 'SOXX','^VIX', 'XLI','XLU','XLE','XLF','RSP', 'IWM', 'FXI', 'AAPL', 'GDX', 'IBB', 'GLD', 'SLV', 'EEM', 'INDA', 'USO', 'CPER', 'UNG', 'XLK', 'IBM', 'CSCO']
 
-buy_signal = ind.buy_signal20
+buy_signal = ind.buy_signal4
 
 yf_symbols = [symbol+'=F' if symbol in ['NQ', 'ES', 'RTY', 'CL', 'GC', 'SI', 'HG'] else symbol for symbol in symbols]
 symbol_mapping = {symbol: yf_symbol for symbol, yf_symbol in zip(symbols, yf_symbols)}

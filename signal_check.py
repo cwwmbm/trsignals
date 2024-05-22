@@ -21,7 +21,7 @@ i=0
 start_time = time.perf_counter()
 
 signals = pd.DataFrame()
-symbols = ['SPY', 'SMH', 'QQQ', 'SOXX','^VIX', 'XLI','XLU','XLE','XLF','RSP', 'IWM', 'FXI', 'AAPL', 'CSCO', 'GDX', 'INDA', 'GLD', 'MSFT', 'FNGU']
+symbols = ['SPY', 'SMH', 'QQQ', 'SOXX','^VIX', 'XLI','XLU','XLE','XLF','RSP', 'IWM', 'FXI', 'AAPL', 'GDX', 'MSFT', 'GLD', 'IBB', 'TLT']
 # symbols = ['XLI','XLU','XLE','XLF','RSP', 'GDX', 'INDA', 'GLD']
 
 buy_signals = [ind.buy_signal1, ind.buy_signal2, ind.buy_signal3, ind.buy_signal4, ind.buy_signal5, ind.buy_signal6, ind.buy_signal7, ind.buy_signal8, ind.buy_signal9, ind.buy_signal10, 

@@ -421,13 +421,13 @@ def add_indicators(data):
     return data
 
 def buy_signal1 (data, symbol = ticker):
-    allowed_symbols = []
+    allowed_symbols = ['IBB']
     ignore = False if symbol in allowed_symbols else True
-    days = 1
+    days = 2
     profit = 1
-    description= 'Long NQ: Open <= High 1 day ago, High 3 days ago <= Open 8 days ago, EMA 100 > EMA 100 2 days ago, IBR < 0.4, ER <= 0.4'
-    verdict = 'Bad results after 2020'
-    buy = True #(data['Open'] <= data['High'].shift(1)) & (data['High'].shift(3) <= data['Open'].shift(8)) & (data['EMA100'] > data['EMA100'].shift(2))&(data['IBR']<0.4) & (data['ER'] <= 0.4)
+    description= 'Long IBB: RSI5EnergyBreadth < 70, Close_EMA8 < 0, IBR < 0.4'
+    verdict = ''
+    buy = (data['RSI5EnergyBreadth']<70) & (data['Close_EMA8']<0) & (data['IBR']<0.4) #& (data['RSI2SemisBreadth']>10) #True #(data['Open'] <= data['High'].shift(1)) & (data['High'].shift(3) <= data['Open'].shift(8)) & (data['EMA100'] > data['EMA100'].shift(2))&(data['IBR']<0.4) & (data['ER'] <= 0.4)
     #return custom_return(buy, days, profit, description, verdict)
     is_long = True
     sell = False
@@ -448,27 +448,27 @@ def buy_signal2 (data, symbol = ticker):
     #return (data['Close'].shift(1) < data['Close'].shift(2)) & (data['Close'].pct_change(periods=10).shift(1) < 0) & (data['IBR'] <= 0.5) #2/1 for ES, check for NQ, good numbers overall.
 
 def buy_signal3 (data, symbol = ticker):
-    allowed_symbols = []
+    allowed_symbols = ['TLT']
     ignore = False if symbol in allowed_symbols else True
 
-    days = 5
-    profit = 5
+    days = 2
+    profit = 1
     description = 'Long NQ: Close 2 days ago < Close 3 days ago, High 1 day ago == High 5 days ago'
     verdict = 'Big drawdown either way for NQ. For ES 6/6 or 6/5 gives some decent numbers.'
-    buy = False #(data['Close'].shift(2) < data['Close'].shift(3)) & (data['High'].shift(1) == data['High'].rolling(window=5).max())
+    buy = (data['RSI5EnergyBreadth']<60) & (data['IBR3'] < 0.7) & (data['Vix'] < 25) & (data['VFI10'] > 0)
     is_long = True
     sell = False
     return buy, sell, days, profit, description, verdict, is_long, ignore
     #return (data['Close'].shift(2) < data['Close'].shift(3)) & (data['High'].shift(1) == data['High'].rolling(window=5).max()) #5/5 or 7/5 but big drawdown either way for NQ. For ES 6/6 or 6/5 gives some decent numbers.
 
 def buy_signal4 (data, symbol = ticker):
-    allowed_symbols = []
+    allowed_symbols = ['FXI']
     ignore = False if symbol in allowed_symbols else True
-    days = 6
-    profit = 2
-    description = 'Long NQ: SMA50 > SMA200, Low = max low last 3 days, IBR < 0.8'
-    verdict = 'Suspect for elimination'
-    buy = False#(data['SMA50'] > data['SMA200']) & (data['Low'] == data['Low'].rolling(window=3).max()) & (data['IBR'] <= 0.8)
+    days = 3
+    profit = 1
+    description = 'New strat for FXI: RSI2GoldBreadth > 50, Stoch < 90, RSI14SemisBreadth > 40'
+    verdict = 'Seems good'
+    buy = (data['RSI2GoldBreadth']>50) & (data['Stoch'] < 90) & (data['RSI14SemisBreadth'] > 40)
     is_long = True
     sell = False
     return buy, sell, days, profit, description, verdict, is_long, ignore
@@ -631,7 +631,7 @@ def buy_signal15(data, symbol = ticker):
     return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal16(data, symbol = ticker):
-    allowed_symbols = ['SMH', 'QQQ', 'ORCL', 'SOXX', 'MSFT']
+    allowed_symbols = ['SMH', 'QQQ', 'ORCL', 'SOXX', 'MSFT', 'TECL']
     ignore = False if symbol in allowed_symbols else True
     days = 4
     profit = 1
