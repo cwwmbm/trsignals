@@ -97,7 +97,7 @@ def get_data_yf(ticker, years=1, Local=False):
         data_symbol = pd.read_csv(f'CSV/{ticker}_yf.csv', index_col='Date', parse_dates=True)
     else:
         print("Using yahoo finance")
-        tickers = [ticker, '^VIX', 'SPY', 'RSP', 'QQQ', 'SMH', 'IWM', 'XLF','XLE', 'XLU', 'XLI', 'SOXX', 'GLD']
+        tickers = [ticker, '^VIX', 'SPY', 'RSP', 'QQQ', 'SMH', 'IWM', 'XLF','XLE', 'XLU', 'XLI', 'SOXX', 'GLD', 'TLT']
         data = yf.download(tickers, start=start_date, end=end_date)
         vix = data['Close']['^VIX']
         qqq = data['Close']['QQQ']
@@ -127,6 +127,7 @@ def get_data_yf(ticker, years=1, Local=False):
         data_symbol['UtilitiesBreadth'] = xlu_to_spy
         data_symbol['IndustrialsBreadth'] = xli_to_spy     
         data_symbol['IWMBreadth'] = iwm_to_spy
+        data_symbol['BondBreadth'] = data['Close']['TLT'] / data['Close']['SPY']
         data_symbol['GoldBreadth'] = data['Close']['GLD'] / data['Close']['SPY']
         spy50 = data['Close']['SPY'].rolling(50).mean()
         spy200 = data['Close']['SPY'].rolling(200).mean()

@@ -21,7 +21,7 @@ i=0
 start_time = time.perf_counter()
 
 signals = pd.DataFrame()
-symbols = ['SPY', 'SMH', 'QQQ', 'SOXX','^VIX', 'XLI','XLU','XLE','XLF','RSP', 'IWM', 'FXI', 'AAPL', 'GDX', 'MSFT', 'GLD', 'IBB', 'TLT']
+symbols = ['SPY', 'SMH', 'QQQ', 'SOXX','^VIX', 'XLI','XLU','XLE','XLF','RSP', 'IWM', 'FXI', 'AAPL', 'GDX', 'MSFT', 'GLD', 'XBI', 'TLT']
 # symbols = ['XLI','XLU','XLE','XLF','RSP', 'GDX', 'INDA', 'GLD']
 
 buy_signals = [ind.buy_signal1, ind.buy_signal2, ind.buy_signal3, ind.buy_signal4, ind.buy_signal5, ind.buy_signal6, ind.buy_signal7, ind.buy_signal8, ind.buy_signal9, ind.buy_signal10, 
@@ -66,6 +66,7 @@ for symbol, yf_symbol in symbol_mapping.items():
     data['UtilitiesBreadth'] = xlu_to_spy
     data['IndustrialsBreadth'] = xli_to_spy
     data['GoldBreadth'] = gold_to_spy
+    data['BondBreadth'] = full_data['Close']['TLT'] / full_data['Close']['SPY']
     data['SPYBull'] = np.where(spy50>spy200, 1, -1)
     data = dt.normalize_dataframe(data)
     data = data.drop(columns = ['Adj close'])

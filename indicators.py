@@ -39,7 +39,11 @@ def sharpes_ratio(data, risk_free_rate=0, periods_per_year=252):
     daily_return_std = data.loc[data['RollingPnL'] != 0, 'DailyReturn'].std()
 
     # Calculate the Sharpe ratio
-    sharpe_ratio = math.sqrt(periods_per_year)*(average_daily_return - risk_free_rate) / daily_return_std if daily_return_std != 0 else 0
+    # If last RollingPnL is < 0 then sharpe = -100
+    if data['RollingPnL'].iloc[-1] < 0:
+        sharpe_ratio = -100
+    else:
+        sharpe_ratio = math.sqrt(periods_per_year)*(average_daily_return - risk_free_rate) / daily_return_std if daily_return_std != 0 else 0
     return sharpe_ratio
 
 #Calculate Sortino Ratio
@@ -377,6 +381,9 @@ def add_indicators(data):
     data['RSI2GoldBreadth'] = ta.momentum.RSIIndicator(data['Goldbreadth'], window=2).rsi()
     data['RSI5GoldBreadth'] = ta.momentum.RSIIndicator(data['Goldbreadth'], window=5).rsi()
     data['RSI14GoldBreadth'] = ta.momentum.RSIIndicator(data['Goldbreadth'], window=14).rsi()
+    data['RSI2BondBreadth'] = ta.momentum.RSIIndicator(data['Bondbreadth'], window=2).rsi()
+    data['RSI5BondBreadth'] = ta.momentum.RSIIndicator(data['Bondbreadth'], window=5).rsi()
+    data['RSI14BondBreadth'] = ta.momentum.RSIIndicator(data['Bondbreadth'], window=14).rsi()
     data['EMA8'] = ta.trend.ema_indicator(data['Close'], window=8)
     data['EMA8CrossUp'] = np.where((data['Close'] > data['EMA8']) & (data['Close'].shift(1) < data['EMA8'].shift(1)), 1, -1)
     data['EMA8CrossDown'] = np.where((data['Close'] < data['EMA8']) & (data['Close'].shift(1) > data['EMA8'].shift(1)), 1, -1)
@@ -421,13 +428,13 @@ def add_indicators(data):
     return data
 
 def buy_signal1 (data, symbol = ticker):
-    allowed_symbols = ['IBB']
+    allowed_symbols = ['XBI']
     ignore = False if symbol in allowed_symbols else True
     days = 2
     profit = 1
     description= 'Long IBB: RSI5EnergyBreadth < 70, Close_EMA8 < 0, IBR < 0.4'
     verdict = ''
-    buy = (data['RSI5EnergyBreadth']<70) & (data['Close_EMA8']<0) & (data['IBR']<0.4) #& (data['RSI2SemisBreadth']>10) #True #(data['Open'] <= data['High'].shift(1)) & (data['High'].shift(3) <= data['Open'].shift(8)) & (data['EMA100'] > data['EMA100'].shift(2))&(data['IBR']<0.4) & (data['ER'] <= 0.4)
+    buy = (data['Close_EMA8']<0) & (data['IBR']<0.4) & (data['ChangeVelocity'] > -1 ) & (data['RSI5IndustrialsBreadth'] > 20)#&(data['RSI5EnergyBreadth']<70) &  (data['RSI2SemisBreadth']>10) #True #(data['Open'] <= data['High'].shift(1)) & (data['High'].shift(3) <= data['Open'].shift(8)) & (data['EMA100'] > data['EMA100'].shift(2))&(data['IBR']<0.4) & (data['ER'] <= 0.4)
     #return custom_return(buy, days, profit, description, verdict)
     is_long = True
     sell = False
@@ -468,7 +475,7 @@ def buy_signal4 (data, symbol = ticker):
     profit = 1
     description = 'New strat for FXI: RSI2GoldBreadth > 50, Stoch < 90, RSI14SemisBreadth > 40'
     verdict = 'Seems good'
-    buy = (data['RSI2GoldBreadth']>50) & (data['Stoch'] < 90) & (data['RSI14SemisBreadth'] > 40)
+    buy = (data['RSI2GoldBreadth']>50)  & (data['RSI14SemisBreadth'] > 40) & (data['Stoch'] < 90)
     is_long = True
     sell = False
     return buy, sell, days, profit, description, verdict, is_long, ignore
@@ -488,13 +495,13 @@ def buy_signal5 (data, symbol = ticker):
    #return (pd.notna(data['ER'])) & (data['ER'] >= 0.5) & (data['IBR'] <= 0.8)  #Hold 2 days profit 1
 
 def buy_signal6 (data, symbol = ticker):
-    allowed_symbols = ['NQ', 'ES']
+    allowed_symbols = ['NVDA']
     ignore = False if symbol in allowed_symbols else True  
-    days = 4
+    days = 2
     profit = 1
     description = 'Long NQ: CCI <= -150, IBR <= 0.4'
     verdict = 'Very low drawdowns. Decent results with OG strat'
-    buy = (pd.notna(data['CCI'])) & (data['CCI'] <= -150) & (data['IBR'] <= 0.2)
+    buy = (data['RSI5RiskBreadth'] > 60) & (data['ValueCharts']>0) #& (data['VFI20'] < 8) #(pd.notna(data['CCI'])) & (data['CCI'] <= -150) #& (data['IBR'] <= 0.2)
     is_long = True
     sell = False
     return buy, sell, days, profit, description, verdict, is_long, ignore
@@ -503,7 +510,7 @@ def buy_signal6 (data, symbol = ticker):
 def buy_signal7 (data, symbol = ticker):
     allowed_symbols = ['NQ', 'SMH', 'ES', 'QQQ', 'FXI','AAPL', 'SOXX', 'MSFT']
     ignore = False if symbol in allowed_symbols else True
-    days = 3
+    days = 2
     profit = 1
     description = 'Long NQ: Close 1 day ago <= Close 3 days ago, IBR <= 0.4'
     verdict = '3/3 for NQ, 3/1 for SMH, ES. Monster of a strategy.'
@@ -563,15 +570,15 @@ def buy_signal10(data, symbol = ticker):
     return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal11(data, symbol = ticker):
-    allowed_symbols = []
+    allowed_symbols = ['NVDA']
     ignore = False if symbol in allowed_symbols else True
     days = 2  # You can set the days_to_hold value here
     profit = 1  # You can set the profit target value here
     description = "Replacebale"
     verdict = "Doesn't work"
-    is_long = False
+    is_long = True
 
-    buy = False#(data['Close'] < data['SMA50']) & (data['Close'] < data['SMA200']) & (data['High'] < data['High'].shift(1)) & (data['High'].shift(1) < data['High'].shift(2)) & (data['RSI2'] > 10)
+    buy =  (data['VFI80'] > 0) & (data['EMA8CrossDown'] < 0) & (data['IBR3'] < 0.8) &(data['RSI5IndustrialsBreadth']<80) & (data['RSI5SemisBreadth']>20)
 
     sell = False
     return buy, sell, days, profit, description, verdict, is_long, ignore
@@ -579,14 +586,14 @@ def buy_signal11(data, symbol = ticker):
 def buy_signal12(data, symbol = ticker):
     allowed_symbols = []
     ignore = False if symbol in allowed_symbols else True
-    days = 9  # You can set the days_to_hold value here
-    profit = 9  # You can set the profit target value here
+    days = 2  # You can set the days_to_hold value here
+    profit = 1  # You can set the profit target value here
     description = "Long NQ: Volume < Volume 2 days ago, ValueCharts < 2, SMA50 > SMA200"
     verdict = "9/9 Very high returns for NQ but not anything else. Investigate overfitting."
 
 
 
-    buy = False#(data['Volume'] < data['Volume'].shift(2)) & (data['ValueCharts'] < 2) & (data['SMA50'] > data['SMA200']) & (data['ER']<0.5)
+    buy = True#(data['Volume'] < data['Volume'].shift(2)) & (data['ValueCharts'] < 2) & (data['SMA50'] > data['SMA200']) & (data['ER']<0.5)
     is_long = True
     sell = False
     return buy, sell, days, profit, description, verdict, is_long, ignore
