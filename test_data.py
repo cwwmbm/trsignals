@@ -15,7 +15,7 @@ elif (ticker == 'GBPUSD'):
 else:
         yfticker = ticker
 
-yfticker = 'XBI'
+yfticker = 'UUP'
 data = dt.get_data_yf(yfticker, 25, False) #True for local data, False for Yahoo Finance
 #vix_data = dt.get_data_yf('^VIX', 20, False)
 #Add VIX data to dataframe

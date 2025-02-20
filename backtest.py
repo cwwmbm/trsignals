@@ -169,12 +169,14 @@ def backtest_sell_ind(data, days_in_trade, profitable_close, is_long, column_nam
     return results
 
 def execute_strategy (data, days, profit, is_long = True):
-    if days == 0:
-        results = og_strat(data)
-        #print('og_strat'+str(is_long)+str(days)+str(profit))
-    else:
+    if days > 0:
         results = long_strat(data, days, profit, is_long)
-        #print('long_strat'+str(is_long)+str(days)+str(profit))
+    else:
+        if UseProxyUnderlying:
+            results = long_og_strat_proxy(data = data, days = days, profit = profit)
+        else:
+            results = og_strat(data)
+            #print('og_strat'+str(is_long)+str(days)+str(profit))    
     return results
 
 #Original Main Strategy
@@ -262,6 +264,149 @@ def og_strat(data, days = 0, profit = 0, external_count = 0, start_capital = 150
 
     return data
 
+# def long_strat(data, days, prof_closes, is_long = True, start_capital = 15000, point_multiplier = point_multiplier):
+#     signals = data
+#     signals['LongTradeIn'] = False
+#     signals['LongTradeOut'] = False
+#     signals['HoldLong'] = False
+#     signals['DaysInTrade'] = 0
+#     signals['ProfitableCloses'] = 0
+#     signals['RollingPnL'] = 0
+#     signals['TradePnL'] = 0
+#     signals['TradeEntry'] = 0
+#     baddates = pd.DataFrame()
+#     #signals['TradeInvestment'] = 0
+
+#     for i, row in signals.iterrows():
+#         signals['HoldLong'].at[i] = (signals['HoldLong'].shift(1).at[i] and not signals['LongTradeOut'].shift(1).at[i] and (i>0)) or ( #If previously long and not trade out on previous day
+#                                     signals['LongTradeIn'].shift(1).at[i] and i>0)                                            #Or if Enetering trade on previous day
+#         #signals['LongTradeIn'].at[i] = signals['Buy'].at[i] and not signals['HoldLong'].at[i]
+#         signals['LongTradeIn'].at[i] = signals['Buy'].at[i] and not (signals['HoldLong'].at[i] and not signals['LongTradeOut'].at[i])
+#         signals['DaysInTrade'].at[i] = signals['DaysInTrade'].shift(1).at[i] + 1 if (signals['HoldLong'].at[i] and i>0) else 0
+#         #if i>0:
+#         #    signals['TradeInvestment'].at[i] = signals['RollingPnL'].at[i] if (signals['LongTradeIn'].at[i]) else signals['TradeInvestment'].shift(1).at[i] if signals['HoldLong'].at[i] else 0
+#         if (signals['HoldLong'].at[i] and i>0):
+#             if (is_long):
+#                #signals['ProfitableCloses'].at[i] = (signals['ProfitableCloses'].shift(1).at[i] + 1) if (signals['TradePnL'].at[i] > 0) else signals['ProfitableCloses'].shift(1).at[i]
+#                signals['ProfitableCloses'].at[i] = signals['ProfitableCloses'].shift(1).at[i] + 1 if (signals['Close'].at[i] > signals['Close'].shift(1).at[i]) else signals['ProfitableCloses'].shift(1).at[i]
+#             else:
+#                signals['ProfitableCloses'].at[i] = signals['ProfitableCloses'].shift(1).at[i] + 1 if (signals['Close'].at[i] < signals['Close'].shift(1).at[i]) else signals['ProfitableCloses'].shift(1).at[i] 
+
+#         signals['LongTradeOut'].at[i] = ((signals['Sell'].at[i] and signals['HoldLong'].at[i]) or (signals['DaysInTrade'].at[i] >= days) or (signals['ProfitableCloses'].at[i] >= prof_closes))
+#         signals['TradeEntry'].at[i] = signals['Close'].at[i] if signals['LongTradeIn'].at[i] else signals['TradeEntry'].shift(1).at[i] if signals['HoldLong'].at[i] else 0
+#         #signals['TradePnL'].at[i] = (signals['TradePnL'].shift(1).at[i] + (signals['Close'].at[i] - signals['Close'].shift(1).at[i])) if (signals['HoldLong'].at[i] and i>0) else 0
+#         signals['TradePnL'].at[i] = (signals['Close'].at[i] - signals['TradeEntry'].at[i]) / signals['TradeEntry'].at[i] if signals['HoldLong'].at[i] else 0
+
+#         #Calculate rolling PnL for the strategy
+#         if i == 0:
+#             signals['RollingPnL'].at[i] = start_capital
+#         elif signals['HoldLong'].at[i]: 
+#             #signals['RollingPnL'].at[i] = signals['RollingPnL'].shift(1).at[i] + signals['Close'].at[i] - signals['Close'].shift(1).at[i]
+#             signals['RollingPnL'].at[i] = (1+signals['%Change'].at[i])*signals['RollingPnL'].shift(1).at[i] if is_long else (1-signals['%Change'].at[i])*signals['RollingPnL'].shift(1).at[i]
+#         else:
+#             signals['RollingPnL'].at[i] = signals['RollingPnL'].shift(1).at[i]    
+#         #check if RollingPnL is N/A
+#         #if pd.isnull(row['RollingPnL']):
+#         #    baddates = baddates.append(row)
+
+
+#     #signals['RollingPnL'] = signals['RollingPnL']#*point_multiplier
+#     #signals['TradePnL'] = signals['TradePnL']*point_multiplier
+#     signals['TradePnL'] = -1*Leverage*signals['TradePnL'] if not is_long else Leverage*signals['TradePnL']
+#     # Calculate the running maximum of the 'RollingPnL' column
+#     signals['RunningMax'] = signals['RollingPnL'].cummax()
+
+#     # Calculate the drawdown as the difference between the running maximum and the current 'RollingPnL' value
+#     signals['Drawdown'] = (signals['RunningMax'] - signals['RollingPnL'])/signals['RunningMax']
+#     #signals['TradePnL'] = signals['TradePnL'].apply(format_dollar_value)
+#     #signals['RollingPnL'] = signals['RollingPnL'].apply(format_dollar_value)
+#     baddates.to_csv('baddates.csv')
+#     return signals
+
+
+def long_og_strat_proxy(data, days = 0, profit = 0, start_capital = 15000):
+
+    data['OneDayBuy'] = False
+    data['HoldLong'] = False
+    data['LongTradeIn'] = False
+    data['LongTradeOut'] = False
+    data['DaysInTrade'] = 0
+    data['ProfitableCloses'] = 0
+    data['RollingPnL'] = 0
+    data['TradePnL'] = 0
+    data['TradeEntry'] = 0
+    split_change = (data[ProxySymbol] - data[ProxySymbol].shift(1))*Leverage / data[ProxySymbol].shift(1) if data[ProxySymbol].shift(1).any() > 0 else 0
+    if SplitLong:
+        underlying_change = (data['%Change'])
+        data['TrackChange'] = (split_change + underlying_change)/2
+    else:
+        data['TrackChange'] = split_change
+    
+    """
+    if set_sell:
+        data['Sell'] = ((data['RSI2'] > RSI2Sell) & (data['RSI5'] > RSI5Sell)) | (                            #RSI2 and RSI5 above threashold
+            (data['Close'].shift(1) > data['EMA8'].shift(1)) & (data['Close'] < data['EMA8'])) | (            #Crossing EMA8 down
+            (ExitOnVolatility) & ((data['VolumeEMADiff'] >= VolumeEMAThreashold))) | (                        #Volume more than EMAThreashold !!!!!!!!!!!DOESNT WORK - INVESTIGATE!!!!!!!!
+            #(data['Close'] - data['Close'].shift(1)) / data['Close'].shift(1) < -MaxDecline) | (              #Decline more than 4%
+            (data['VolumeEMADiff'] > VolumeEMAThreashold) & (data['Volatility'] > VolatilityThreashold))      #Big volume and volatility  
+    """
+    # Add one day buy signal
+    data['OneDayBuy'] = False
+    data['OneDayBuy'] = (((data['Close'] <=  data['Close'].rolling(DownDays).min()) & (data['VolumeEMADiff'] < -VolumeEMAThreasholdBuy) & (LowVolumeBuy))) | ( #Low volume buy
+            (data['Close'] < data['Close'].shift(1)) & (pd.to_datetime(data['Date']).dt.dayofweek == 0) & (MondayBuy))                                          #Monday buy
+                                                                                                         
+
+
+    # Calculate days when entering and exiting trades
+    #data['OneDayArm'] = False
+
+    for i, row in data.iterrows():
+        if i == 0:
+            data['HoldLong'].at[i] = False
+            data['LongTradeOut'].at[i] = False
+            data['TradeEntry'].at[i] = 0
+            data['TradePnL'].at[i] = 0
+            data['RollingPnL'].at[i] = start_capital
+        else:
+            data['HoldLong'].at[i] = ((data['HoldLong'].shift(1).at[i] and not data['LongTradeOut'].shift(1).at[i]) or ( #If previously long and not trade out on previous day
+                                        data['LongTradeIn'].shift(1).at[i]) or (                                        #Or if Enetering trade on previous day
+                                        data['OneDayBuy'].shift(1).at[i]))                                              #Or if one day buy on previous day??? Do we need this?
+            data['LongTradeIn'].at[i] = (data['Buy'].at[i] or data['OneDayBuy'].at[i]) and not data['HoldLong'].at[i]
+            data['DaysInTrade'].at[i] = data['DaysInTrade'].shift(1).at[i] + 1 if (data['HoldLong'].at[i] and i>0) else 0
+            if (data['HoldLong'].at[i]):
+                data['ProfitableCloses'].at[i] = data['ProfitableCloses'].shift(1).at[i] + 1 if (data['Close'].at[i] > data['Close'].shift(1).at[i]) else data['ProfitableCloses'].shift(1).at[i]
+            data['TradeEntry'].at[i] = data['Close'].at[i] if (((data['LongTradeIn'].at[i] or data['OneDayBuy'].at[i])) and data['TradeEntry'].shift(1).at[i] == 0) else data['TradeEntry'].shift(1).at[i] if data['HoldLong'].at[i] else 0
+            data['TradePnL'].at[i] = data['TradePnL'].shift(1).at[i] + data['TrackChange'].at[i] if data['HoldLong'].at[i] else 0
+            #(data['Close'].at[i] - data['TradeEntry'].at[i]) / data['TradeEntry'].at[i] if data['HoldLong'].at[i] else 0
+            data['LongTradeOut'].at[i] = (data['Sell'].at[i] and data['HoldLong'].at[i]) or (                           #If sell signal and hold long
+                                        data['OneDayBuy'].shift(1).at[i] and not data['HoldLong'].shift(1).at[i] and not data['Buy'].shift(1).at[i]) or ( #Or if one day buy and not hold long on previous day (and not buy signal today)
+                                        data['TradePnL'].at[i] < -stop_loss)                                            #Or if hit stoploss 
+            if (days > 0):
+                data['LongTradeOut'].at[i] = data['LongTradeOut'].at[i] or (data['DaysInTrade'].at[i] >= days) or (data['ProfitableCloses'].at[i] >= profit)
+            #data['TradeEntry'].at[i] = data['Close'].at[i] if (data['LongTradeIn'].at[i] or data['OneDayBuy'].at[i]) else data['TradeEntry'].shift(1).at[i] if data['HoldLong'].at[i] else 0
+
+
+        #Calculate rolling PnL for the strategy
+        if i == 0:
+            data['RollingPnL'].at[i] = start_capital
+        elif data['HoldLong'].at[i]: 
+            #signals['RollingPnL'].at[i] = signals['RollingPnL'].shift(1).at[i] + signals['Close'].at[i] - signals['Close'].shift(1).at[i]
+            data['RollingPnL'].at[i] = (1+data['TrackChange'].at[i])*data['RollingPnL'].shift(1).at[i]
+        else:
+            data['RollingPnL'].at[i] = data['RollingPnL'].shift(1).at[i]   
+    # print (data['RollingPnL'])
+
+    # Calculate the running maximum of the 'RollingPnL' column
+    data['RunningMax'] = data['RollingPnL'].cummax()
+
+    # Calculate the drawdown as the difference between the running maximum and the current 'RollingPnL' value
+    data['Drawdown'] = (data['RunningMax'] - data['RollingPnL'])/data['RunningMax']
+    #signals['TradePnL'] = signals['TradePnL'].apply(format_dollar_value)
+    #signals['RollingPnL'] = signals['RollingPnL'].apply(format_dollar_value)
+    # print (data.head(-10))
+
+    return data
+
 def long_strat(data, days, prof_closes, is_long = True, start_capital = 15000, point_multiplier = point_multiplier):
     signals = data
     signals['LongTradeIn'] = False
@@ -273,6 +418,15 @@ def long_strat(data, days, prof_closes, is_long = True, start_capital = 15000, p
     signals['TradePnL'] = 0
     signals['TradeEntry'] = 0
     baddates = pd.DataFrame()
+    split_change = (data[ProxySymbol] - data[ProxySymbol].shift(1))*Leverage / data[ProxySymbol].shift(1) if data[ProxySymbol].shift(1).any() > 0 else 0
+    if not UseProxyUnderlying:
+        data['TrackChange'] = data['%Change']
+    else:
+        if SplitLong:
+            underlying_change = (data['%Change'])
+            data['TrackChange'] = (split_change + underlying_change)/2
+        else:
+            data['TrackChange'] = split_change
     #signals['TradeInvestment'] = 0
 
     for i, row in signals.iterrows():
@@ -300,7 +454,7 @@ def long_strat(data, days, prof_closes, is_long = True, start_capital = 15000, p
             signals['RollingPnL'].at[i] = start_capital
         elif signals['HoldLong'].at[i]: 
             #signals['RollingPnL'].at[i] = signals['RollingPnL'].shift(1).at[i] + signals['Close'].at[i] - signals['Close'].shift(1).at[i]
-            signals['RollingPnL'].at[i] = (1+signals['%Change'].at[i])*signals['RollingPnL'].shift(1).at[i] if is_long else (1-signals['%Change'].at[i])*signals['RollingPnL'].shift(1).at[i]
+            signals['RollingPnL'].at[i] = (1+signals['TrackChange'].at[i])*signals['RollingPnL'].shift(1).at[i] if is_long else (1-signals['TrackChange'].at[i])*signals['RollingPnL'].shift(1).at[i]
         else:
             signals['RollingPnL'].at[i] = signals['RollingPnL'].shift(1).at[i]    
         #check if RollingPnL is N/A

@@ -333,19 +333,20 @@ def main():
         contract = Stock(ticker, 'ARCA')
         yfticker = ticker
 
-    data = dt.get_data_yf(yfticker, years=20, Local = False) #True for local data, False for Yahoo Finance
+    data = dt.get_data_yf(yfticker, years=25, Local = False) #True for local data, False for Yahoo Finance
     data = dt.normalize_dataframe(data) #Capitalize the column names
     data = dt.clean_holidays(data) #Remove holidays
     data = ind.add_indicators(data)
 
-    # buy_signal = ind.buy_signal12
-    buy_signal = ind.og_new_buy_signal
+    buy_signal = ind.buy_signal16
+    # buy_signal = ind.og_new_buy_signal
     data['Buy'], data['Sell'], days, profit, description, verdict, is_long, ignore = buy_signal(data)
-    # data['Buy'] = data['Buy'] & (data['IBR2'] > 0.1) & (data['IBR3'] < 0.4) #(data['RSI5SemisBreadth'] > 40) & 
-    # data['Buy'] = data['Buy'] & (data['Low'] < data['Low'].shift(1)) & (data['Close'] > data['High'].shift(1)) & (data['RSI2'].shift(1)<15)   #& (data['VFI40'] < 8) &   #& (data['RSI5IndustrialsBreadth']<80)
-    data['Sell'] = data['Sell'] #| (data['VolumeEMADiff'] > VolumeEMAThreashold)
+    # print(data['BBUpper'])
+    # data['Buy'] = data['Buy'] & (data['ValueCharts'] < 0) #& (data['ValueCharts'] < 0) #(data['RSI5SemisBreadth'] > 40) & 
+    # data['Buy'] = data['Buy'] & (data['RSI14Breadth']<30) & (data['RSI2']>90) # & (data['Close'] < data['BBUpper'])#data['Close'].shift(1)# & (data['Close'] > data['High'].shift(1)) & (data['RSI2'].shift(1)<15)   #& (data['VFI40'] < 8) &   #& (data['RSI5IndustrialsBreadth']<80)
+    # data['Sell'] = data['Sell'] | (data['SMA20'] > data['SMA200']) | (data['RSI14'] < 50)
     
-    # results = indicator_tryout(data, days, profit, is_long, is_sell = False, check_breadth=True, check_both=False)    
+    # results = indicator_tryout(data, days, profit, is_long, is_sell = False, check_breadth=False, check_both=False)    
     #results = results._append(indicator_tryout(data, days, profit, is_long, is_sell = True))
     # results = bt.backtest_ind(data, days, profit, is_long, 'RSI2GoldBreadth', 'both', 0, 100, 10, og=False)
     # print(results.head(20))
@@ -355,15 +356,15 @@ def main():
     # print(results.head(20))
 
 
-    # results = bt.backtest_days(data, 5, is_long)
+    # results = bt.backtest_days(data, 7, is_long)
 
     if len(results) >0:
         results = results.sort_values(by=['Sharpe'], ascending=False)
         # results.to_csv('CSV/backtest_results.csv')
         print(results.head(20))
-    
     data = bt.execute_strategy(data, days, profit, is_long)
-    #print(data.head(20))
+    # data.to_csv(f'CSV/{ticker}_{buy_signal.__name__}.csv')
+    # print(data.head(20))
     print_stats(data, days, profit, description)
     data.to_csv(f'CSV/{ticker}_{buy_signal.__name__}.csv')
 

@@ -17,6 +17,9 @@ Leverage = 3
 #One day buy variables
 MondayBuy = True
 LowVolumeBuy = True
+UseProxyUnderlying = False
+SplitLong = False
+ProxySymbol = 'Soxx'
 VolumeEMAThreasholdBuy = 0.15
 DownDays = 3
 OneDayArm = False #No code written to support this yet

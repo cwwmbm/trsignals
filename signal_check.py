@@ -67,6 +67,8 @@ for symbol, yf_symbol in symbol_mapping.items():
     data['IndustrialsBreadth'] = xli_to_spy
     data['GoldBreadth'] = gold_to_spy
     data['BondBreadth'] = full_data['Close']['TLT'] / full_data['Close']['SPY']
+    data['Soxx'] = full_data['Close']['SOXX']
+    data['QQQ'] = full_data['Close']['QQQ']
     data['SPYBull'] = np.where(spy50>spy200, 1, -1)
     data = dt.normalize_dataframe(data)
     data = data.drop(columns = ['Adj close'])

@@ -384,6 +384,7 @@ def add_indicators(data):
     data['RSI2BondBreadth'] = ta.momentum.RSIIndicator(data['Bondbreadth'], window=2).rsi()
     data['RSI5BondBreadth'] = ta.momentum.RSIIndicator(data['Bondbreadth'], window=5).rsi()
     data['RSI14BondBreadth'] = ta.momentum.RSIIndicator(data['Bondbreadth'], window=14).rsi()
+    data['BBUpper'], data['BBMiddle'], data['BBLower'] = ta.volatility.bollinger_hband(data['Close']), ta.volatility.bollinger_mavg(data['Close']), ta.volatility.bollinger_lband(data['Close'])
     data['EMA8'] = ta.trend.ema_indicator(data['Close'], window=8)
     data['EMA8CrossUp'] = np.where((data['Close'] > data['EMA8']) & (data['Close'].shift(1) < data['EMA8'].shift(1)), 1, -1)
     data['EMA8CrossDown'] = np.where((data['Close'] < data['EMA8']) & (data['Close'].shift(1) > data['EMA8'].shift(1)), 1, -1)
@@ -473,8 +474,8 @@ def buy_signal4 (data, symbol = ticker):
     ignore = False if symbol in allowed_symbols else True
     days = 3
     profit = 1
-    description = 'New strat for FXI: RSI2GoldBreadth > 50, Stoch < 90, RSI14SemisBreadth > 40'
-    verdict = 'Seems good'
+    description = 'For SPY, add ValueCharts<0 condition. New strat for FXI: RSI2GoldBreadth > 50, Stoch < 90, RSI14SemisBreadth > 40'
+    verdict = 'For SPY, add ValueCharts<0 condition. Seems good'
     buy = (data['RSI2GoldBreadth']>50)  & (data['RSI14SemisBreadth'] > 40) & (data['Stoch'] < 90)
     is_long = True
     sell = False
@@ -482,13 +483,13 @@ def buy_signal4 (data, symbol = ticker):
    #return (data['SMA50'] > data['SMA200']) & (data['Low'] == data['Low'].rolling(window=3).max()) & (data['IBR'] <= 80) #Hold 2 days profit 2
 
 def buy_signal5 (data, symbol = ticker):
-    allowed_symbols = ['QQQ', 'SPY']
+    allowed_symbols = []
     ignore = False if symbol in allowed_symbols else True
-    days = 2
-    profit = 1
+    days = 10
+    profit = 100
     description = 'Long NQ: ER >= 0.5, IBR <= 0.8'
     verdict = 'Low profit but low drawdown.'
-    buy = (pd.notna(data['ER'])) & (data['ER'] >= 0.5) & (data['IBR'] <= 0.8) & (data['RSI14SemisBreadth'] >30)
+    buy = True #(pd.notna(data['ER'])) & (data['ER'] >= 0.5) & (data['IBR'] <= 0.8) & (data['RSI14SemisBreadth'] >30)
     is_long = True
     sell = False
     return buy, sell, days, profit, description, verdict, is_long, ignore
@@ -551,7 +552,7 @@ def buy_signal9(data, symbol = ticker):
     return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal10(data, symbol = ticker):
-    allowed_symbols = ['SMH']
+    allowed_symbols = ['SMH', 'SPY']
     ignore = False if symbol in allowed_symbols else True
     days = 3  # You can set the days_to_hold value here
     profit = 1  # You can set the profit target value here
@@ -676,15 +677,15 @@ def buy_signal18(data, symbol = ticker):
     return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal19(data, symbol = ticker):
-    allowed_symbols = ['GC', 'SI']
+    allowed_symbols = []
     ignore = False if symbol in allowed_symbols else True
-    days = 1
-    profit = 1
+    days = 100
+    profit = 100
     description = "Long GC: Vix[0] <= Vix[1], rsi(close,14)[0] >= 30, IBR[0] <= 50"
     verdict = "1/1"
-    buy = (data['Vix'] <= data['Vix'].shift(1)) & (data['RSI14'] >= 30) & (data['IBR'] <= 0.5) & (data['RSI5'] < 90)
+    buy = (data['Vix'] <= 10)
     is_long = True
-    sell = False
+    sell = (data['Vix']>11)
     return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal20(data, symbol = ticker):
@@ -800,9 +801,9 @@ def og_new_sell_signal(data, symbol = ticker):
     
     sell = ((data['RSI2'] > RSI2Sell) & (data['RSI5'] > RSI5Sell)) | (                                #RSI2 and RSI5 above threashold
             #(data['Close'].shift(1) > data['EMA8'].shift(1)) & (data['Close'] < data['EMA8'])) | (            #Crossing EMA8 down
-            (ExitOnVolatility) & ((data['VolumeEMADiff'] >= VolumeEMAThreashold))) | (                        #Volume more than EMAThreashold !!!!!!!!!!!DOESNT WORK - INVESTIGATE!!!!!!!!
+            #  ((data['VolumeEMADiff'] >= VolumeEMAThreashold))) | (                        #Volume more than EMAThreashold !!!!!!!!!!!DOESNT WORK - INVESTIGATE!!!!!!!!
             #(data['Close'] - data['Close'].shift(1)) / data['Close'].shift(1) < -MaxDecline) | (              #Decline more than 4%
-            ((data['VolumeEMADiff'] > VolumeEMAThreashold) & (data['Volatility'] > VolatilityThreashold))       #Big volume and volatility  
+            ((ExitOnVolatility) & (data['VolumeEMADiff'] > VolumeEMAThreashold) & (data['Volatility'] > VolatilityThreashold))       #Big volume and volatility  
             | (data['SMA50_SMA200'] <0) | (data['EMA8CrossDown'] > 0))                                           #New Condition
 
     return sell#, 0, 0, description, verdict, is_long, ignore
