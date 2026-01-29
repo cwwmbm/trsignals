@@ -1,3 +1,9 @@
+import warnings
+# Suppress FutureWarnings and other non-critical warnings
+warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings('ignore', message='.*auto_adjust.*')
+warnings.filterwarnings('ignore', message='.*T.*is deprecated.*')
+warnings.filterwarnings('ignore', message='.*Setting an item of incompatible dtype.*')
 from ib_insync import IB, Future, util, Stock
 import ta
 import yfinance as yf
@@ -338,7 +344,7 @@ def main():
     data = dt.clean_holidays(data) #Remove holidays
     data = ind.add_indicators(data)
 
-    buy_signal = ind.buy_signal16
+    buy_signal = ind.buy_signal9
     # buy_signal = ind.og_new_buy_signal
     data['Buy'], data['Sell'], days, profit, description, verdict, is_long, ignore = buy_signal(data)
     # print(data['BBUpper'])

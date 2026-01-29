@@ -1,3 +1,16 @@
+import warnings
+import os
+# Suppress FutureWarnings and other non-critical warnings
+warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings('ignore', message='.*auto_adjust.*')
+warnings.filterwarnings('ignore', message='.*T.*is deprecated.*')
+warnings.filterwarnings('ignore', message='.*Setting an item of incompatible dtype.*')
+# Suppress Streamlit warnings when running as script
+os.environ['STREAMLIT_BROWSER_GATHER_USAGE_STATS'] = 'false'
+# Redirect Streamlit's internal warnings
+import logging
+logging.getLogger('streamlit').setLevel(logging.ERROR)
+
 import pandas as pd
 #import nest_asyncio
 #nest_asyncio.apply()
@@ -71,7 +84,9 @@ for symbol, yf_symbol in symbol_mapping.items():
     data['QQQ'] = full_data['Close']['QQQ']
     data['SPYBull'] = np.where(spy50>spy200, 1, -1)
     data = dt.normalize_dataframe(data)
-    data = data.drop(columns = ['Adj close'])
+    # Drop 'Adj close' column if it exists (not present in newer yfinance versions with auto_adjust=True)
+    if 'Adj close' in data.columns:
+        data = data.drop(columns = ['Adj close'])
     data = dt.clean_holidays(data)
     #print("Getting data for " + symbol + "...")
     #data = dt.get_full_data(ib, False, symbol = symbol)

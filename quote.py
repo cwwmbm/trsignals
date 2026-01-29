@@ -4,6 +4,13 @@ import numpy as np
 import pandas as pd
 import getdata as dt
 import datetime as dtm
+import warnings
+import os
+# Suppress FutureWarnings and other non-critical warnings
+warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings('ignore', message='.*auto_adjust.*')
+warnings.filterwarnings('ignore', message='.*T.*is deprecated.*')
+warnings.filterwarnings('ignore', message='.*Setting an item of incompatible dtype.*')
 
 data = pd.DataFrame()
 if (ticker == 'NQ' or ticker == 'ES' or ticker == 'RTY' or ticker == 'CL' or ticker == 'GC' or ticker == 'SI' or ticker == 'HG' or ticker == 'NG'):

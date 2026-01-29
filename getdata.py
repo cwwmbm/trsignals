@@ -196,7 +196,9 @@ def get_full_data(ib, Local = False, years = 1, symbol = ticker):
 
         data = get_data_yf(yfticker, years, False) #True for local data, False for Yahoo Finance
         data = normalize_dataframe(data)
-        data = data.drop(columns = ['Adj close'])
+        # Drop 'Adj close' column if it exists (not present in newer yfinance versions with auto_adjust=True)
+        if 'Adj close' in data.columns:
+            data = data.drop(columns = ['Adj close'])
         data = clean_holidays(data)
         #data_ib=data_ib.drop(columns = ['Average'])
         #data_ib=data_ib.drop(columns = ['Barcount'])
