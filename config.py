@@ -23,3 +23,5 @@ ProxySymbol = 'Soxx'
 VolumeEMAThreasholdBuy = 0.15
 DownDays = 3
 OneDayArm = False #No code written to support this yet
+
+ExcludeBestReturnYear = True  # drop best-return year from Sharpe/CAGR/etc.; yearly table unchanged

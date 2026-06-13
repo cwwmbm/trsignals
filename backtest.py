@@ -4,6 +4,20 @@ import numpy as np
 from config import *
 import getdata as dt
 from itertools import combinations
+from stats import compute_aggregate_metrics
+
+
+def _ranking_metrics(data):
+    m = compute_aggregate_metrics(data)
+    return {
+        'PnL': m['rolling_pnl'],
+        'MaxDD': m['max_drawdown'] * 100,
+        'Trades': m['trades'],
+        '%Pstv': m['pct_positive'],
+        'CAGR': str(m['cagr_percent']) + '%',
+        'Sharpe': m['sharpe'],
+        'Sortino': m['sortino'],
+    }
 
 
 #Backtest function that iterates over number of days in trade / profitable days in trade
@@ -12,17 +26,15 @@ def backtest_days(data, max_days = 10, is_long = True, og = False):
     for i in range(1, max_days+1):
         for k in range(1, i+1):
             signals = execute_strategy(data, i, k, is_long)
+            m = _ranking_metrics(signals)
             results.at[i*10+k, 'Days'] = i
             results.at[i*10+k, 'Prf'] = k
-            results.at[i*10+k, 'PnL'] = signals['RollingPnL'].iloc[-1]
-            #results.at[i*10+k, 'PstvTrades'] = signals['TradePnL'].loc[signals['TradePnL'] > 0].count()
-            results.at[i*10+k, 'MaxDD'] = signals['Drawdown'].max()
-            #Total number of trades
-            results.at[i*10+k, 'Trades'] = signals['LongTradeOut'].value_counts().get(True, 0)
-            # % of profitable trades
-            results.at[i*10+k, '%Pstv'] = (signals.loc[signals['LongTradeOut'] & (signals['TradePnL'] > 0), 'LongTradeOut'].count() / results.at[i*10+k, 'Trades']) * 100
-            results.at[i*10+k, 'Sharpe'] = ind.sharpes_ratio(signals)
-            results.at[i*10+k, 'Sortino'] = ind.sortino_ratio(signals)
+            results.at[i*10+k, 'PnL'] = m['PnL']
+            results.at[i*10+k, 'MaxDD'] = m['MaxDD'] / 100
+            results.at[i*10+k, 'Trades'] = m['Trades']
+            results.at[i*10+k, '%Pstv'] = m['%Pstv']
+            results.at[i*10+k, 'Sharpe'] = m['Sharpe']
+            results.at[i*10+k, 'Sortino'] = m['Sortino']
 
     
     #sort by Sharpe ratio
@@ -58,36 +70,16 @@ def backtest_ind(data, days_in_trade, profitable_close, is_long, column_name, co
         elif condition == 'both':
             data_copy['Buy'] = data_copy['Buy'] & (data_copy[column_name] >= value)
             data_copy = execute_strategy(data_copy, days_in_trade, profitable_close, is_long)
-            #data_copy = ind.og_strat(data_copy, set_sell = False) if og else ind.long_strat(data_copy, days_in_trade, profitable_close, is_long)
-            #data_copy = ind.long_strat(data_copy, days_in_trade, profitable_close, is_long)
-            #data_copy = ind.og_strat(data_copy)
-            rolling_pnl = data_copy['RollingPnL'].iloc[-1]
-            max_drawdown = data_copy['Drawdown'].max()*100
-            trades_number = data_copy['LongTradeOut'].value_counts().get(True, 0)
-            trade_out_rows = data_copy[data_copy['LongTradeOut']]
-            positive_trades = (trade_out_rows['TradePnL'] > 0).sum() / trades_number * 100 if trades_number > 0 else 0
-            sharpe = ind.sharpes_ratio(data_copy)
-            sortino = ind.sortino_ratio(data_copy)
-            #calculate CAGR
-            cagr = ind.cagr(data_copy)
-            results = results._append({'Buysell': 'Buy','Indicator': column_name, 'Condition': 'more', 'Value': value, 'PnL': rolling_pnl, 'MaxDD': max_drawdown, 'Trades': trades_number, '%Pstv': positive_trades, 'CAGR': str(cagr)+'%','Sharpe': sharpe, 'Sortino': sortino}, ignore_index=True)
+            m = _ranking_metrics(data_copy)
+            results = results._append({'Buysell': 'Buy','Indicator': column_name, 'Condition': 'more', 'Value': value, 'PnL': m['PnL'], 'MaxDD': m['MaxDD'], 'Trades': m['Trades'], '%Pstv': m['%Pstv'], 'CAGR': m['CAGR'], 'Sharpe': m['Sharpe'], 'Sortino': m['Sortino']}, ignore_index=True)
             data_copy = data.copy()
             data_copy['Buy'] = data_copy['Buy'] & (data_copy[column_name] <= value)    
         
         data_copy = execute_strategy(data_copy, days_in_trade, profitable_close, is_long)
-        #data_copy = ind.long_strat(data_copy, days_in_trade, profitable_close, is_long)        
-        #data_copy = ind.og_strat(data_copy)
-        rolling_pnl = data_copy['RollingPnL'].iloc[-1]
-        max_drawdown = data_copy['Drawdown'].max()*100
-        trades_number = data_copy['LongTradeOut'].value_counts().get(True, 0)
-        trade_out_rows = data_copy[data_copy['LongTradeOut']]
-        positive_trades = (trade_out_rows['TradePnL'] > 0).sum() / trades_number * 100 if trades_number > 0 else 0
-        sharpe = ind.sharpes_ratio(data_copy)
-        sortino = ind.sortino_ratio(data_copy)
-        cagr = ind.cagr(data_copy)
+        m = _ranking_metrics(data_copy)
         cond = 'less' if condition == 'both' else condition
         
-        results = results._append({'Buysell': 'Buy', 'Indicator': column_name, 'Condition': cond, 'Value': value, 'PnL': rolling_pnl, 'MaxDD': max_drawdown, 'Trades': trades_number, '%Pstv': positive_trades, 'CAGR': str(cagr)+'%','Sharpe': sharpe, 'Sortino': sortino}, ignore_index=True)
+        results = results._append({'Buysell': 'Buy', 'Indicator': column_name, 'Condition': cond, 'Value': value, 'PnL': m['PnL'], 'MaxDD': m['MaxDD'], 'Trades': m['Trades'], '%Pstv': m['%Pstv'], 'CAGR': m['CAGR'], 'Sharpe': m['Sharpe'], 'Sortino': m['Sortino']}, ignore_index=True)
     
     results = results.sort_values(by=['Sharpe'], ascending=False)
     results['PnL'] = results['PnL'].astype(int)
@@ -120,36 +112,16 @@ def backtest_sell_ind(data, days_in_trade, profitable_close, is_long, column_nam
         elif condition == 'both':
             data_copy['Sell'] = data_copy['Sell'] | (data_copy[column_name] >= value)
             data_copy = execute_strategy(data_copy, days_in_trade, profitable_close, is_long)
-            #data_copy = ind.og_strat(data_copy, set_sell = False) if og else ind.long_strat(data_copy, days_in_trade, profitable_close, is_long)
-            #data_copy = ind.long_strat(data_copy, days_in_trade, profitable_close, is_long)
-            #data_copy = ind.og_strat(data_copy)
-            rolling_pnl = data_copy['RollingPnL'].iloc[-1]
-            max_drawdown = data_copy['Drawdown'].max()*100
-            trades_number = data_copy['LongTradeOut'].value_counts().get(True, 0)
-            trade_out_rows = data_copy[data_copy['LongTradeOut']]
-            positive_trades = (trade_out_rows['TradePnL'] > 0).sum() / trades_number * 100 if trades_number > 0 else 0
-            sharpe = ind.sharpes_ratio(data_copy)
-            sortino = ind.sortino_ratio(data_copy)
-            #calculate CAGR
-            cagr = ind.cagr(data_copy)
-            results = results._append({'Buysell': 'Sell', 'Indicator': column_name, 'Condition': 'more', 'Value': value, 'PnL': rolling_pnl, 'MaxDD': max_drawdown, 'Trades': trades_number, '%Pstv': positive_trades, 'CAGR': str(cagr)+'%','Sharpe': sharpe, 'Sortino': sortino}, ignore_index=True)
+            m = _ranking_metrics(data_copy)
+            results = results._append({'Buysell': 'Sell', 'Indicator': column_name, 'Condition': 'more', 'Value': value, 'PnL': m['PnL'], 'MaxDD': m['MaxDD'], 'Trades': m['Trades'], '%Pstv': m['%Pstv'], 'CAGR': m['CAGR'], 'Sharpe': m['Sharpe'], 'Sortino': m['Sortino']}, ignore_index=True)
             data_copy = data.copy()
             data_copy['Sell'] = data_copy['Sell'] | (data_copy[column_name] <= value)    
         
         data_copy = execute_strategy(data_copy, days_in_trade, profitable_close, is_long)
-        #data_copy = ind.long_strat(data_copy, days_in_trade, profitable_close, is_long)        
-        #data_copy = ind.og_strat(data_copy)
-        rolling_pnl = data_copy['RollingPnL'].iloc[-1]
-        max_drawdown = data_copy['Drawdown'].max()*100
-        trades_number = data_copy['LongTradeOut'].value_counts().get(True, 0)
-        trade_out_rows = data_copy[data_copy['LongTradeOut']]
-        positive_trades = (trade_out_rows['TradePnL'] > 0).sum() / trades_number * 100 if trades_number > 0 else 0
-        sharpe = ind.sharpes_ratio(data_copy)
-        sortino = ind.sortino_ratio(data_copy)
-        cagr = ind.cagr(data_copy)
+        m = _ranking_metrics(data_copy)
         cond = 'less' if condition == 'both' else condition
         
-        results = results._append({'Buysell': 'Sell', 'Indicator': column_name, 'Condition': cond, 'Value': value, 'PnL': rolling_pnl, 'MaxDD': max_drawdown, 'Trades': trades_number, '%Pstv': positive_trades, 'CAGR': str(cagr)+'%','Sharpe': sharpe, 'Sortino': sortino}, ignore_index=True)
+        results = results._append({'Buysell': 'Sell', 'Indicator': column_name, 'Condition': cond, 'Value': value, 'PnL': m['PnL'], 'MaxDD': m['MaxDD'], 'Trades': m['Trades'], '%Pstv': m['%Pstv'], 'CAGR': m['CAGR'], 'Sharpe': m['Sharpe'], 'Sortino': m['Sortino']}, ignore_index=True)
     
     results = results.sort_values(by=['Sharpe'], ascending=False)
     results['PnL'] = results['PnL'].astype(int)
@@ -190,15 +162,7 @@ def backtest_signal_combinations(signal_a, signal_b, data, symbol=ticker):
         data_copy['Buy'] = buy
         data_copy['Sell'] = sell
         data_copy = execute_strategy(data_copy, days, profit, is_long)
-
-        rolling_pnl = data_copy['RollingPnL'].iloc[-1]
-        max_drawdown = data_copy['Drawdown'].max() * 100
-        trades_number = data_copy['LongTradeOut'].value_counts().get(True, 0)
-        trade_out_rows = data_copy[data_copy['LongTradeOut']]
-        positive_trades = (trade_out_rows['TradePnL'] > 0).sum() / trades_number * 100 if trades_number > 0 else 0
-        sharpe = ind.sharpes_ratio(data_copy)
-        sortino = ind.sortino_ratio(data_copy)
-        cagr = ind.cagr(data_copy)
+        m = _ranking_metrics(data_copy)
 
         results = results._append({
             'Primary': primary.__name__,
@@ -206,13 +170,13 @@ def backtest_signal_combinations(signal_a, signal_b, data, symbol=ticker):
             'Mode': mode.upper(),
             'Days': days,
             'Profit': profit,
-            'PnL': rolling_pnl,
-            'MaxDD': max_drawdown,
-            'Trades': trades_number,
-            '%Pstv': positive_trades,
-            'CAGR': str(cagr) + '%',
-            'Sharpe': sharpe,
-            'Sortino': sortino,
+            'PnL': m['PnL'],
+            'MaxDD': m['MaxDD'],
+            'Trades': m['Trades'],
+            '%Pstv': m['%Pstv'],
+            'CAGR': m['CAGR'],
+            'Sharpe': m['Sharpe'],
+            'Sortino': m['Sortino'],
         }, ignore_index=True)
 
     results = results.sort_values(by=['Sharpe'], ascending=False)
@@ -273,11 +237,7 @@ def apply_cross_symbol_signal(buy_signal, primary_symbol, confirm_symbols, symbo
     return primary, days, profit, description, verdict, is_long, ignore
 
 def _backtest_result_row(buy_signal, primary_symbol, confirm_symbols, data_copy, days, profit):
-    rolling_pnl = data_copy['RollingPnL'].iloc[-1]
-    max_drawdown = data_copy['Drawdown'].max() * 100
-    trades_number = data_copy['LongTradeOut'].value_counts().get(True, 0)
-    trade_out_rows = data_copy[data_copy['LongTradeOut']]
-    positive_trades = (trade_out_rows['TradePnL'] > 0).sum() / trades_number * 100 if trades_number > 0 else 0
+    m = _ranking_metrics(data_copy)
     confirm_symbols = [s for s in confirm_symbols if s != primary_symbol]
     return {
         'Signal': buy_signal.__name__,
@@ -285,13 +245,13 @@ def _backtest_result_row(buy_signal, primary_symbol, confirm_symbols, data_copy,
         'Confirm': '+'.join(confirm_symbols) if confirm_symbols else '(none)',
         'Days': days,
         'Profit': profit,
-        'PnL': rolling_pnl,
-        'MaxDD': max_drawdown,
-        'Trades': trades_number,
-        '%Pstv': positive_trades,
-        'CAGR': str(ind.cagr(data_copy)) + '%',
-        'Sharpe': ind.sharpes_ratio(data_copy),
-        'Sortino': ind.sortino_ratio(data_copy),
+        'PnL': m['PnL'],
+        'MaxDD': m['MaxDD'],
+        'Trades': m['Trades'],
+        '%Pstv': m['%Pstv'],
+        'CAGR': m['CAGR'],
+        'Sharpe': m['Sharpe'],
+        'Sortino': m['Sortino'],
     }
 
 def backtest_cross_symbol(buy_signal, primary_symbol, confirm_symbols=None, years=25, symbol_data=None):
@@ -370,9 +330,9 @@ def og_strat(data, days = 0, profit = 0, external_count = 0, start_capital = 150
     data['LongTradeOut'] = False
     data['DaysInTrade'] = 0
     data['ProfitableCloses'] = 0
-    data['RollingPnL'] = 0
-    data['TradePnL'] = 0
-    data['TradeEntry'] = 0
+    data['RollingPnL'] = 0.0
+    data['TradePnL'] = 0.0
+    data['TradeEntry'] = 0.0
     ExternalBuy = False
     if external_count > 0:
         for i in range (0, external_count):
@@ -512,9 +472,9 @@ def long_og_strat_proxy(data, days = 0, profit = 0, start_capital = 15000):
     data['LongTradeOut'] = False
     data['DaysInTrade'] = 0
     data['ProfitableCloses'] = 0
-    data['RollingPnL'] = 0
-    data['TradePnL'] = 0
-    data['TradeEntry'] = 0
+    data['RollingPnL'] = 0.0
+    data['TradePnL'] = 0.0
+    data['TradeEntry'] = 0.0
     split_change = (data[ProxySymbol] - data[ProxySymbol].shift(1))*Leverage / data[ProxySymbol].shift(1) if data[ProxySymbol].shift(1).any() > 0 else 0
     if SplitLong:
         underlying_change = (data['%Change'])
@@ -594,9 +554,9 @@ def long_strat(data, days, prof_closes, is_long = True, start_capital = 15000, p
     signals['HoldLong'] = False
     signals['DaysInTrade'] = 0
     signals['ProfitableCloses'] = 0
-    signals['RollingPnL'] = 0
-    signals['TradePnL'] = 0
-    signals['TradeEntry'] = 0
+    signals['RollingPnL'] = 0.0
+    signals['TradePnL'] = 0.0
+    signals['TradeEntry'] = 0.0
     baddates = pd.DataFrame()
     split_change = (data[ProxySymbol] - data[ProxySymbol].shift(1))*Leverage / data[ProxySymbol].shift(1) if data[ProxySymbol].shift(1).any() > 0 else 0
     if not UseProxyUnderlying:

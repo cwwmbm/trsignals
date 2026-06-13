@@ -7,21 +7,42 @@ A Python-based trading **signal and backtesting system**. This repo does **not**
 | Capability | Description |
 |---|---|
 | **Daily signal scan** | Pulls EOD prices from Yahoo Finance and reports which strategies are firing buy, hold, or sell across a watchlist of symbols |
-| **Backtesting** | Simulates strategies over years of history with PnL, drawdown, Sharpe/Sortino, Kelly criterion, and CAGR |
-| **Latest quotes** | Prints current price and key indicators (RSI, EMA, Stochastic, breadth, volume) for the configured ticker |
+| **Backtesting** | Simulates strategies over years of history with PnL, drawdown, Sharpe/Sortino, Kelly, and CAGR |
+| **Latest quotes** | Prints current price and key indicators for the configured ticker |
+| **Signal exploration** | Combine signals (AND/OR), sweep indicator filters, and require cross-symbol confirmation before entry |
 
-## Architecture
+## Quick start
+
+```bash
+python -m venv venv
+source venv/bin/activate          # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+pip install streamlit               # for signal_check.py only
+
+# Edit the config block in run_backtest.py, then:
+python run_backtest.py
+```
+
+## Project layout
 
 ```
-config.py          ← Strategy parameters (ticker, RSI thresholds, stop loss, leverage, etc.)
-getdata.py         ← Yahoo Finance data fetch, market breadth, NYSE holiday filtering
-indicators.py      ← Technical indicators + 24+ buy signal definitions
-backtest.py        ← Strategy execution engine (og_strat, long_strat) + backtest sweeps
-signal_check.py    ← Streamlit daily signal dashboard (multi-symbol)
-quote.py           ← Quick indicator snapshot for config ticker
-IBConnect.py       ← Single-strategy backtest runner with full stats output
-test_data.py       ← Compare all signals on one symbol
-test_indicator.py  ← Run one signal across many symbols
+TradingStrategy/
+├── run_backtest.py       ← main entry point — configure RUN_MODE here
+├── config.py             ← strategy parameters (ticker, RSI, leverage, etc.)
+├── getdata.py            ← Yahoo Finance fetch, breadth, holiday filtering
+├── indicators.py         ← indicators + 24+ buy signal definitions
+├── backtest.py           ← strategy engine (og_strat, long_strat) + sweeps
+├── stats.py              ← aggregate metrics, yearly breakdown, outlier exclusion
+├── backtest_runners.py   ← load data, single-symbol & cross-symbol runners
+├── indicator_sweep.py    ← grid-search indicator filters on a signal
+├── signal_check.py       ← Streamlit daily signal dashboard
+├── quote.py              ← quick indicator snapshot
+├── IBConnect.py          ← legacy shim (delegates to run_backtest.py)
+├── test_data.py          ← all signals × one symbol
+├── test_indicator.py     ← one signal × many symbols
+├── warn_config.py        ← suppresses third-party FutureWarnings
+├── requirements.txt
+└── CSV/                  ← backtest output (gitignored)
 ```
 
 ### Data flow
@@ -29,41 +50,26 @@ test_indicator.py  ← Run one signal across many symbols
 ```
 Yahoo Finance (yfinance)
         ↓
-getdata.py  — OHLCV + VIX + sector breadth ratios (RSP/SPY, QQQ/SPY, etc.)
+getdata.py  — OHLCV + VIX + sector breadth ratios (RSP/SPY, QQQ/SPY, …)
         ↓
-indicators.py  — RSI, EMA, IBR, ValueCharts, VFI, Hurst, MACD, …
+indicators.add_indicators()  — RSI, EMA, IBR, ValueCharts, VFI, …
         ↓
-buy_signalN()  — Boolean Buy/Sell arrays + hold days + profit target
+buy_signalN() / combined_signal()  — Buy/Sell booleans + hold rules
         ↓
-backtest.execute_strategy()  — Simulate entries, exits, rolling PnL
+backtest.execute_strategy()  — entries, exits, RollingPnL
         ↓
-Output  — Signal table, stats, or CSV
+stats.compute_aggregate_metrics()  — Sharpe, CAGR, etc. (optional outlier exclusion)
+        ↓
+Output  — summary table, print_stats, or CSV
 ```
-
-## Requirements
-
-- Python 3.9+
-- Internet access (Yahoo Finance)
-
-### Install
-
-```bash
-python -m venv venv
-source venv/bin/activate   # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-pip install streamlit        # required for signal_check.py
-pip install ib_insync        # optional; only needed for IBConnect.py live IB features
-```
-
-Core dependencies: `yfinance`, `pandas`, `numpy`, `ta`, `hurst`, `pandas_market_calendars`.
 
 ## Configuration
 
-All strategy tuning lives in [`config.py`](config.py):
+Strategy parameters live in [`config.py`](config.py):
 
 | Parameter | Default | Purpose |
 |---|---|---|
-| `ticker` | `SPY` | Primary symbol for quote/backtest scripts |
+| `ticker` | `SOXX` | Default symbol for quote / backtest scripts |
 | `RSI2Buy` / `RSI5Buy` | 15 / 35 | OG strategy oversold thresholds |
 | `RSI2Sell` / `RSI5Sell` | 95 / 70 | OG strategy overbought thresholds |
 | `stop_loss` | 0.15 | Exit when trade PnL drops below −15% |
@@ -72,257 +78,265 @@ All strategy tuning lives in [`config.py`](config.py):
 | `VolatilityThreashold` | 0.1 | Annualized volatility exit filter |
 | `MondayBuy` / `LowVolumeBuy` | True | One-day buy rules in OG strategy |
 | `UseProxyUnderlying` | False | Track PnL via leveraged proxy (e.g. SOXX) |
-| `api_key` | `""` | Pushbullet key for mobile notifications (commented out) |
+| `ExcludeBestReturnYear` | True | Drop best positive year from aggregate metrics |
+| `api_key` | `""` | Pushbullet key (commented out in signal_check.py) |
 
-Change `ticker` and thresholds here before running `quote.py` or `IBConnect.py`.
+Backtest run settings live in the **config block at the top of [`run_backtest.py`](run_backtest.py)**.
 
-## Usage
+## Backtesting (`run_backtest.py`)
 
-### 1. Daily signal check (Streamlit)
+Edit the config block, set `RUN_MODE`, and run:
 
-Scans ~18 symbols against 24 buy signals and shows today's buy/hold/sell state plus SPY market summary.
+```bash
+python run_backtest.py
+```
+
+`python IBConnect.py` also works (legacy alias).
+
+### Run modes
+
+| `RUN_MODE` | What it does |
+|---|---|
+| `single` | One signal, one symbol — full stats + yearly breakdown + CSV |
+| `indicator_sweep` | Grid-search indicator filters layered on a signal (ranked by Sharpe) |
+| `signal_combo_sweep` | Compare 4 AND/OR combos of two signals on the same symbol |
+| `symbol_confirm_sweep` | Sweep all cross-symbol confirmation subsets from a pool |
+| `symbol_confirm_detail` | One primary + chosen confirm symbols — full yearly breakdown |
+| `hold_days_sweep` | Search days-in-trade × profitable closes |
+
+### Example configs
+
+**Single signal, one symbol:**
+
+```python
+RUN_MODE = 'single'
+SYMBOL = 'SOXX'
+SIGNAL = ind.buy_signal7
+YEARS = 25
+```
+
+**Combined signal (AND/OR on same symbol):**
+
+```python
+RUN_MODE = 'single'
+SIGNAL = ind.combined_signal(ind.buy_signal16, ind.buy_signal7, 'or')
+```
+
+**Compare all 4 AND/OR combinations:**
+
+```python
+RUN_MODE = 'signal_combo_sweep'
+SIGNAL_A = ind.buy_signal16
+SIGNAL_B = ind.buy_signal7
+SYMBOL = 'SOXX'
+```
+
+**Cross-symbol confirmation sweep** (primary traded at leverage; all confirm symbols must also show buy):
+
+```python
+RUN_MODE = 'symbol_confirm_sweep'
+SIGNAL = ind.combined_signal(ind.buy_signal16, ind.buy_signal7, 'or')
+PRIMARY_SYMBOL = 'SOXX'
+SYMBOL_POOL = ['SOXX', 'SMH', 'QQQ', 'SPY']
+```
+
+Auto-generates rows for `(none)`, `SMH`, `QQQ`, `SPY`, `SMH+QQQ`, … sorted by Sharpe.
+
+**Drill into one confirm set** (after picking from sweep):
+
+```python
+RUN_MODE = 'symbol_confirm_detail'
+PRIMARY_SYMBOL = 'SOXX'
+CONFIRM_SYMBOLS = ['SMH', 'QQQ']
+```
+
+**Indicator filter sweep:**
+
+```python
+RUN_MODE = 'indicator_sweep'
+SIGNAL = ind.buy_signal7
+INDICATOR_SWEEP = dict(is_sell=False, check_breadth=False, check_both=False)
+```
+
+### Aggregate metrics & outlier exclusion
+
+When `ExcludeBestReturnYear = True` in `config.py`, aggregate stats (Sharpe, Sortino, CAGR, MaxDD, trade count, win rate, Kelly) **exclude the single calendar year with the highest positive return**. This keeps one extreme upside year from dominating comparisons.
+
+- **Latest Rolling PnL** always reflects the full backtest (real total)
+- **Yearly breakdown** always shows every year
+- A note is printed when a year is excluded, e.g. `(Aggregate metrics exclude 2020 — best year at 906.88%)`
+
+Set `ExcludeBestReturnYear = False` to restore the original behavior.
+
+### Output
+
+**Summary table** (sweeps): Sharpe-sorted rows with PnL, MaxDD, Trades, %Pstv, CAGR.
+
+**Detailed stats** (`single`, `symbol_confirm_detail`):
+
+```
+Number of trades: 318
+Latest Rolling PnL: $1,539,583.00
+Maximum drawdown: 30.81%
+CAGR: 32.54%
+Sharpe ratio: 0.45
+(Aggregate metrics exclude 2020 — best year at 906.88%)
+          PnL% Drawdown%  Num_Trades  Positive_Trades
+Date
+2019  216.07%    16.81%          61               47
+2020  906.88%    32.89%          64               50   ← still shown here
+...
+```
+
+CSV files are saved to `CSV/` (create the folder if needed).
+
+## Signal combination (same symbol)
+
+Two signals on the **same** symbol can be merged with AND or OR. Days/profit/sell come from the **primary** signal.
+
+```python
+# In indicators.py:
+SIGNAL = ind.combined_signal(ind.buy_signal16, ind.buy_signal7, 'and')  # both must fire
+SIGNAL = ind.combined_signal(ind.buy_signal16, ind.buy_signal7, 'or')   # either fires
+```
+
+Low-level API:
+
+```python
+buy, sell, days, profit, desc, _, is_long, _ = ind.combine_buy_signals(
+    ind.buy_signal16, ind.buy_signal7, data, mode='and'
+)
+```
+
+`signal_combo_sweep` runs all four variants (A primary AND B, A primary OR B, B primary AND A, B primary OR A).
+
+## Cross-symbol confirmation
+
+Trade the **primary** symbol at leverage. Buy only fires when the signal is true on **all** symbols in the confirm list. **Sell** is evaluated on the primary only.
+
+```python
+# Sweep — compare confirm combinations
+symbol_confirmation_tryout(SIGNAL, 'SOXX', ['SOXX', 'SMH', 'QQQ'], years=25)
+
+# Detail — one chosen combo with yearly breakdown
+symbol_confirmation_detail(SIGNAL, 'SOXX', confirm_symbols=['SMH', 'QQQ'], years=25)
+```
+
+Typical workflow: **`symbol_confirm_sweep` → pick winner → `symbol_confirm_detail`**.
+
+## Other scripts
+
+### Daily signal check (Streamlit)
 
 ```bash
 streamlit run signal_check.py
 ```
 
-**Symbols scanned:** SPY, SMH, QQQ, SOXX, XLI, XLU, XLE, XLF, IWM, FXI, AAPL, GDX, MSFT, GLD, XBI, TLT (breadth-only symbols like ^VIX and RSP are used as inputs but not scanned).
+Scans ~18 symbols against 24 buy signals. Shows buy/hold/sell state plus SPY market summary.
 
-**Output columns:**
-
-| Column | Meaning |
-|---|---|
-| `Buy signal?` | Enter long today |
-| `HoldLong?` | Currently in a position |
-| `Sell signal?` | Exit long today |
-| `Days` / `Profit` | Hold period and profitable-close target for timed strategies |
-| `TradePnL` | Cumulative backtested return through today |
-| `Kelly` | Kelly criterion sizing estimate |
-| `Description` / `Verdict` | Human-readable signal notes |
-
-Optional Pushbullet notifications are wired but commented out — set `api_key` in `config.py` and uncomment the send calls in `signal_check.py`.
-
-### 2. Latest quotes and indicators
-
-Prints today's close and key indicators for the ticker set in `config.py`:
+### Latest quotes
 
 ```bash
 python quote.py
 ```
 
-Example output:
+Prints today's close, RSI, EMA, Stochastic, breadth, and volume for `config.ticker`.
 
-```
-SPY: 0.45%
-QQQ: 0.62%
-Today's Close: 542.31
-EMA8: 538.12
-RSI2: 42.5
-RSI5: 48.3
-Stoch: 55.2
-BreadthRSI5: 52.1
-Volume EMA: -12.4%
-```
-
-### 3. Backtest a single strategy
-
-[`IBConnect.py`](IBConnect.py) is the main backtest runner despite the name — it uses Yahoo Finance, not Interactive Brokers, for historical data.
-
-```bash
-python IBConnect.py
-```
-
-By default it runs `buy_signal4` on the configured ticker with 25 years of history. Edit the `buy_signal` assignment near the bottom of `main()` to test a different signal:
-
-```python
-buy_signal = ind.buy_signal7   # change this
-```
-
-**Printed stats:** trade count, rolling PnL, max drawdown, CAGR, win rate, avg win/loss, Sharpe, Sortino, Kelly, and yearly breakdown.
-
-Results are saved to `CSV/{ticker}_{signal_name}.csv`.
-
-#### Exploring a signal further
-
-`IBConnect.py` supports three levels of backtesting on top of the base signal:
-
-**1. Base run (default)** — Apply the signal's built-in `days`/`profit` hold rules and print full stats.
-
-**2. Indicator tandem sweep** — Test how the signal performs when combined with *additional* indicator filters on top of its existing buy/sell logic. Uncomment in `main()`:
-
-```python
-results = indicator_tryout(data, days, profit, is_long, is_sell=False, check_breadth=False, check_both=False)
-```
-
-`indicator_tryout()` grid-searches dozens of indicators (RSI, IBR, breadth, VFI, Stochastic, ValueCharts, VIX, etc.) and ranks combinations by Sharpe ratio. For each indicator it tries threshold values across a range:
-
-- **Buy side** (`backtest_ind`): extra filter is AND-ed onto the signal's `Buy` column — e.g. "only take `buy_signal7` entries when `RSI2 <= 30`"
-- **Sell side** (`backtest_sell_ind`, set `is_sell=True`): extra filter is OR-ed onto `Sell` — e.g. "also exit when `Stoch > 80`"
-
-Use `check_breadth=True` to include sector breadth RSI sweeps, or `check_both=True` to also sweep price/momentum indicators. You can also run a targeted sweep on one indicator:
-
-```python
-results = bt.backtest_ind(data, days, profit, is_long, 'RSI2GoldBreadth', 'both', 0, 100, 10)
-```
-
-**3. Hold-period sweep** — Find optimal days-to-hold and profitable-close targets for the signal's entry logic, ignoring the signal's default `days`/`profit`. Uncomment:
-
-```python
-results = bt.backtest_days(data, max_days=7, is_long=is_long)
-```
-
-This tries every combination of hold days (1–7) × profitable closes (1–days) and ranks by Sharpe.
-
-**4. Manual one-off filters** — Ad-hoc tandem tests without a full sweep:
-
-```python
-data['Buy'] = data['Buy'] & (data['ValueCharts'] < 0)
-data['Sell'] = data['Sell'] | (data['RSI14'] < 50)
-```
-
-These lines are already in `main()` as commented examples.
-
-### 4. Compare all signals on one symbol
-
-[`test_data.py`](test_data.py) runs every buy signal against a single ticker and prints a summary table (PnL, drawdown, trade count, win rate):
+### Compare all signals on one symbol
 
 ```bash
 python test_data.py
 ```
 
-Edit the `yfticker` variable (default `UUP`) to change the symbol. Set `years` in the `get_data_yf` call for lookback length.
+Edit `yfticker` in the file to change the symbol.
 
-### 5. Run one signal across many symbols
-
-[`test_indicator.py`](test_indicator.py) backtests a single signal (default `buy_signal11`) across a broad symbol list with 20 years of data:
+### One signal across many symbols
 
 ```bash
 python test_indicator.py
 ```
 
-Change `buy_signal = ind.buy_signal11` at the top to test a different strategy.
+Change `buy_signal = ind.buy_signal11` at the top.
 
 ## Signals
 
-Each signal is a function in [`indicators.py`](indicators.py) returning an 8-tuple:
+Each signal in [`indicators.py`](indicators.py) returns an 8-tuple:
 
 ```python
 buy, sell, days, profit, description, verdict, is_long, ignore = buy_signalN(data, symbol)
 ```
 
-| Field | Type | Meaning |
-|---|---|---|
-| `buy` | `Series[bool]` | Entry condition per bar |
-| `sell` | `Series[bool]` or `False` | Exit condition (OG strategies define explicit sells) |
-| `days` | `int` | Max days to hold (`0` = OG hold-until-sell strategy) |
-| `profit` | `int` | Exit after N profitable closes |
-| `is_long` | `bool` | Long vs short |
-| `ignore` | `bool` | Skip this signal for symbols not in `allowed_symbols` |
-
-### Signal inventory
+| Field | Meaning |
+|---|---|
+| `buy` | Entry condition per bar |
+| `sell` | Exit condition (`False` if none) |
+| `days` | Max hold days (`0` = OG hold-until-sell) |
+| `profit` | Exit after N profitable closes |
+| `is_long` | Long vs short |
+| `ignore` | Skip in signal scan if symbol not in `allowed_symbols` |
 
 | Signal | Allowed symbols | Style | Summary |
 |---|---|---|---|
-| `buy_signal1` | XBI | 2d/1p | RSI breadth + Close vs EMA8 + IBR |
-| `buy_signal2` | — | 2d/1p | Pullback: close below 2d ago, 10d return negative, IBR ≤ 0.5 |
-| `buy_signal3` | — | 2d/1p | Energy breadth + IBR3 + VIX + VFI10 |
-| `buy_signal4` | FXI | 3d/1p | Gold/semis breadth + Stochastic |
-| `buy_signal5` | — | 10d/100p | Kaufman ER + IBR (currently `buy=True`) |
-| `buy_signal6` | — | 2d/1p | Risk breadth + ValueCharts |
 | `buy_signal7` | SMH, QQQ, FXI, SOXX, SPY | 2d/1p | Close pullback + IBR ≤ 0.4 |
-| `buy_signal8` | QQQ, SPY | 3d/1p | ER + ValueCharts + RSI2 + IBR |
-| `buy_signal9` | SPY, QQQ | 100d | Stoch + MACD + IBR with sell rules |
 | `buy_signal10` | SMH, SPY, SOXX, QQQ | 3d/1p | New low + IBR |
-| `buy_signal11`–`24` | Various | Mixed | Experimental / symbol-specific |
-| `og_buy_signal` | SPY | OG | Classic RSI2/RSI5 oversold + volume/volatility filter |
-| `og_new_buy_signal` | SPY, IWM, QQQ | OG | OG buy + Stoch + SMA trend + ER filter |
+| `buy_signal16` | SMH, QQQ, SOXX | 4d/1p | High > prior close + IBR |
+| `og_buy_signal` | SPY | OG | RSI2/RSI5 oversold + volume filter |
+| `og_new_buy_signal` | SPY, IWM, QQQ | OG | OG buy + Stoch + SMA trend |
+| `buy_signal1`–`24` | Various | Mixed | See `indicators.py` for full list |
 
-> **Note:** Many signals have `allowed_symbols = []`, which means `ignore=True` for all symbols in the signal scan. Only signals with matching `allowed_symbols` appear in `signal_check.py` output for a given ticker.
+> Many signals have empty `allowed_symbols`, so they are skipped in `signal_check.py` unless you add your ticker to that list.
 
 ## Strategy engine
 
-[`backtest.py`](backtest.py) simulates position management:
-
-### `execute_strategy(data, days, profit, is_long)`
-
-Routes to one of three engines:
+[`backtest.execute_strategy()`](backtest.py) routes to:
 
 | Engine | When | Behavior |
 |---|---|---|
-| **`long_strat`** | `days > 0` | Enter on `Buy`, exit on `Sell`, max days, or N profitable closes |
-| **`og_strat`** | `days == 0` | Hold until sell signal, stop loss, or one-day buy rules |
-| **`long_og_strat_proxy`** | `UseProxyUnderlying=True` | OG logic but PnL tracked via leveraged proxy symbol |
+| `long_strat` | `days > 0` | Enter on Buy, exit on Sell / max days / N profitable closes |
+| `og_strat` | `days == 0` | Hold until sell signal, stop loss, or one-day buy |
+| `long_og_strat_proxy` | `UseProxyUnderlying=True` | OG logic, PnL via leveraged proxy |
 
-**Position columns added to the dataframe:**
+Key output columns: `LongTradeIn`, `LongTradeOut`, `HoldLong`, `TradePnL`, `RollingPnL`, `Drawdown`.
 
-- `LongTradeIn` / `LongTradeOut` — entry/exit flags
-- `HoldLong` — currently in a trade
-- `DaysInTrade` / `ProfitableCloses` — exit timers
-- `TradePnL` — per-trade return (leverage-adjusted)
-- `RollingPnL` — compounded equity curve (starts at $15,000)
-- `Drawdown` — peak-to-trough decline
-
-**One-day buy rules** (OG strategies): Monday decline buy and low-volume capitulation buy, controlled by `MondayBuy`, `LowVolumeBuy`, `DownDays`, and `VolumeEMAThreasholdBuy` in config.
-
-### Backtest sweeps
+### Sweep functions
 
 | Function | Purpose |
 |---|---|
-| `backtest_days(data, max_days)` | Grid search over hold days × profitable closes |
-| `backtest_ind(data, …, column, condition, min, max, step)` | Filter buys by indicator threshold |
-| `backtest_sell_ind(…)` | Same for sell-side indicator filters |
+| `backtest_days(data, max_days)` | Grid search hold days × profitable closes |
+| `backtest_ind(…)` | Filter buys by indicator threshold |
+| `backtest_sell_ind(…)` | Filter sells by indicator threshold |
+| `backtest_signal_combinations(a, b, data)` | 4 AND/OR combos of two signals |
+| `backtest_symbol_confirmation_sweep(…)` | All confirm subsets from a symbol pool |
 
 ## Indicators
 
-[`indicators.add_indicators()`](indicators.py) enriches OHLCV data with:
+[`indicators.add_indicators()`](indicators.py) adds:
 
-**Price / trend:** SMA (10/20/50/100/200), EMA (8/20/100), Bollinger Bands, ATR
-
-**Momentum:** RSI (2/5/14), Stochastic, CCI, MACD histogram
-
-**Custom:** IBR (Internal Bar Ratio), Kaufman Efficiency Ratio, ValueCharts, VFI (Volume Flow Indicator), Hurst exponent, Change Velocity
-
-**Breadth (sector/index ratios vs SPY):** RSP, QQQ, SMH, XLF, XLE, XLU, XLI, IWM, GLD, TLT — each with RSI overlays
-
-**Market context:** VIX, SPY 50/200 SMA bull flag, volume vs 8-day EMA
+- **Trend:** SMA, EMA, Bollinger Bands, ATR
+- **Momentum:** RSI (2/5/14), Stochastic, CCI, MACD
+- **Custom:** IBR, Kaufman ER, ValueCharts, VFI, Hurst, Change Velocity
+- **Breadth:** sector/index ratios vs SPY with RSI overlays
+- **Context:** VIX, SPY 50/200 bull flag, volume vs EMA
 
 ## Data sources
 
-Primary source is **Yahoo Finance** via `yfinance`. [`getdata.py`](getdata.py) handles:
+**Yahoo Finance** via `yfinance`. [`getdata.py`](getdata.py) provides:
 
-- Multi-ticker bulk downloads with shared breadth columns
-- Futures suffix mapping (`NQ` → `NQ=F`, `GBPUSD` → `GBPUSD=X`)
-- NYSE trading-day filtering via `pandas_market_calendars`
-- Optional local CSV cache (`Local=True`, files in `CSV/`)
+- Single-ticker fetch (`get_data_yf`) and bulk download (`get_bulk_data`)
+- Shared market context (VIX, breadth ratios) via `load_symbol_dataset`
+- Futures/FX suffix mapping (`NQ=F`, `GBPUSD=X`)
+- NYSE holiday filtering
 
-Legacy Interactive Brokers code exists but is commented out in `getdata.py`. `IBConnect.py` imports `ib_insync` but the active `main()` path uses Yahoo Finance only.
-
-## Project layout
-
-```
-TradingStrategy/
-├── config.py           # Strategy parameters
-├── getdata.py          # Data ingestion
-├── indicators.py       # Indicators + signal definitions
-├── backtest.py         # Strategy simulation + backtest sweeps
-├── signal_check.py     # Streamlit daily signal dashboard
-├── quote.py            # Quick indicator snapshot
-├── IBConnect.py        # Single-strategy backtest + stats
-├── test_data.py        # All signals × one symbol
-├── test_indicator.py   # One signal × many symbols
-├── requirements.txt    # Python dependencies
-├── CSV/                # Backtest output (gitignored)
-└── yfinance_update_summary.md  # Notes on yfinance column changes
-```
+Legacy Interactive Brokers code is commented out and unused.
 
 ## Tips
 
-- **Change the active signal** in `IBConnect.py` (`buy_signal = ind.buy_signalN`) or `test_indicator.py` before backtesting.
-- **Change the symbol list** in `signal_check.py` or `test_indicator.py` to match your watchlist.
-- **Symbol filtering:** Each signal's `allowed_symbols` list controls which tickers it runs on during the daily scan. Set `ignore=False` logic by adding your symbol to that list.
-- **Leverage:** Returns are multiplied by `Leverage` (default 3×) in `long_strat` and `%Change` calculation — adjust in `config.py` for realistic sizing.
-- **CSV output:** Backtest detail files land in `CSV/` (gitignored). Create the folder if it doesn't exist.
+- **Start with `run_backtest.py`** — all backtest modes are configured in one place.
+- **Sweep then detail** — use `symbol_confirm_sweep` or `signal_combo_sweep` first, then drill in with `single` or `symbol_confirm_detail`.
+- **`SIGNAL` vs `SIGNAL_A`/`SIGNAL_B`** — `single` and confirm modes use `SIGNAL`; combo sweep uses `SIGNAL_A` and `SIGNAL_B`.
+- **Leverage** is applied in `long_strat` and `%Change` — adjust `Leverage` in `config.py`.
+- **CSV output** goes to `CSV/` (gitignored).
 
 ## Disclaimer
 
-This software is for **research and education only**. It generates signals and simulates historical performance — it does not connect to a broker for live order execution (except optional legacy IB code that is currently disabled). Past backtest performance does not guarantee future results. Use at your own risk.
+This software is for **research and education only**. It generates signals and simulates historical performance — it does not execute live trades. Past backtest performance does not guarantee future results. Use at your own risk.
