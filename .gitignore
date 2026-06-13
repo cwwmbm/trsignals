@@ -11,3 +11,4 @@ android.py
 strategy.py
 #test_data.py
 __pycache__/
+data/
