@@ -2,6 +2,8 @@ import pandas as pd
 import indicators as ind
 import numpy as np
 from config import *
+import getdata as dt
+from itertools import combinations
 
 
 #Backtest function that iterates over number of days in trade / profitable days in trade
@@ -166,6 +168,184 @@ def backtest_sell_ind(data, days_in_trade, profitable_close, is_long, column_nam
     # Convert the 'Trades' column to integers
     results['Trades'] = results['Trades'].astype(int)
     
+    return results
+
+def backtest_signal_combinations(signal_a, signal_b, data, symbol=ticker):
+    """
+    Backtest all four primary/secondary AND/OR combinations of two signals.
+    days/profit/sell/is_long come from whichever signal is primary for that row.
+    """
+    results = pd.DataFrame(columns=['Primary', 'Secondary', 'Mode', 'Days', 'Profit', 'PnL', 'MaxDD', 'Trades', '%Pstv', 'CAGR', 'Sharpe', 'Sortino'])
+
+    for primary, secondary, mode in (
+        (signal_a, signal_b, 'and'),
+        (signal_a, signal_b, 'or'),
+        (signal_b, signal_a, 'and'),
+        (signal_b, signal_a, 'or'),
+    ):
+        data_copy = data.copy()
+        buy, sell, days, profit, _, _, is_long, _ = ind.combine_buy_signals(
+            primary, secondary, data_copy, symbol, mode
+        )
+        data_copy['Buy'] = buy
+        data_copy['Sell'] = sell
+        data_copy = execute_strategy(data_copy, days, profit, is_long)
+
+        rolling_pnl = data_copy['RollingPnL'].iloc[-1]
+        max_drawdown = data_copy['Drawdown'].max() * 100
+        trades_number = data_copy['LongTradeOut'].value_counts().get(True, 0)
+        trade_out_rows = data_copy[data_copy['LongTradeOut']]
+        positive_trades = (trade_out_rows['TradePnL'] > 0).sum() / trades_number * 100 if trades_number > 0 else 0
+        sharpe = ind.sharpes_ratio(data_copy)
+        sortino = ind.sortino_ratio(data_copy)
+        cagr = ind.cagr(data_copy)
+
+        results = results._append({
+            'Primary': primary.__name__,
+            'Secondary': secondary.__name__,
+            'Mode': mode.upper(),
+            'Days': days,
+            'Profit': profit,
+            'PnL': rolling_pnl,
+            'MaxDD': max_drawdown,
+            'Trades': trades_number,
+            '%Pstv': positive_trades,
+            'CAGR': str(cagr) + '%',
+            'Sharpe': sharpe,
+            'Sortino': sortino,
+        }, ignore_index=True)
+
+    results = results.sort_values(by=['Sharpe'], ascending=False)
+    results['PnL'] = results['PnL'].astype(int)
+    results['MaxDD'] = results['MaxDD'].round(2)
+    results['PnL'] = results['PnL'].apply(ind.format_dollar_value)
+    results['MaxDD'] = results['MaxDD'].astype(str) + '%'
+    results['Sharpe'] = pd.to_numeric(results['Sharpe'], errors='coerce')
+    results['Sharpe'] = results['Sharpe'].round(2) if not (results['Sharpe'].isnull().values.any() or np.isinf(results['Sharpe']).any()) else results['Sharpe']
+    results['Sortino'] = pd.to_numeric(results['Sortino'], errors='coerce')
+    results['Sortino'] = results['Sortino'].round(2) if not (results['Sortino'].isnull().values.any() or np.isinf(results['Sortino']).any()) else results['Sortino']
+    results['%Pstv'] = pd.to_numeric(results['%Pstv'], errors='coerce')
+    results['%Pstv'] = results['%Pstv'].round(1) if not (results['%Pstv'].isnull().values.any() or np.isinf(results['%Pstv']).any()) else results['%Pstv']
+    results['Trades'] = results['Trades'].astype(int)
+    results['Days'] = results['Days'].astype(int)
+    results['Profit'] = results['Profit'].astype(int)
+
+    return results
+
+def load_symbol_dataset(symbols, years=25):
+    """Load enriched, indicator-ready data for each symbol."""
+    context_symbols = [s for s in dt.MARKET_CONTEXT_SYMBOLS if s not in symbols]
+    all_symbols = list(dict.fromkeys(list(symbols) + context_symbols))
+    symbol_to_yf = {symbol: dt.to_yf_symbol(symbol) for symbol in all_symbols}
+    yf_symbols = list(symbol_to_yf.values())
+    full_data = dt.get_bulk_data(yf_symbols, years=years)
+    market_context = dt.extract_market_context(full_data, symbol_to_yf)
+
+    dataset = {}
+    for symbol in symbols:
+        data = dt.symbol_frame_from_bulk(full_data, symbol_to_yf[symbol], market_context)
+        dataset[symbol] = ind.add_indicators(data)
+    return dataset
+
+def _buy_series_by_date(data, buy):
+    return pd.Series(buy.values, index=pd.to_datetime(data['Date']))
+
+def apply_cross_symbol_signal(buy_signal, primary_symbol, confirm_symbols, symbol_data):
+    """
+    Apply a signal across symbols. Buy fires only when every symbol confirms;
+    sell and hold rules come from the primary symbol only.
+    """
+    confirm_symbols = [s for s in confirm_symbols if s != primary_symbol]
+    primary = symbol_data[primary_symbol].copy()
+    p_buy, p_sell, days, profit, description, verdict, is_long, ignore = buy_signal(primary, primary_symbol)
+
+    combined_buy = _buy_series_by_date(primary, p_buy)
+    for symbol in confirm_symbols:
+        sec_data = symbol_data[symbol]
+        s_buy, _, _, _, _, _, _, _ = buy_signal(sec_data, symbol)
+        combined_buy = combined_buy & _buy_series_by_date(sec_data, s_buy).reindex(combined_buy.index, fill_value=False)
+
+    primary['Buy'] = combined_buy.values
+    primary['Sell'] = p_sell
+    if confirm_symbols:
+        confirm_label = '+'.join(confirm_symbols)
+        description = f"[{primary_symbol} trade, confirm: {confirm_label}] {description}"
+    return primary, days, profit, description, verdict, is_long, ignore
+
+def _backtest_result_row(buy_signal, primary_symbol, confirm_symbols, data_copy, days, profit):
+    rolling_pnl = data_copy['RollingPnL'].iloc[-1]
+    max_drawdown = data_copy['Drawdown'].max() * 100
+    trades_number = data_copy['LongTradeOut'].value_counts().get(True, 0)
+    trade_out_rows = data_copy[data_copy['LongTradeOut']]
+    positive_trades = (trade_out_rows['TradePnL'] > 0).sum() / trades_number * 100 if trades_number > 0 else 0
+    confirm_symbols = [s for s in confirm_symbols if s != primary_symbol]
+    return {
+        'Signal': buy_signal.__name__,
+        'Primary': primary_symbol,
+        'Confirm': '+'.join(confirm_symbols) if confirm_symbols else '(none)',
+        'Days': days,
+        'Profit': profit,
+        'PnL': rolling_pnl,
+        'MaxDD': max_drawdown,
+        'Trades': trades_number,
+        '%Pstv': positive_trades,
+        'CAGR': str(ind.cagr(data_copy)) + '%',
+        'Sharpe': ind.sharpes_ratio(data_copy),
+        'Sortino': ind.sortino_ratio(data_copy),
+    }
+
+def backtest_cross_symbol(buy_signal, primary_symbol, confirm_symbols=None, years=25, symbol_data=None):
+    """Backtest a signal on the primary symbol with optional cross-symbol buy confirmation."""
+    confirm_symbols = confirm_symbols or []
+    needed = list(dict.fromkeys([primary_symbol] + confirm_symbols))
+    if symbol_data is None:
+        symbol_data = load_symbol_dataset(needed, years=years)
+    data, days, profit, description, _, is_long, _ = apply_cross_symbol_signal(
+        buy_signal, primary_symbol, confirm_symbols, symbol_data
+    )
+    data = execute_strategy(data, days, profit, is_long)
+    return data, days, profit, description, is_long
+
+def backtest_symbol_confirmation_sweep(buy_signal, primary_symbol, symbol_pool, years=25, confirm_sets=None):
+    """
+    Sweep all confirmation subsets from symbol_pool (excluding primary).
+    Includes a primary-only row with no confirmation symbols.
+    """
+    candidates = [s for s in symbol_pool if s != primary_symbol]
+    if confirm_sets is None:
+        confirm_sets = [[]]
+        for r in range(1, len(candidates) + 1):
+            confirm_sets.extend(list(combinations(candidates, r)))
+
+    needed = list(dict.fromkeys([primary_symbol] + candidates))
+    symbol_data = load_symbol_dataset(needed, years=years)
+    results = pd.DataFrame(columns=['Signal', 'Primary', 'Confirm', 'Days', 'Profit', 'PnL', 'MaxDD', 'Trades', '%Pstv', 'CAGR', 'Sharpe', 'Sortino'])
+
+    for confirm_symbols in confirm_sets:
+        confirm_symbols = list(confirm_symbols)
+        data, days, profit, _, _, is_long, _ = apply_cross_symbol_signal(
+            buy_signal, primary_symbol, confirm_symbols, symbol_data
+        )
+        data = execute_strategy(data, days, profit, is_long)
+        results = results._append(
+            _backtest_result_row(buy_signal, primary_symbol, confirm_symbols, data, days, profit),
+            ignore_index=True,
+        )
+
+    results = results.sort_values(by=['Sharpe'], ascending=False)
+    results['PnL'] = results['PnL'].astype(int)
+    results['MaxDD'] = results['MaxDD'].round(2)
+    results['PnL'] = results['PnL'].apply(ind.format_dollar_value)
+    results['MaxDD'] = results['MaxDD'].astype(str) + '%'
+    results['Sharpe'] = pd.to_numeric(results['Sharpe'], errors='coerce')
+    results['Sharpe'] = results['Sharpe'].round(2) if not (results['Sharpe'].isnull().values.any() or np.isinf(results['Sharpe']).any()) else results['Sharpe']
+    results['Sortino'] = pd.to_numeric(results['Sortino'], errors='coerce')
+    results['Sortino'] = results['Sortino'].round(2) if not (results['Sortino'].isnull().values.any() or np.isinf(results['Sortino']).any()) else results['Sortino']
+    results['%Pstv'] = pd.to_numeric(results['%Pstv'], errors='coerce')
+    results['%Pstv'] = results['%Pstv'].round(1) if not (results['%Pstv'].isnull().values.any() or np.isinf(results['%Pstv']).any()) else results['%Pstv']
+    results['Trades'] = results['Trades'].astype(int)
+    results['Days'] = results['Days'].astype(int)
+    results['Profit'] = results['Profit'].astype(int)
     return results
 
 def execute_strategy (data, days, profit, is_long = True):

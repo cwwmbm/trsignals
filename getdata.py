@@ -237,3 +237,66 @@ def clean_holidays(data):
     return clean_data
 
 
+FUTURES_SYMBOLS = ['NQ', 'ES', 'RTY', 'CL', 'GC', 'SI', 'HG', 'NG']
+MARKET_CONTEXT_SYMBOLS = ['^VIX', 'SPY', 'RSP', 'QQQ', 'SMH', 'XLF', 'XLE', 'XLU', 'XLI', 'GLD', 'TLT', 'SOXX']
+
+
+def to_yf_symbol(symbol):
+    if symbol in FUTURES_SYMBOLS:
+        return symbol + '=F'
+    if symbol == 'GBPUSD':
+        return symbol + '=X'
+    return symbol
+
+
+def _bulk_close(full_data, yf_symbol):
+    close = full_data['Close']
+    if isinstance(close, pd.DataFrame):
+        return close[yf_symbol]
+    return close
+
+
+def extract_market_context(full_data, symbol_to_yf):
+    spy = _bulk_close(full_data, symbol_to_yf['SPY'])
+    spy50 = spy.rolling(50).mean()
+    spy200 = spy.rolling(200).mean()
+    return {
+        'vix_close': _bulk_close(full_data, symbol_to_yf['^VIX']),
+        'breadth': _bulk_close(full_data, symbol_to_yf['RSP']) / spy,
+        'qqq_to_spy': _bulk_close(full_data, symbol_to_yf['QQQ']) / spy,
+        'smh_to_spy': _bulk_close(full_data, symbol_to_yf['SMH']) / spy,
+        'xlf_to_spy': _bulk_close(full_data, symbol_to_yf['XLF']) / spy,
+        'xle_to_spy': _bulk_close(full_data, symbol_to_yf['XLE']) / spy,
+        'xlu_to_spy': _bulk_close(full_data, symbol_to_yf['XLU']) / spy,
+        'xli_to_spy': _bulk_close(full_data, symbol_to_yf['XLI']) / spy,
+        'gold_to_spy': _bulk_close(full_data, symbol_to_yf['GLD']) / spy,
+        'bond_breadth': _bulk_close(full_data, symbol_to_yf['TLT']) / spy,
+        'soxx': _bulk_close(full_data, symbol_to_yf['SOXX']),
+        'qqq': _bulk_close(full_data, symbol_to_yf['QQQ']),
+        'spy_bull': np.where(spy50 > spy200, 1, -1),
+    }
+
+
+def symbol_frame_from_bulk(full_data, yf_symbol, market_context):
+    data = full_data.xs(yf_symbol, axis=1, level=1, drop_level=False)
+    data.columns = data.columns.droplevel(1)
+    data = data.copy()
+    ctx = market_context
+    data['VIX'] = ctx['vix_close']
+    data['Breadth'] = ctx['breadth']
+    data['RiskBreadth'] = ctx['qqq_to_spy']
+    data['SemisBreadth'] = ctx['smh_to_spy']
+    data['FinancialsBreadth'] = ctx['xlf_to_spy']
+    data['EnergyBreadth'] = ctx['xle_to_spy']
+    data['UtilitiesBreadth'] = ctx['xlu_to_spy']
+    data['IndustrialsBreadth'] = ctx['xli_to_spy']
+    data['GoldBreadth'] = ctx['gold_to_spy']
+    data['BondBreadth'] = ctx['bond_breadth']
+    data['Soxx'] = ctx['soxx']
+    data['QQQ'] = ctx['qqq']
+    data['SPYBull'] = ctx['spy_bull']
+    data = normalize_dataframe(data)
+    if 'Adj close' in data.columns:
+        data = data.drop(columns=['Adj close'])
+    return clean_holidays(data)
+

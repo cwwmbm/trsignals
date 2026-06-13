@@ -807,3 +807,34 @@ def og_new_sell_signal(data, symbol = ticker):
             | (data['SMA50_SMA200'] <0) | (data['EMA8CrossDown'] > 0))                                           #New Condition
 
     return sell#, 0, 0, description, verdict, is_long, ignore
+
+def combine_buy_signals(primary, secondary, data, symbol=ticker, mode='and'):
+    """
+    Combine two buy signal functions with AND or OR logic.
+
+    days, profit, sell, is_long, and ignore come from the primary signal.
+    The secondary signal contributes only its buy condition.
+    """
+    mode = mode.lower()
+    if mode not in ('and', 'or'):
+        raise ValueError("mode must be 'and' or 'or'")
+
+    p_buy, p_sell, days, profit, p_desc, p_verdict, is_long, ignore = primary(data, symbol)
+    s_buy, _, _, _, s_desc, _, _, _ = secondary(data, symbol)
+
+    if mode == 'and':
+        buy = p_buy & s_buy
+        join = ' AND '
+    else:
+        buy = p_buy | s_buy
+        join = ' OR '
+
+    description = f"({p_desc}){join}({s_desc})"
+    return buy, p_sell, days, profit, description, p_verdict, is_long, ignore
+
+def combined_signal(primary, secondary, mode='and'):
+    """Return a buy_signal-style callable that combines two signals."""
+    def _combined(data, symbol=ticker):
+        return combine_buy_signals(primary, secondary, data, symbol, mode)
+    _combined.__name__ = f"{primary.__name__}_{mode}_{secondary.__name__}"
+    return _combined

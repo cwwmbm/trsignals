@@ -316,6 +316,37 @@ def indicator_tryout(data, days, profit, is_long, is_sell = False, check_breadth
     #print(running_results)
 
 
+def signal_combination_tryout(signal_a, signal_b, data, symbol=ticker):
+    results = bt.backtest_signal_combinations(signal_a, signal_b, data, symbol)
+    print(results)
+    return results
+
+
+def symbol_confirmation_tryout(buy_signal, primary_symbol, symbol_pool, years=25, confirm_sets=None):
+    results = bt.backtest_symbol_confirmation_sweep(
+        buy_signal, primary_symbol, symbol_pool, years=years, confirm_sets=confirm_sets
+    )
+    print(results)
+    return results
+
+
+def symbol_confirmation_detail(buy_signal, primary_symbol, confirm_symbols=None, years=25, save_csv=True):
+    """
+    Detailed backtest for one primary + confirm set, including per-year breakdown via print_stats.
+    """
+    confirm_symbols = confirm_symbols or []
+    data, days, profit, description, is_long = bt.backtest_cross_symbol(
+        buy_signal, primary_symbol, confirm_symbols, years=years
+    )
+    print_stats(data, days, profit, description)
+    if save_csv:
+        confirm_label = '+'.join(confirm_symbols) if confirm_symbols else 'none'
+        filename = f'CSV/{primary_symbol}_{buy_signal.__name__}_confirm_{confirm_label}.csv'
+        data.to_csv(filename)
+        print(f"Saved to {filename}")
+    return data
+
+
 def main():
     start_time = time.perf_counter()
     results = pd.DataFrame()
@@ -344,8 +375,32 @@ def main():
     data = dt.clean_holidays(data) #Remove holidays
     data = ind.add_indicators(data)
 
-    buy_signal = ind.buy_signal4
+    # buy_signal = ind.buy_signal4
+    # buy_signal = ind.combined_signal(ind.buy_signal16, ind.buy_signal7, 'and')  # both must fire
+    buy_signal = ind.combined_signal(ind.buy_signal16, ind.buy_signal7, 'or')   # either fires
     # buy_signal = ind.og_new_buy_signal
+
+    # Sweep all 4 primary/secondary AND/OR combos (use combined_signal above for detailed single run)
+    # results = signal_combination_tryout(ind.buy_signal7, ind.buy_signal16, data)
+
+    # Cross-symbol confirmation sweep (primary traded at leverage; all confirm symbols must also buy)
+    results = symbol_confirmation_tryout(
+        ind.combined_signal(ind.buy_signal16, ind.buy_signal7, 'or'),
+        primary_symbol='SOXX',
+        symbol_pool=['SOXX', 'SMH', 'QQQ', 'SPY'],
+        years=25,
+    )
+    # Custom confirm sets only: confirm_sets=[[], ['SMH'], ['SMH', 'QQQ']]
+
+    # Detailed run for one chosen confirm set (includes per-year breakdown)
+    symbol_confirmation_detail(
+        ind.combined_signal(ind.buy_signal16, ind.buy_signal7, 'or'),
+        primary_symbol='SOXX',
+        confirm_symbols=[],
+        years=25,
+    )
+    return  # uncomment to skip single-symbol run below
+
     data['Buy'], data['Sell'], days, profit, description, verdict, is_long, ignore = buy_signal(data)
     # print(data['BBUpper'])
     # data['Buy'] = data['Buy'] & (data['ValueCharts'] < 0) #& (data['ValueCharts'] < 0) #(data['RSI5SemisBreadth'] > 40) & 
