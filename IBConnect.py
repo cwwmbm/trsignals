@@ -344,7 +344,7 @@ def main():
     data = dt.clean_holidays(data) #Remove holidays
     data = ind.add_indicators(data)
 
-    buy_signal = ind.buy_signal9
+    buy_signal = ind.buy_signal4
     # buy_signal = ind.og_new_buy_signal
     data['Buy'], data['Sell'], days, profit, description, verdict, is_long, ignore = buy_signal(data)
     # print(data['BBUpper'])

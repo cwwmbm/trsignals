@@ -442,7 +442,7 @@ def buy_signal1 (data, symbol = ticker):
     return buy, sell, days, profit, description, verdict, is_long, ignore
 
 def buy_signal2 (data, symbol = ticker):
-    allowed_symbols = ['SPY', 'QQQ']
+    allowed_symbols = []
     ignore = False if symbol in allowed_symbols else True
     days = 2
     profit = 1
