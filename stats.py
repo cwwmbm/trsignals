@@ -17,33 +17,34 @@ def yearly_returns(data):
     return returns
 
 
-def best_return_year_to_exclude(data):
+def best_return_year_to_exclude(data, returns=None):
     """Year with the highest positive annual return, or None."""
-    returns = yearly_returns(data)
+    returns = yearly_returns(data) if returns is None else returns
     if not returns:
         return None
     best_year = max(returns, key=returns.get)
     return best_year if returns[best_year] > 0 else None
 
 
-def exclude_best_return_year(data):
+def exclude_best_return_year(data, best_year=None):
     """Drop rows from the single best-return year (positive outlier only)."""
     if not ExcludeBestReturnYear:
         return data.copy()
-    year = best_return_year_to_exclude(data)
-    if year is None:
+    if best_year is None:
+        best_year = best_return_year_to_exclude(data)
+    if best_year is None:
         return data.copy()
-    return data[data['Date'].dt.year != year].copy()
+    return data[data['Date'].dt.year != best_year].copy()
 
 
-def cagr_decimal(data):
+def cagr_decimal(data, returns=None, best_year=None):
     """CAGR as a decimal, optionally excluding the best-return year."""
     if not ExcludeBestReturnYear:
         first, last = data.iloc[0], data.iloc[-1]
         return (last['RollingPnL'] / first['RollingPnL']) ** (1 / (data.shape[0] / 252)) - 1
 
-    returns = yearly_returns(data)
-    best_year = best_return_year_to_exclude(data)
+    returns = yearly_returns(data) if returns is None else returns
+    best_year = best_return_year_to_exclude(data, returns) if best_year is None else best_year
     if best_year is None or len(returns) <= 1:
         first, last = data.iloc[0], data.iloc[-1]
         return (last['RollingPnL'] / first['RollingPnL']) ** (1 / (data.shape[0] / 252)) - 1
@@ -55,9 +56,9 @@ def cagr_decimal(data):
     return cumulative ** (1 / len(remaining)) - 1
 
 
-def cagr_percent(data):
+def cagr_percent(data, returns=None, best_year=None):
     """CAGR formatted like ind.cagr() — percentage number, e.g. 46.12."""
-    return round(cagr_decimal(data) * 100, 2)
+    return round(cagr_decimal(data, returns, best_year) * 100, 2)
 
 
 def compute_aggregate_metrics(data):
@@ -66,8 +67,10 @@ def compute_aggregate_metrics(data):
     Excludes the single best-return year when ExcludeBestReturnYear is True.
     Total PnL always reflects the full run.
     """
-    metrics_data = exclude_best_return_year(data)
-    excluded_year = best_return_year_to_exclude(data) if ExcludeBestReturnYear else None
+    returns = yearly_returns(data) if ExcludeBestReturnYear else None
+    excluded_year = best_return_year_to_exclude(data, returns) if ExcludeBestReturnYear else None
+    metrics_data = exclude_best_return_year(data, excluded_year)
+    cagr = cagr_decimal(data, returns, excluded_year)
 
     trade_out = metrics_data[metrics_data['LongTradeOut']]
     trades = trade_out.shape[0]
@@ -89,8 +92,8 @@ def compute_aggregate_metrics(data):
         'avg_win': avg_win,
         'avg_loss': avg_loss,
         'kelly': kelly,
-        'cagr_decimal': cagr_decimal(data),
-        'cagr_percent': cagr_percent(data),
+        'cagr_decimal': cagr,
+        'cagr_percent': round(cagr * 100, 2),
         'sharpe': ind.sharpes_ratio(metrics_data),
         'sortino': ind.sortino_ratio(metrics_data),
     }

@@ -5,6 +5,30 @@ from config import *
 import getdata as dt
 from itertools import combinations
 from stats import compute_aggregate_metrics, yearly_performance
+from contextlib import contextmanager
+from time import perf_counter
+import os
+
+
+TIMING_ENABLED = os.getenv("BACKTEST_TIMING", "").lower() in {"1", "true", "yes"}
+
+
+def set_timing_enabled(enabled):
+    global TIMING_ENABLED
+    TIMING_ENABLED = enabled
+
+
+@contextmanager
+def timed(label):
+    if not TIMING_ENABLED:
+        yield
+        return
+    started = perf_counter()
+    try:
+        yield
+    finally:
+        elapsed = perf_counter() - started
+        print(f"[timing] {label}: {elapsed:.3f}s")
 
 
 def _yearly_records(data):
@@ -32,9 +56,10 @@ def _yearly_records(data):
     return records
 
 
-def _ranking_metrics(data):
-    m = compute_aggregate_metrics(data)
-    return {
+def _ranking_metrics(data, include_yearly=True):
+    with timed("_ranking_metrics"):
+        m = compute_aggregate_metrics(data)
+    metrics = {
         'PnL': m['rolling_pnl'],
         'MaxDD': m['max_drawdown'] * 100,
         'Trades': m['trades'],
@@ -42,8 +67,90 @@ def _ranking_metrics(data):
         'CAGR': str(m['cagr_percent']) + '%',
         'Sharpe': m['sharpe'],
         'Sortino': m['sortino'],
-        'Yearly': _yearly_records(data),
     }
+    if include_yearly:
+        metrics['Yearly'] = _yearly_records(data)
+    return metrics
+
+
+def _format_ranking_results(results, include_value=True):
+    if results.empty:
+        return results
+    results = results.sort_values(by=['Sharpe'], ascending=False)
+    results['PnL'] = results['PnL'].astype(int)
+    results['MaxDD'] = results['MaxDD'].round(2)
+    results['PnL'] = results['PnL'].apply(ind.format_dollar_value)
+    results['MaxDD'] = results['MaxDD'].astype(str)+'%'
+    results['Sharpe'] = pd.to_numeric(results['Sharpe'], errors='coerce')
+    results['Sharpe'] = results['Sharpe'].round(2) if not (results['Sharpe'].isnull().values.any() or np.isinf(results['Sharpe']).any()) else results['Sharpe']
+    results['Sortino'] = pd.to_numeric(results['Sortino'], errors='coerce')
+    results['Sortino'] = results['Sortino'].round(2) if not (results['Sortino'].isnull().values.any() or np.isinf(results['Sortino']).any()) else results['Sortino']
+    results['%Pstv'] = pd.to_numeric(results['%Pstv'], errors='coerce')
+    results['%Pstv'] = results['%Pstv'].round(1) if not (results['%Pstv'].isnull().values.any() or np.isinf(results['%Pstv']).any()) else results['%Pstv']
+    results['Trades'] = results['Trades'].astype(int)
+    return results
+
+
+def _run_indicator_threshold(data, days_in_trade, profitable_close, is_long, column_name, buy_sell, condition, value, include_yearly=True):
+    if days_in_trade > 0:
+        columns = ['Date', 'Close', '%Change', 'Buy', 'Sell', column_name]
+        if UseProxyUnderlying:
+            columns.append(ProxySymbol)
+        columns = list(dict.fromkeys(columns))
+        data_copy = data.loc[:, columns].copy()
+    else:
+        data_copy = data.copy()
+    if buy_sell == 'Buy':
+        if condition == 'less':
+            data_copy['Buy'] = data_copy['Buy'] & (data_copy[column_name] <= value)
+        else:
+            data_copy['Buy'] = data_copy['Buy'] & (data_copy[column_name] >= value)
+    else:
+        if condition == 'less':
+            data_copy['Sell'] = data_copy['Sell'] | (data_copy[column_name] <= value)
+        else:
+            data_copy['Sell'] = data_copy['Sell'] | (data_copy[column_name] >= value)
+
+    data_copy = execute_strategy(data_copy, days_in_trade, profitable_close, is_long)
+    m = _ranking_metrics(data_copy, include_yearly=include_yearly)
+    row = {
+        'Buysell': buy_sell,
+        'Indicator': column_name,
+        'Condition': condition,
+        'Value': value,
+        'PnL': m['PnL'],
+        'MaxDD': m['MaxDD'],
+        'Trades': m['Trades'],
+        '%Pstv': m['%Pstv'],
+        'CAGR': m['CAGR'],
+        'Sharpe': m['Sharpe'],
+        'Sortino': m['Sortino'],
+    }
+    if include_yearly:
+        row['Yearly'] = m['Yearly']
+    return row
+
+
+def add_yearly_to_indicator_rows(results, data, days_in_trade, profitable_close, is_long):
+    if results.empty:
+        return results
+    results = results.copy()
+    yearly = []
+    for _, row in results.iterrows():
+        detail = _run_indicator_threshold(
+            data,
+            days_in_trade,
+            profitable_close,
+            is_long,
+            row['Indicator'],
+            row['Buysell'],
+            row['Condition'],
+            row['Value'],
+            include_yearly=True,
+        )
+        yearly.append(detail['Yearly'])
+    results['Yearly'] = yearly
+    return results
 
 
 #Backtest function that iterates over number of days in trade / profitable days in trade
@@ -86,90 +193,29 @@ def backtest_days(data, max_days = 10, is_long = True, og = False):
     return results
 
 #Backtest function that iterates over input indicator and its value
-def backtest_ind(data, days_in_trade, profitable_close, is_long, column_name, condition, min_value, max_value, step=0.1, og = False):
-    results = pd.DataFrame(columns=['Indicator', 'Condition', 'Value', 'PnL', 'MaxDD', 'Trades', '%Pstv', 'Sharpe', 'Sortino'])
-    
+def backtest_ind(data, days_in_trade, profitable_close, is_long, column_name, condition, min_value, max_value, step=0.1, og = False, include_yearly=True):
+    rows = []
     for value in np.arange(min_value, max_value + step, step):
-        data_copy = data.copy()
-        
-        if condition == 'less':
-            data_copy['Buy'] = data_copy['Buy'] & (data_copy[column_name] <= value)
-        elif condition == 'more':
-            data_copy['Buy'] = data_copy['Buy'] & (data_copy[column_name] >= value)
-        elif condition == 'both':
-            data_copy['Buy'] = data_copy['Buy'] & (data_copy[column_name] >= value)
-            data_copy = execute_strategy(data_copy, days_in_trade, profitable_close, is_long)
-            m = _ranking_metrics(data_copy)
-            results = results._append({'Buysell': 'Buy','Indicator': column_name, 'Condition': 'more', 'Value': value, 'PnL': m['PnL'], 'MaxDD': m['MaxDD'], 'Trades': m['Trades'], '%Pstv': m['%Pstv'], 'CAGR': m['CAGR'], 'Sharpe': m['Sharpe'], 'Sortino': m['Sortino'], 'Yearly': m['Yearly']}, ignore_index=True)
-            data_copy = data.copy()
-            data_copy['Buy'] = data_copy['Buy'] & (data_copy[column_name] <= value)    
-        
-        data_copy = execute_strategy(data_copy, days_in_trade, profitable_close, is_long)
-        m = _ranking_metrics(data_copy)
-        cond = 'less' if condition == 'both' else condition
-        
-        results = results._append({'Buysell': 'Buy', 'Indicator': column_name, 'Condition': cond, 'Value': value, 'PnL': m['PnL'], 'MaxDD': m['MaxDD'], 'Trades': m['Trades'], '%Pstv': m['%Pstv'], 'CAGR': m['CAGR'], 'Sharpe': m['Sharpe'], 'Sortino': m['Sortino'], 'Yearly': m['Yearly']}, ignore_index=True)
-    
-    results = results.sort_values(by=['Sharpe'], ascending=False)
-    results['PnL'] = results['PnL'].astype(int)
-    results['MaxDD'] = results['MaxDD'].round(2)
-    results['PnL'] = results['PnL'].apply(ind.format_dollar_value)
-    results['MaxDD'] = results['MaxDD'].astype(str)+'%'
-    # Round the 'Sharpes' column to 2 decimal places
-    results['Sharpe'] = pd.to_numeric(results['Sharpe'], errors='coerce')
-    results['Sharpe'] = results['Sharpe'].round(2) if not (results['Sharpe'].isnull().values.any() or np.isinf(results['Sharpe']).any()) else results['Sharpe']
-    #results['Sharpe'] = results['Sharpe'].round(2)
-    results['Sortino'] = pd.to_numeric(results['Sortino'], errors='coerce')
-    results['Sortino'] = results['Sortino'].round(2) if not (results['Sortino'].isnull().values.any() or np.isinf(results['Sortino']).any()) else results['Sortino']
-    results['%Pstv'] = pd.to_numeric(results['%Pstv'], errors='coerce')
-    results['%Pstv'] = results['%Pstv'].round(1) if not (results['%Pstv'].isnull().values.any() or np.isinf(results['%Pstv']).any()) else results['%Pstv']
+        if condition == 'both':
+            rows.append(_run_indicator_threshold(data, days_in_trade, profitable_close, is_long, column_name, 'Buy', 'more', value, include_yearly))
+            cond = 'less'
+        else:
+            cond = condition
+        rows.append(_run_indicator_threshold(data, days_in_trade, profitable_close, is_long, column_name, 'Buy', cond, value, include_yearly))
 
-    # Convert the 'Trades' column to integers
-    results['Trades'] = results['Trades'].astype(int)
-    
-    return results
+    return _format_ranking_results(pd.DataFrame(rows))
 
-def backtest_sell_ind(data, days_in_trade, profitable_close, is_long, column_name, condition, min_value, max_value, step=0.1, og = False):
-    results = pd.DataFrame(columns=['Indicator', 'Condition', 'Value', 'PnL', 'MaxDD', 'Trades', '%Pstv', 'Sharpe', 'Sortino'])
+def backtest_sell_ind(data, days_in_trade, profitable_close, is_long, column_name, condition, min_value, max_value, step=0.1, og = False, include_yearly=True):
+    rows = []
     for value in np.arange(min_value, max_value + step, step):
-        data_copy = data.copy()
-        
-        if condition == 'less':
-            data_copy['Sell'] = data_copy['Sell'] | (data_copy[column_name] <= value)
-        elif condition == 'more':
-            data_copy['Sell'] = data_copy['Sell'] | (data_copy[column_name] >= value)
-        elif condition == 'both':
-            data_copy['Sell'] = data_copy['Sell'] | (data_copy[column_name] >= value)
-            data_copy = execute_strategy(data_copy, days_in_trade, profitable_close, is_long)
-            m = _ranking_metrics(data_copy)
-            results = results._append({'Buysell': 'Sell', 'Indicator': column_name, 'Condition': 'more', 'Value': value, 'PnL': m['PnL'], 'MaxDD': m['MaxDD'], 'Trades': m['Trades'], '%Pstv': m['%Pstv'], 'CAGR': m['CAGR'], 'Sharpe': m['Sharpe'], 'Sortino': m['Sortino'], 'Yearly': m['Yearly']}, ignore_index=True)
-            data_copy = data.copy()
-            data_copy['Sell'] = data_copy['Sell'] | (data_copy[column_name] <= value)    
-        
-        data_copy = execute_strategy(data_copy, days_in_trade, profitable_close, is_long)
-        m = _ranking_metrics(data_copy)
-        cond = 'less' if condition == 'both' else condition
-        
-        results = results._append({'Buysell': 'Sell', 'Indicator': column_name, 'Condition': cond, 'Value': value, 'PnL': m['PnL'], 'MaxDD': m['MaxDD'], 'Trades': m['Trades'], '%Pstv': m['%Pstv'], 'CAGR': m['CAGR'], 'Sharpe': m['Sharpe'], 'Sortino': m['Sortino'], 'Yearly': m['Yearly']}, ignore_index=True)
-    
-    results = results.sort_values(by=['Sharpe'], ascending=False)
-    results['PnL'] = results['PnL'].astype(int)
-    results['MaxDD'] = results['MaxDD'].round(2)
-    results['PnL'] = results['PnL'].apply(ind.format_dollar_value)
-    results['MaxDD'] = results['MaxDD'].astype(str)+'%'
-    # Round the 'Sharpes' column to 2 decimal places if sharpe is not NaN
-    results['Sharpe'] = pd.to_numeric(results['Sharpe'], errors='coerce')
-    results['Sharpe'] = results['Sharpe'].round(2) if not (results['Sharpe'].isnull().values.any() or np.isinf(results['Sharpe']).any()) else results['Sharpe']
-    #results['Sharpe'] = results['Sharpe'].round(2)
-    results['Sortino'] = pd.to_numeric(results['Sortino'], errors='coerce')
-    results['Sortino'] = results['Sortino'].round(2) if not (results['Sortino'].isnull().values.any() or np.isinf(results['Sortino']).any()) else results['Sortino']
-    results['%Pstv'] = pd.to_numeric(results['%Pstv'], errors='coerce')
-    results['%Pstv'] = results['%Pstv'].round(1) if not (results['%Pstv'].isnull().values.any() or np.isinf(results['%Pstv']).any()) else results['%Pstv']
+        if condition == 'both':
+            rows.append(_run_indicator_threshold(data, days_in_trade, profitable_close, is_long, column_name, 'Sell', 'more', value, include_yearly))
+            cond = 'less'
+        else:
+            cond = condition
+        rows.append(_run_indicator_threshold(data, days_in_trade, profitable_close, is_long, column_name, 'Sell', cond, value, include_yearly))
 
-    # Convert the 'Trades' column to integers
-    results['Trades'] = results['Trades'].astype(int)
-    
-    return results
+    return _format_ranking_results(pd.DataFrame(rows))
 
 def backtest_signal_combinations(signal_a, signal_b, data, symbol=ticker):
     """
@@ -340,14 +386,15 @@ def backtest_symbol_confirmation_sweep(buy_signal, primary_symbol, symbol_pool, 
     return results
 
 def execute_strategy (data, days, profit, is_long = True):
-    if days > 0:
-        results = long_strat(data, days, profit, is_long)
-    else:
-        if UseProxyUnderlying:
-            results = long_og_strat_proxy(data = data, days = days, profit = profit)
+    with timed("execute_strategy"):
+        if days > 0:
+            results = long_strat(data, days, profit, is_long)
         else:
-            results = og_strat(data)
-            #print('og_strat'+str(is_long)+str(days)+str(profit))    
+            if UseProxyUnderlying:
+                results = long_og_strat_proxy(data = data, days = days, profit = profit)
+            else:
+                results = og_strat(data)
+                #print('og_strat'+str(is_long)+str(days)+str(profit))    
     return results
 
 #Original Main Strategy
@@ -580,6 +627,80 @@ def long_og_strat_proxy(data, days = 0, profit = 0, start_capital = 15000):
 
 def long_strat(data, days, prof_closes, is_long = True, start_capital = 15000, point_multiplier = point_multiplier):
     signals = data
+    n = len(signals)
+
+    if not UseProxyUnderlying:
+        signals['TrackChange'] = signals['%Change']
+    else:
+        split_change = (data[ProxySymbol] - data[ProxySymbol].shift(1))*Leverage / data[ProxySymbol].shift(1) if data[ProxySymbol].shift(1).any() > 0 else 0
+        if SplitLong:
+            underlying_change = data['%Change']
+            signals['TrackChange'] = (split_change + underlying_change)/2
+        else:
+            signals['TrackChange'] = split_change
+
+    buy = np.asarray(signals['Buy'].values, dtype=bool)
+    sell = np.asarray(signals['Sell'].values, dtype=bool)
+    close = np.asarray(signals['Close'].values, dtype=float)
+    track_change = np.asarray(signals['TrackChange'].fillna(0).values, dtype=float)
+
+    long_in = np.zeros(n, dtype=bool)
+    long_out = np.zeros(n, dtype=bool)
+    hold_long = np.zeros(n, dtype=bool)
+    days_in_trade = np.zeros(n, dtype=int)
+    profitable_closes = np.zeros(n, dtype=int)
+    rolling_pnl = np.zeros(n, dtype=float)
+    trade_pnl = np.zeros(n, dtype=float)
+    trade_entry = np.zeros(n, dtype=float)
+
+    for i in range(n):
+        if i > 0:
+            hold_long[i] = (hold_long[i - 1] and not long_out[i - 1]) or long_in[i - 1]
+
+        long_in[i] = buy[i] and not hold_long[i]
+        days_in_trade[i] = days_in_trade[i - 1] + 1 if hold_long[i] and i > 0 else 0
+
+        if hold_long[i] and i > 0:
+            if is_long:
+                profitable_closes[i] = profitable_closes[i - 1] + 1 if close[i] > close[i - 1] else profitable_closes[i - 1]
+            else:
+                profitable_closes[i] = profitable_closes[i - 1] + 1 if close[i] < close[i - 1] else profitable_closes[i - 1]
+
+        long_out[i] = (sell[i] and hold_long[i]) or (days_in_trade[i] >= days) or (profitable_closes[i] >= prof_closes)
+        if long_in[i]:
+            trade_entry[i] = close[i]
+        elif hold_long[i]:
+            trade_entry[i] = trade_entry[i - 1] if i > 0 else 0
+
+        trade_pnl[i] = (close[i] - trade_entry[i]) / trade_entry[i] if hold_long[i] and trade_entry[i] else 0
+
+        if i == 0:
+            rolling_pnl[i] = start_capital
+        elif hold_long[i]:
+            if is_long:
+                rolling_pnl[i] = (1 + track_change[i]) * rolling_pnl[i - 1]
+            else:
+                rolling_pnl[i] = (1 - track_change[i]) * rolling_pnl[i - 1]
+        else:
+            rolling_pnl[i] = rolling_pnl[i - 1]
+
+    trade_pnl = Leverage * trade_pnl if is_long else -1 * Leverage * trade_pnl
+
+    signals['LongTradeIn'] = long_in
+    signals['LongTradeOut'] = long_out
+    signals['HoldLong'] = hold_long
+    signals['DaysInTrade'] = days_in_trade
+    signals['ProfitableCloses'] = profitable_closes
+    signals['RollingPnL'] = rolling_pnl
+    signals['TradePnL'] = trade_pnl
+    signals['TradeEntry'] = trade_entry
+    signals['RunningMax'] = signals['RollingPnL'].cummax()
+    signals['Drawdown'] = (signals['RunningMax'] - signals['RollingPnL'])/signals['RunningMax']
+    return signals
+
+
+def long_strat_reference(data, days, prof_closes, is_long = True, start_capital = 15000, point_multiplier = point_multiplier):
+    signals = data
     signals['LongTradeIn'] = False
     signals['LongTradeOut'] = False
     signals['HoldLong'] = False
@@ -589,10 +710,10 @@ def long_strat(data, days, prof_closes, is_long = True, start_capital = 15000, p
     signals['TradePnL'] = 0.0
     signals['TradeEntry'] = 0.0
     baddates = pd.DataFrame()
-    split_change = (data[ProxySymbol] - data[ProxySymbol].shift(1))*Leverage / data[ProxySymbol].shift(1) if data[ProxySymbol].shift(1).any() > 0 else 0
     if not UseProxyUnderlying:
         data['TrackChange'] = data['%Change']
     else:
+        split_change = (data[ProxySymbol] - data[ProxySymbol].shift(1))*Leverage / data[ProxySymbol].shift(1) if data[ProxySymbol].shift(1).any() > 0 else 0
         if SplitLong:
             underlying_change = (data['%Change'])
             data['TrackChange'] = (split_change + underlying_change)/2

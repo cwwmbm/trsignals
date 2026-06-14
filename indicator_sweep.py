@@ -1,6 +1,7 @@
 import pandas as pd
 import backtest as bt
 from config import ticker
+from time import perf_counter
 
 # (buy_column, sell_column, condition, min, max, step)
 BREADTH_SWEEPS = [
@@ -91,34 +92,49 @@ def _run_one_sweep(data, days, profit, is_long, is_sell, og, spec):
     column = sell_col if is_sell else buy_col
     min_val, max_val, step = (sell_min, sell_max, sell_step) if is_sell else (buy_min, buy_max, buy_step)
     fn = bt.backtest_sell_ind if is_sell else bt.backtest_ind
-    return fn(data, days, profit, is_long, column, condition, min_val, max_val, step, og)
+    return fn(data, days, profit, is_long, column, condition, min_val, max_val, step, og, include_yearly=False)
 
 
-def _collect_sweeps(running_results, data, days, profit, is_long, is_sell, og, specs, verbose=True):
+def _collect_sweeps(running_rows, data, days, profit, is_long, is_sell, og, specs, verbose=True, timing=False):
     for spec in specs:
+        started = perf_counter()
         results = _run_one_sweep(data, days, profit, is_long, is_sell, og, spec)
+        top_results = bt.add_yearly_to_indicator_rows(results.head(3), data, days, profit, is_long)
+        if timing:
+            buy_col, sell_col = spec[0], spec[1]
+            label = sell_col if is_sell else buy_col
+            print(f"[timing] sweep {label}: {perf_counter() - started:.3f}s")
         if verbose:
             print(results.head(5))
-        running_results = pd.concat([running_results, results.head(3)], ignore_index=True)
-    return running_results
+        running_rows.extend(top_results.to_dict(orient='records'))
+    return running_rows
 
 
-def indicator_tryout(data, days, profit, is_long, is_sell=False, check_breadth=True, check_both=True, verbose=True):
+def indicator_tryout(data, days, profit, is_long, is_sell=False, check_breadth=True, check_both=True, verbose=True, timing=False):
     """Grid-search indicator filters layered on the current buy/sell signal."""
-    running_results = pd.DataFrame(columns=['Buysell', 'Indicator', 'Condition', 'Value', 'PnL', 'MaxDD', 'Trades', '%Pstv', 'CAGR', 'Sharpe', 'Sortino'])
+    total_started = perf_counter()
+    previous_timing = bt.TIMING_ENABLED
+    bt.set_timing_enabled(timing)
+    running_rows = []
     og = days == 0
 
-    if check_breadth:
-        running_results = _collect_sweeps(running_results, data, days, profit, is_long, is_sell, og, BREADTH_SWEEPS, verbose)
-        if data['Date'].dt.year.iloc[0] >= 2003:
-            running_results = _collect_sweeps(running_results, data, days, profit, is_long, is_sell, og, POST_2003_BREADTH_SWEEPS, verbose)
+    try:
+        if check_breadth:
+            running_rows = _collect_sweeps(running_rows, data, days, profit, is_long, is_sell, og, BREADTH_SWEEPS, verbose, timing)
+            if data['Date'].dt.year.iloc[0] >= 2003:
+                running_rows = _collect_sweeps(running_rows, data, days, profit, is_long, is_sell, og, POST_2003_BREADTH_SWEEPS, verbose, timing)
 
-    if check_both or not check_breadth:
-        running_results = _collect_sweeps(running_results, data, days, profit, is_long, is_sell, og, PRICE_SWEEPS, verbose)
-        if ticker not in VFI_EXCLUDED_TICKERS:
-            running_results = _collect_sweeps(running_results, data, days, profit, is_long, is_sell, og, VFI_SWEEPS, verbose)
+        if check_both or not check_breadth:
+            running_rows = _collect_sweeps(running_rows, data, days, profit, is_long, is_sell, og, PRICE_SWEEPS, verbose, timing)
+            if ticker not in VFI_EXCLUDED_TICKERS:
+                running_rows = _collect_sweeps(running_rows, data, days, profit, is_long, is_sell, og, VFI_SWEEPS, verbose, timing)
+    finally:
+        bt.set_timing_enabled(previous_timing)
 
+    running_results = pd.DataFrame(running_rows)
     running_results = running_results.sort_values(by=['Sharpe'], ascending=False)
     if verbose:
         print(running_results)
+    if timing:
+        print(f"[timing] indicator_tryout total: {perf_counter() - total_started:.3f}s")
     return running_results
