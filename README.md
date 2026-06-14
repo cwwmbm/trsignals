@@ -23,10 +23,31 @@ pip install streamlit               # for signal_check.py only
 python run_backtest.py
 ```
 
+### Web interface
+
+Run the local API and React frontend in two terminals:
+
+```bash
+# Terminal 1: backend
+source venv/bin/activate
+python -m uvicorn api.main:app --reload
+```
+
+```bash
+# Terminal 2: frontend
+cd frontend
+npm install
+npm run dev
+```
+
+Open the Vite URL (usually `http://localhost:5173`). The frontend talks to the backend at `http://localhost:8000` by default. Override it with `VITE_API_URL` if needed.
+
 ## Project layout
 
 ```
 TradingStrategy/
+├── api/                 ← FastAPI backend for the web UI
+├── frontend/            ← React/Vite frontend
 ├── run_backtest.py       ← main entry point — configure RUN_MODE here
 ├── config.py             ← strategy parameters (ticker, RSI, leverage, etc.)
 ├── getdata.py            ← Yahoo Finance fetch, breadth, holiday filtering
@@ -189,6 +210,65 @@ Date
 ```
 
 CSV files are saved to `CSV/` (create the folder if needed).
+
+## Web interface
+
+The web app is local-first and stateless: each run is configured in the browser, sent to FastAPI, and returned directly as JSON. No database or auth is used in v1.
+
+### Backend API
+
+Start it with:
+
+```bash
+python -m uvicorn api.main:app --reload
+```
+
+Available endpoints:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /health` | API health check |
+| `GET /signals` | Signal names for dropdowns |
+| `GET /config` | Current defaults from `config.py` |
+| `POST /backtests/single` | One signal or combined signal on one symbol |
+| `POST /backtests/signal-combo-sweep` | Four AND/OR combos between two signals |
+| `POST /backtests/symbol-confirm-sweep` | Confirmation subset sweep from a symbol pool |
+| `POST /backtests/symbol-confirm-detail` | One primary + chosen confirmations with yearly breakdown |
+| `POST /backtests/hold-days-sweep` | Hold-days/profitable-close grid |
+| `POST /backtests/indicator-sweep` | Indicator threshold sweep |
+
+Signal expressions sent to the API look like:
+
+```json
+{ "kind": "single", "name": "buy_signal7" }
+```
+
+or:
+
+```json
+{ "kind": "combined", "primary": "buy_signal16", "secondary": "buy_signal7", "mode": "or" }
+```
+
+Detailed backtests return `summary`, `yearly`, `equity_curve`, and `trades`. Sweep endpoints return Sharpe-sorted rows with numeric values so the frontend can format them.
+
+### Frontend
+
+The React app lives in `frontend/`.
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The UI includes:
+
+- Backtest Builder with mode-specific fields
+- Summary cards for PnL, CAGR, Sharpe, Sortino, MaxDD, trades, and excluded year
+- Equity curve chart
+- Yearly breakdown table
+- Sweep results table
+- Trade list for detailed runs
 
 ## Signal combination (same symbol)
 

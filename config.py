@@ -1,4 +1,4 @@
-ticker = 'SOXX'
+ticker = 'SPY'
 point_multiplier = 20
 api_key = "" #API key for Pushbullet
 VolatilityPeriod = 5
@@ -15,11 +15,11 @@ ExitOnVolatility = True
 Leverage = 3
 
 #One day buy variables
-MondayBuy = True
-LowVolumeBuy = True
+MondayBuy = False
+LowVolumeBuy = False
 UseProxyUnderlying = False
 SplitLong = False
-ProxySymbol = 'Soxx'
+ProxySymbol = 'SPY'
 VolumeEMAThreasholdBuy = 0.15
 DownDays = 3
 OneDayArm = False #No code written to support this yet

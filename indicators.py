@@ -778,8 +778,8 @@ def og_new_buy_signal(data, symbol = ticker):
     is_long = True
     
     buy = ((data['RSI2'] < RSI2Buy) & #(data['RSI5'] < RSI5Buy) &                                  #RSI2 and RSI5 below threashold
-        ((data['VolumeEMADiff'] < VolumeEMAThreashold) | (data['Volatility'] < VolumeEMAThreashold)) & (  #Volume less than EMAThreashold
-        ((data['Close'] - data['Close'].shift(1)) / data['Close'].shift(1) > -MaxDecline))            #Decline less than 4%   
+        # ((data['VolumeEMADiff'] < VolumeEMAThreashold) | (data['Volatility'] < VolumeEMAThreashold)) & (  #Volume less than EMAThreashold
+        (((data['Close'] - data['Close'].shift(1)) / data['Close'].shift(1) > -MaxDecline))            #Decline less than 4%   
         & (data['Stoch']<30) & (data['SMA50_SMA200']>0) & (data['ER']<0.7))                          #New Conditions
         #(data['RSI5Breadth'] < 90) &(data['RSI5Breadth'] > 20) & (data['ValueCharts']>-12) & (data['Stoch']<40))    #New Conditions            
     sell = og_new_sell_signal(data, symbol = symbol)
@@ -803,8 +803,8 @@ def og_new_sell_signal(data, symbol = ticker):
             #(data['Close'].shift(1) > data['EMA8'].shift(1)) & (data['Close'] < data['EMA8'])) | (            #Crossing EMA8 down
             #  ((data['VolumeEMADiff'] >= VolumeEMAThreashold))) | (                        #Volume more than EMAThreashold !!!!!!!!!!!DOESNT WORK - INVESTIGATE!!!!!!!!
             #(data['Close'] - data['Close'].shift(1)) / data['Close'].shift(1) < -MaxDecline) | (              #Decline more than 4%
-            ((ExitOnVolatility) & (data['VolumeEMADiff'] > VolumeEMAThreashold) & (data['Volatility'] > VolatilityThreashold))       #Big volume and volatility  
-            | (data['SMA50_SMA200'] <0) | (data['EMA8CrossDown'] > 0))                                           #New Condition
+            # ((ExitOnVolatility) & (data['VolumeEMADiff'] > VolumeEMAThreashold) & (data['Volatility'] > VolatilityThreashold))       #Big volume and volatility  
+             (data['SMA50_SMA200'] <0) | (data['EMA8CrossDown'] > 0))                                           #New Condition
 
     return sell#, 0, 0, description, verdict, is_long, ignore
 

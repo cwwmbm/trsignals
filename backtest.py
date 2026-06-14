@@ -4,7 +4,32 @@ import numpy as np
 from config import *
 import getdata as dt
 from itertools import combinations
-from stats import compute_aggregate_metrics
+from stats import compute_aggregate_metrics, yearly_performance
+
+
+def _yearly_records(data):
+    yearly = yearly_performance(data).reset_index()
+    yearly = yearly.rename(
+        columns={
+            'Date': 'year',
+            'PnL%': 'pnl_percent',
+            'Drawdown%': 'drawdown_percent',
+            'Num_Trades': 'num_trades',
+            'Positive_Trades': 'positive_trades',
+        }
+    )
+    records = []
+    for row in yearly.to_dict(orient='records'):
+        records.append(
+            {
+                'year': int(row['year']),
+                'pnl_percent': float(str(row['pnl_percent']).replace('%', '')),
+                'drawdown_percent': float(str(row['drawdown_percent']).replace('%', '')),
+                'num_trades': int(row['num_trades']),
+                'positive_trades': int(row['positive_trades']),
+            }
+        )
+    return records
 
 
 def _ranking_metrics(data):
@@ -17,24 +42,28 @@ def _ranking_metrics(data):
         'CAGR': str(m['cagr_percent']) + '%',
         'Sharpe': m['sharpe'],
         'Sortino': m['sortino'],
+        'Yearly': _yearly_records(data),
     }
 
 
 #Backtest function that iterates over number of days in trade / profitable days in trade
 def backtest_days(data, max_days = 10, is_long = True, og = False):
-    results = pd.DataFrame()
+    results = pd.DataFrame(columns=['Days', 'Prf', 'PnL', 'MaxDD', 'Trades', '%Pstv', 'Sharpe', 'Sortino', 'Yearly'])
     for i in range(1, max_days+1):
         for k in range(1, i+1):
             signals = execute_strategy(data, i, k, is_long)
             m = _ranking_metrics(signals)
-            results.at[i*10+k, 'Days'] = i
-            results.at[i*10+k, 'Prf'] = k
-            results.at[i*10+k, 'PnL'] = m['PnL']
-            results.at[i*10+k, 'MaxDD'] = m['MaxDD'] / 100
-            results.at[i*10+k, 'Trades'] = m['Trades']
-            results.at[i*10+k, '%Pstv'] = m['%Pstv']
-            results.at[i*10+k, 'Sharpe'] = m['Sharpe']
-            results.at[i*10+k, 'Sortino'] = m['Sortino']
+            results.loc[i*10+k] = {
+                'Days': i,
+                'Prf': k,
+                'PnL': m['PnL'],
+                'MaxDD': m['MaxDD'] / 100,
+                'Trades': m['Trades'],
+                '%Pstv': m['%Pstv'],
+                'Sharpe': m['Sharpe'],
+                'Sortino': m['Sortino'],
+                'Yearly': m['Yearly'],
+            }
 
     
     #sort by Sharpe ratio
@@ -71,7 +100,7 @@ def backtest_ind(data, days_in_trade, profitable_close, is_long, column_name, co
             data_copy['Buy'] = data_copy['Buy'] & (data_copy[column_name] >= value)
             data_copy = execute_strategy(data_copy, days_in_trade, profitable_close, is_long)
             m = _ranking_metrics(data_copy)
-            results = results._append({'Buysell': 'Buy','Indicator': column_name, 'Condition': 'more', 'Value': value, 'PnL': m['PnL'], 'MaxDD': m['MaxDD'], 'Trades': m['Trades'], '%Pstv': m['%Pstv'], 'CAGR': m['CAGR'], 'Sharpe': m['Sharpe'], 'Sortino': m['Sortino']}, ignore_index=True)
+            results = results._append({'Buysell': 'Buy','Indicator': column_name, 'Condition': 'more', 'Value': value, 'PnL': m['PnL'], 'MaxDD': m['MaxDD'], 'Trades': m['Trades'], '%Pstv': m['%Pstv'], 'CAGR': m['CAGR'], 'Sharpe': m['Sharpe'], 'Sortino': m['Sortino'], 'Yearly': m['Yearly']}, ignore_index=True)
             data_copy = data.copy()
             data_copy['Buy'] = data_copy['Buy'] & (data_copy[column_name] <= value)    
         
@@ -79,7 +108,7 @@ def backtest_ind(data, days_in_trade, profitable_close, is_long, column_name, co
         m = _ranking_metrics(data_copy)
         cond = 'less' if condition == 'both' else condition
         
-        results = results._append({'Buysell': 'Buy', 'Indicator': column_name, 'Condition': cond, 'Value': value, 'PnL': m['PnL'], 'MaxDD': m['MaxDD'], 'Trades': m['Trades'], '%Pstv': m['%Pstv'], 'CAGR': m['CAGR'], 'Sharpe': m['Sharpe'], 'Sortino': m['Sortino']}, ignore_index=True)
+        results = results._append({'Buysell': 'Buy', 'Indicator': column_name, 'Condition': cond, 'Value': value, 'PnL': m['PnL'], 'MaxDD': m['MaxDD'], 'Trades': m['Trades'], '%Pstv': m['%Pstv'], 'CAGR': m['CAGR'], 'Sharpe': m['Sharpe'], 'Sortino': m['Sortino'], 'Yearly': m['Yearly']}, ignore_index=True)
     
     results = results.sort_values(by=['Sharpe'], ascending=False)
     results['PnL'] = results['PnL'].astype(int)
@@ -113,7 +142,7 @@ def backtest_sell_ind(data, days_in_trade, profitable_close, is_long, column_nam
             data_copy['Sell'] = data_copy['Sell'] | (data_copy[column_name] >= value)
             data_copy = execute_strategy(data_copy, days_in_trade, profitable_close, is_long)
             m = _ranking_metrics(data_copy)
-            results = results._append({'Buysell': 'Sell', 'Indicator': column_name, 'Condition': 'more', 'Value': value, 'PnL': m['PnL'], 'MaxDD': m['MaxDD'], 'Trades': m['Trades'], '%Pstv': m['%Pstv'], 'CAGR': m['CAGR'], 'Sharpe': m['Sharpe'], 'Sortino': m['Sortino']}, ignore_index=True)
+            results = results._append({'Buysell': 'Sell', 'Indicator': column_name, 'Condition': 'more', 'Value': value, 'PnL': m['PnL'], 'MaxDD': m['MaxDD'], 'Trades': m['Trades'], '%Pstv': m['%Pstv'], 'CAGR': m['CAGR'], 'Sharpe': m['Sharpe'], 'Sortino': m['Sortino'], 'Yearly': m['Yearly']}, ignore_index=True)
             data_copy = data.copy()
             data_copy['Sell'] = data_copy['Sell'] | (data_copy[column_name] <= value)    
         
@@ -121,7 +150,7 @@ def backtest_sell_ind(data, days_in_trade, profitable_close, is_long, column_nam
         m = _ranking_metrics(data_copy)
         cond = 'less' if condition == 'both' else condition
         
-        results = results._append({'Buysell': 'Sell', 'Indicator': column_name, 'Condition': cond, 'Value': value, 'PnL': m['PnL'], 'MaxDD': m['MaxDD'], 'Trades': m['Trades'], '%Pstv': m['%Pstv'], 'CAGR': m['CAGR'], 'Sharpe': m['Sharpe'], 'Sortino': m['Sortino']}, ignore_index=True)
+        results = results._append({'Buysell': 'Sell', 'Indicator': column_name, 'Condition': cond, 'Value': value, 'PnL': m['PnL'], 'MaxDD': m['MaxDD'], 'Trades': m['Trades'], '%Pstv': m['%Pstv'], 'CAGR': m['CAGR'], 'Sharpe': m['Sharpe'], 'Sortino': m['Sortino'], 'Yearly': m['Yearly']}, ignore_index=True)
     
     results = results.sort_values(by=['Sharpe'], ascending=False)
     results['PnL'] = results['PnL'].astype(int)
@@ -177,6 +206,7 @@ def backtest_signal_combinations(signal_a, signal_b, data, symbol=ticker):
             'CAGR': m['CAGR'],
             'Sharpe': m['Sharpe'],
             'Sortino': m['Sortino'],
+            'Yearly': m['Yearly'],
         }, ignore_index=True)
 
     results = results.sort_values(by=['Sharpe'], ascending=False)
@@ -252,6 +282,7 @@ def _backtest_result_row(buy_signal, primary_symbol, confirm_symbols, data_copy,
         'CAGR': m['CAGR'],
         'Sharpe': m['Sharpe'],
         'Sortino': m['Sortino'],
+        'Yearly': m['Yearly'],
     }
 
 def backtest_cross_symbol(buy_signal, primary_symbol, confirm_symbols=None, years=25, symbol_data=None):

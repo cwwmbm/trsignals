@@ -8,3 +8,5 @@ datetime
 # mplfinance
 ta
 pandas_market_calendars
+fastapi
+uvicorn

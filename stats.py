@@ -29,11 +29,11 @@ def best_return_year_to_exclude(data):
 def exclude_best_return_year(data):
     """Drop rows from the single best-return year (positive outlier only)."""
     if not ExcludeBestReturnYear:
-        return data
+        return data.copy()
     year = best_return_year_to_exclude(data)
     if year is None:
-        return data
-    return data[data['Date'].dt.year != year]
+        return data.copy()
+    return data[data['Date'].dt.year != year].copy()
 
 
 def cagr_decimal(data):
