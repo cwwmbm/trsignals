@@ -39,7 +39,7 @@ export const SweepResults = memo(function SweepResults({
         <ResultsTable
           compact
           rows={rows}
-          hiddenColumns={["Yearly"]}
+          hiddenColumns={["Yearly", "SecondaryId"]}
           selectedRow={selectedRow}
           onRowClick={onSelectRow}
           onAddRow={onAddRow}

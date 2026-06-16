@@ -191,6 +191,7 @@ def backtest_builder_signal_combinations(
             {
                 "Primary": p_strategy.name,
                 "Secondary": s_strategy.name,
+                    "SecondaryId": s_strategy.id,
                 "Mode": mode.upper(),
                 "Days": days,
                 "Profit": profit,
@@ -272,6 +273,7 @@ def backtest_builder_signal_sweep(
                 {
                     "Primary": primary.name,
                     "Secondary": secondary.name,
+                    "SecondaryId": secondary.id,
                     "Mode": mode.upper(),
                     "Days": days,
                     "Profit": profit,

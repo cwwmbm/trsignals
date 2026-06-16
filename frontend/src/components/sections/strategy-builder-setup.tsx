@@ -63,9 +63,15 @@ function savedStrategyToIndicator(strategy: SavedStrategy): IndicatorInfo {
   }
 }
 
-function uniqueSavedStrategiesByName(strategies: SavedStrategy[]) {
+function uniqueSavedStrategiesByName(strategies: SavedStrategy[], preferredSymbol: string) {
   const seen = new Set<string>()
-  return strategies.filter((strategy) => {
+  const sorted = [...strategies].sort((a, b) => {
+    const aPreferred = a.symbol === preferredSymbol
+    const bPreferred = b.symbol === preferredSymbol
+    if (aPreferred === bPreferred) return 0
+    return aPreferred ? -1 : 1
+  })
+  return sorted.filter((strategy) => {
     const key = strategy.name.trim().toLowerCase()
     if (seen.has(key)) return false
     seen.add(key)
@@ -273,22 +279,6 @@ export const StrategyBuilderSetup = forwardRef<
   },
   ref,
 ) {
-  const builderIndicators = useMemo(
-    () => [
-      ...indicators,
-      ...uniqueSavedStrategiesByName(savedStrategies).map(savedStrategyToIndicator),
-    ],
-    [indicators, savedStrategies],
-  )
-  const staticIndicatorIds = useMemo(
-    () => new Set(indicators.map((item) => item.id)),
-    [indicators],
-  )
-  const indicatorIds = useMemo(
-    () => new Set(builderIndicators.map((item) => item.id)),
-    [builderIndicators],
-  )
-
   const [validationError, setValidationError] = useState<string | null>(null)
   const [entryOpen, setEntryOpen] = useState(true)
   const [exitOpen, setExitOpen] = useState(false)
@@ -301,9 +291,25 @@ export const StrategyBuilderSetup = forwardRef<
   const [entryConditions, setEntryConditions] = useState<ConditionRow[]>(defaultEntryConditions)
   const [exitConditions, setExitConditions] = useState<ConditionRow[]>([])
 
+  const draftSymbol = symbol.trim().toUpperCase() || 'SPY'
+  const builderIndicators = useMemo(
+    () => [
+      ...indicators,
+      ...uniqueSavedStrategiesByName(savedStrategies, draftSymbol).map(savedStrategyToIndicator),
+    ],
+    [draftSymbol, indicators, savedStrategies],
+  )
+  const staticIndicatorIds = useMemo(
+    () => new Set(indicators.map((item) => item.id)),
+    [indicators],
+  )
+  const indicatorIds = useMemo(
+    () => new Set(builderIndicators.map((item) => item.id)),
+    [builderIndicators],
+  )
+
   const entryPreview = formatConditionPreview(entryConditions, builderIndicators, indicatorIds)
   const exitPreview = formatConditionPreview(exitConditions, indicators, staticIndicatorIds)
-  const draftSymbol = symbol.trim().toUpperCase() || 'SPY'
 
   const draftValid = useMemo(() => {
     try {

@@ -17,6 +17,16 @@ export function isHoldDaysSweepRow(row: Record<string, unknown>): boolean {
   return row.Days !== undefined && row.Prf !== undefined;
 }
 
+export function isStrategyComboSweepRow(row: Record<string, unknown>): boolean {
+  const mode = String(row.Mode ?? "").toUpperCase();
+  return (
+    row.SecondaryId !== undefined &&
+    row.SecondaryId !== null &&
+    String(row.SecondaryId).trim() !== "" &&
+    (mode === "AND" || mode === "OR")
+  );
+}
+
 export function holdDaysSweepRowValues(
   row: Record<string, unknown>,
 ): { holdDays: number; profit: number } | null {
@@ -65,6 +75,7 @@ export function canAddSweepRowToBuilder(
   indicators: IndicatorInfo[],
 ): boolean {
   if (holdDaysSweepRowValues(row)) return true;
+  if (isStrategyComboSweepRow(row)) return true;
   if (!isIndicatorSweepRow(row)) return false;
   if (!sweepRowSide(row)) return false;
   const indicator = String(row.Indicator);
@@ -75,6 +86,16 @@ export function sweepRowToConditionRow(
   row: Record<string, unknown>,
   indicators: IndicatorInfo[],
 ): ConditionRow | null {
+  if (isStrategyComboSweepRow(row)) {
+    const mode = String(row.Mode).toUpperCase();
+    return newConditionRow({
+      left: `strategy:${String(row.SecondaryId).trim()}`,
+      operator: "is true",
+      right: "",
+      logic: mode === "OR" ? "OR" : "AND",
+    });
+  }
+
   if (!isIndicatorSweepRow(row)) return null;
 
   const left = resolveIndicatorId(String(row.Indicator), indicators);
@@ -102,6 +123,7 @@ export function sweepRowToConditionRow(
 
 export function sweepRowAddLabel(row: Record<string, unknown>): string {
   if (isHoldDaysSweepRow(row)) return "Apply hold and profit";
+  if (isStrategyComboSweepRow(row)) return "Add strategy condition";
   const side = sweepRowSide(row);
   return side === "Sell" ? "Add to exit" : "Add to entry";
 }

@@ -260,6 +260,7 @@ def extract_market_context(full_data, symbol_to_yf):
     spy = _bulk_close(full_data, symbol_to_yf['SPY'])
     spy50 = spy.rolling(50).mean()
     spy200 = spy.rolling(200).mean()
+    spy_bull = pd.Series(np.where(spy50 > spy200, 1, -1), index=spy.index)
     return {
         'vix_close': _bulk_close(full_data, symbol_to_yf['^VIX']),
         'breadth': _bulk_close(full_data, symbol_to_yf['RSP']) / spy,
@@ -273,7 +274,7 @@ def extract_market_context(full_data, symbol_to_yf):
         'bond_breadth': _bulk_close(full_data, symbol_to_yf['TLT']) / spy,
         'soxx': _bulk_close(full_data, symbol_to_yf['SOXX']),
         'qqq': _bulk_close(full_data, symbol_to_yf['QQQ']),
-        'spy_bull': np.where(spy50 > spy200, 1, -1),
+        'spy_bull': spy_bull,
     }
 
 
@@ -281,6 +282,9 @@ def symbol_frame_from_bulk(full_data, yf_symbol, market_context):
     data = full_data.xs(yf_symbol, axis=1, level=1, drop_level=False)
     data.columns = data.columns.droplevel(1)
     data = data.copy()
+    primary_columns = [column for column in ['Open', 'High', 'Low', 'Close'] if column in data.columns]
+    if primary_columns:
+        data = data.dropna(subset=primary_columns)
     ctx = market_context
     data['VIX'] = ctx['vix_close']
     data['Breadth'] = ctx['breadth']
