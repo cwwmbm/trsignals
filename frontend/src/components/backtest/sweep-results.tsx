@@ -51,7 +51,7 @@ export const SweepResults = memo(function SweepResults({
       {yearlyRows.length > 0 && (
         <div className="mt-3 flex flex-col gap-1">
           <h3 className="text-xs font-medium text-muted-foreground">Selected outcome — yearly</h3>
-          <ResultsTable compact visibleRows={30} rows={yearlyRows} rowClassName={negativeYearRowClass} />
+          <ResultsTable compact visibleRows={30} rows={yearlyRows} rowClassName={negativeYearRowClass} sortable={false} />
         </div>
       )}
     </>

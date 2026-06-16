@@ -48,11 +48,11 @@ export const DetailResults = memo(function DetailResults({
       <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-2">
         <div className="flex flex-col gap-1">
           <h3 className="text-xs font-medium text-muted-foreground">Yearly breakdown</h3>
-          <ResultsTable compact visibleRows={30} rows={latestYears} rowClassName={negativeYearRowClass} />
+          <ResultsTable compact visibleRows={30} rows={latestYears} rowClassName={negativeYearRowClass} sortable={false} />
         </div>
         <div className="flex flex-col gap-1">
           <h3 className="text-xs font-medium text-muted-foreground">Trades</h3>
-          <ResultsTable compact visibleRows={30} rows={latestTrades} rowClassName={tradeRowClass} />
+          <ResultsTable compact visibleRows={30} rows={latestTrades} rowClassName={tradeRowClass} sortable={false} />
         </div>
       </div>
 

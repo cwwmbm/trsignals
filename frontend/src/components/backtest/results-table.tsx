@@ -1,3 +1,5 @@
+import { useEffect, useMemo, useState } from "react";
+import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -9,6 +11,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import { formatMetric } from "@/lib/format-metric";
+import {
+  defaultSortColumn,
+  defaultSortDirectionForColumn,
+  sortTableRows,
+  tableRowsSignature,
+  type SortDirection,
+} from "@/lib/sort-table-rows";
 import { cn } from "@/lib/utils";
 
 const compactHead = "h-7 px-1.5 py-0 text-[11px] font-medium";
@@ -31,6 +40,7 @@ export function ResultsTable({
   onAddRow,
   canAddRow,
   addRowLabel,
+  sortable = true,
 }: {
   rows: Array<Record<string, unknown>>;
   hiddenColumns?: string[];
@@ -43,15 +53,59 @@ export function ResultsTable({
   onAddRow?: (row: Record<string, unknown>) => void;
   canAddRow?: (row: Record<string, unknown>) => boolean;
   addRowLabel?: (row: Record<string, unknown>) => string;
+  /** Enable click-to-sort column headers. Defaults to Sharpe descending when present. */
+  sortable?: boolean;
 }) {
+  const columns = useMemo(
+    () => (rows.length ? Object.keys(rows[0]).filter((column) => !hiddenColumns.includes(column)) : []),
+    [rows, hiddenColumns],
+  );
+
+  const [sort, setSort] = useState<{ column: string; direction: SortDirection } | null>(null);
+
+  const rowsSignature = useMemo(() => tableRowsSignature(rows), [rows]);
+  const columnKey = columns.join("\0");
+
+  useEffect(() => {
+    if (!sortable || !columns.length) {
+      setSort(null);
+      return;
+    }
+    const column = defaultSortColumn(columns);
+    if (!column) {
+      setSort(null);
+      return;
+    }
+    setSort({
+      column,
+      direction: defaultSortDirectionForColumn(rows, column),
+    });
+  }, [rowsSignature, columnKey, sortable]);
+
+  const displayRows = useMemo(() => {
+    if (!sortable || !sort) return rows;
+    return sortTableRows(rows, sort.column, sort.direction);
+  }, [rows, sort, sortable]);
+
   if (!rows.length) {
     return <p className="text-xs text-muted-foreground">No rows returned.</p>;
   }
 
-  const columns = Object.keys(rows[0]).filter((column) => !hiddenColumns.includes(column));
   const fixedHeightPx =
     compact && visibleRows !== undefined ? compactTableHeightPx(visibleRows) : undefined;
   const showAddColumn = Boolean(onAddRow);
+
+  function handleSort(column: string) {
+    setSort((current) => {
+      if (current?.column === column) {
+        return { column, direction: current.direction === "asc" ? "desc" : "asc" };
+      }
+      return {
+        column,
+        direction: defaultSortDirectionForColumn(rows, column),
+      };
+    });
+  }
 
   return (
     <div
@@ -72,18 +126,47 @@ export function ResultsTable({
             {showAddColumn && (
               <TableHead className={cn("w-8 px-1", compact ? compactHead : undefined)} />
             )}
-            {columns.map((column) => (
-              <TableHead
-                key={column}
-                className={cn("whitespace-nowrap", compact ? compactHead : undefined)}
-              >
-                {column}
-              </TableHead>
-            ))}
+            {columns.map((column) => {
+              const active = sort?.column === column;
+              const SortIcon = active
+                ? sort.direction === "asc"
+                  ? ArrowUp
+                  : ArrowDown
+                : ArrowUpDown;
+              return (
+                <TableHead
+                  key={column}
+                  className={cn("whitespace-nowrap", compact ? compactHead : undefined)}
+                  aria-sort={
+                    sortable && active
+                      ? sort.direction === "asc"
+                        ? "ascending"
+                        : "descending"
+                      : "none"
+                  }
+                >
+                  {sortable ? (
+                    <button
+                      type="button"
+                      className={cn(
+                        "inline-flex items-center gap-1 text-left font-medium hover:text-foreground",
+                        active ? "text-foreground" : "text-muted-foreground",
+                      )}
+                      onClick={() => handleSort(column)}
+                    >
+                      <span>{column}</span>
+                      <SortIcon className={cn("size-3 shrink-0", active ? "opacity-100" : "opacity-40")} />
+                    </button>
+                  ) : (
+                    column
+                  )}
+                </TableHead>
+              );
+            })}
           </TableRow>
         </TableHeader>
         <TableBody>
-          {rows.map((row, idx) => {
+          {displayRows.map((row, idx) => {
             const extra = rowClassName?.(row);
             const selected = selectedRow === row;
             const addable = showAddColumn && (canAddRow?.(row) ?? true);

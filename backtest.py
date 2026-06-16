@@ -158,7 +158,7 @@ def backtest_days(data, max_days = 10, is_long = True, og = False):
     results = pd.DataFrame(columns=['Days', 'Prf', 'PnL', 'MaxDD', 'Trades', '%Pstv', 'Sharpe', 'Sortino', 'Yearly'])
     for i in range(1, max_days+1):
         for k in range(1, i+1):
-            signals = execute_strategy(data, i, k, is_long)
+            signals = execute_strategy(data.copy(), i, k, is_long)
             m = _ranking_metrics(signals)
             results.loc[i*10+k] = {
                 'Days': i,
