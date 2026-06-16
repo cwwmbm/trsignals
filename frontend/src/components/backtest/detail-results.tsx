@@ -1,28 +1,37 @@
+import { memo } from "react";
 import type { DetailedResult } from "@/api";
 import { EquityCurve } from "@/components/equity-curve";
 import { negativeYearRowClass, ResultsTable, tradeRowClass } from "@/components/backtest/results-table";
 import { StatCard, SUMMARY_KEYS, summaryLabel, summaryTone } from "@/components/backtest/stat-card";
 import { formatMetric } from "@/lib/format-metric";
-import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 
-export function DetailResults({ result }: { result: DetailedResult }) {
+export const DetailResults = memo(function DetailResults({
+  result,
+  embedded = false,
+}: {
+  result: DetailedResult;
+  embedded?: boolean;
+}) {
   const latestTrades = [...result.trades].reverse().slice(0, 100);
   const latestYears = [...result.yearly].reverse();
+  const description = String(result.summary.description ?? "");
 
-  return (
-    <Card className="border-border/60 p-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold">Results</h2>
-        <Badge variant="outline" className="font-mono text-xs">
-          Detailed
-        </Badge>
-      </div>
+  const content = (
+    <>
+      {!embedded && (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold">Results</h2>
+          <span className="font-mono text-[10px] text-muted-foreground">Detailed</span>
+        </div>
+      )}
 
-      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8">
+      <div className={cn("grid grid-cols-2 gap-1.5 sm:grid-cols-4 lg:grid-cols-8", !embedded && "mt-2")}>
         {SUMMARY_KEYS.map((key) => (
           <StatCard
             key={key}
+            compact
             label={summaryLabel(key)}
             value={formatMetric(result.summary[key], key)}
             tone={summaryTone(key, result.summary[key])}
@@ -30,24 +39,32 @@ export function DetailResults({ result }: { result: DetailedResult }) {
         ))}
       </div>
 
-      <p className="mt-4 font-mono text-sm text-muted-foreground">
-        {String(result.summary.description ?? "")}
-      </p>
+      {description ? (
+        <p className="mt-2 truncate font-mono text-[11px] text-muted-foreground" title={description}>
+          {description}
+        </p>
+      ) : null}
 
-      <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <div className="flex flex-col gap-3">
-          <h3 className="text-sm font-semibold">Yearly Breakdown</h3>
-          <ResultsTable rows={latestYears} rowClassName={negativeYearRowClass} />
+      <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-2">
+        <div className="flex flex-col gap-1">
+          <h3 className="text-xs font-medium text-muted-foreground">Yearly breakdown</h3>
+          <ResultsTable compact visibleRows={30} rows={latestYears} rowClassName={negativeYearRowClass} />
         </div>
-        <div className="flex flex-col gap-3">
-          <h3 className="text-sm font-semibold">Trades</h3>
-          <ResultsTable rows={latestTrades} rowClassName={tradeRowClass} />
+        <div className="flex flex-col gap-1">
+          <h3 className="text-xs font-medium text-muted-foreground">Trades</h3>
+          <ResultsTable compact visibleRows={30} rows={latestTrades} rowClassName={tradeRowClass} />
         </div>
       </div>
 
-      <div className="mt-6 rounded-lg border border-border/60 bg-muted/20 p-5">
+      <div className="mt-3 rounded-md border border-border/60 bg-muted/20 p-3">
         <EquityCurve data={result.equity_curve} />
       </div>
-    </Card>
+    </>
   );
-}
+
+  if (embedded) {
+    return content;
+  }
+
+  return <Card className="border-border/60 p-3">{content}</Card>;
+});

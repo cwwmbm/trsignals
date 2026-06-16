@@ -12,9 +12,37 @@ export type RunMode =
   | "hold-days-sweep"
   | "indicator-sweep";
 
+export type { BuilderRefineMode } from "@/lib/builder-refine-config";
+
 export interface SignalInfo {
   name: string;
   label: string;
+}
+
+export type IndicatorKind =
+  | "price"
+  | "volume"
+  | "reference"
+  | "breadth"
+  | "momentum"
+  | "trend"
+  | "volatility"
+  | "pattern"
+  | "composite"
+  | "signal_flag";
+
+export type IndicatorValueType = "continuous" | "percent" | "ratio" | "flag";
+
+export interface IndicatorInfo {
+  id: string;
+  label: string;
+  kind: IndicatorKind;
+  valueType: IndicatorValueType;
+  category: string;
+  description?: string;
+  typicalRange?: { min: number; max: number };
+  builderEligible: boolean;
+  aliases?: string[];
 }
 
 export interface DetailedResult {
@@ -26,8 +54,95 @@ export interface DetailedResult {
 
 export type SweepResult = Array<Record<string, number | string | null>>;
 
+export type BuilderConditionPayload = {
+  left: string;
+  operator:
+    | "<"
+    | "<="
+    | ">"
+    | ">="
+    | "="
+    | "crosses above"
+    | "crosses below"
+    | "is true"
+    | "is false";
+  right: string;
+  logic: "AND" | "OR";
+};
+
+export const FLAG_OPERATORS = ["is true", "is false"] as const;
+export type FlagOperator = (typeof FLAG_OPERATORS)[number];
+
+export function isFlagOperator(operator: string): operator is FlagOperator {
+  return FLAG_OPERATORS.includes(operator as FlagOperator);
+}
+
+export type BuilderBacktestPayload = {
+  symbol: string;
+  years?: number;
+  direction: "long" | "short";
+  hold_days: number;
+  profit?: number;
+  name?: string;
+  description?: string;
+  conditions: BuilderConditionPayload[];
+  sell_conditions?: BuilderConditionPayload[];
+};
+
+export type BuilderRefinePayload = {
+  mode: import("@/lib/builder-refine-config").BuilderRefineMode;
+  strategy: BuilderBacktestPayload;
+  secondary_strategy_id?: string;
+  primary_symbol?: string;
+  symbol_pool?: string[];
+  max_days?: number;
+  is_sell?: boolean;
+  check_breadth?: boolean;
+  check_both?: boolean;
+};
+
+export type SaveStrategyPayload = {
+  name: string;
+  symbol: string;
+  direction: "long" | "short";
+  hold_days: number;
+  profit: number;
+  description?: string;
+  conditions: BuilderConditionPayload[];
+  sell_conditions?: BuilderConditionPayload[];
+};
+
+export type SavedStrategy = SaveStrategyPayload & {
+  id: string;
+  legacy_signal?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ScanRow = {
+  id: string;
+  source: "legacy" | "builder";
+  strategy_id: string | null;
+  symbol: string;
+  signal: string;
+  buy_signal: boolean;
+  hold_long: boolean;
+  sell_signal: boolean;
+  days: number;
+  profit: number;
+  trade_pnl: number;
+  kelly: number | null;
+  description: string;
+};
+
 export async function getSignals(): Promise<SignalInfo[]> {
   const response = await fetch(`${API_URL}/signals`);
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}
+
+export async function getIndicators(builderOnly = true): Promise<IndicatorInfo[]> {
+  const response = await fetch(`${API_URL}/indicators?builder_only=${builderOnly}`);
   if (!response.ok) throw new Error(await response.text());
   return response.json();
 }
@@ -53,4 +168,30 @@ export function runBacktest(mode: RunMode, payload: Record<string, unknown>) {
   };
 
   return postJson<DetailedResult | SweepResult>(pathByMode[mode], payload);
+}
+
+export function runBuilderBacktest(payload: BuilderBacktestPayload): Promise<DetailedResult> {
+  return postJson<DetailedResult>("/backtests/builder", payload);
+}
+
+export function runBuilderRefine(
+  payload: BuilderRefinePayload,
+): Promise<DetailedResult | SweepResult> {
+  return postJson<DetailedResult | SweepResult>("/backtests/builder/refine", payload);
+}
+
+export function saveStrategy(payload: SaveStrategyPayload): Promise<SavedStrategy> {
+  return postJson<SavedStrategy>("/strategies", payload);
+}
+
+export async function getSavedStrategies(): Promise<SavedStrategy[]> {
+  const response = await fetch(`${API_URL}/strategies`);
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}
+
+export async function getScan(): Promise<ScanRow[]> {
+  const response = await fetch(`${API_URL}/scan`);
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
 }

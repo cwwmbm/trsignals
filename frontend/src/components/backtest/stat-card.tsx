@@ -5,19 +5,32 @@ export function StatCard({
   label,
   value,
   tone = "neutral",
+  compact = false,
 }: {
   label: string;
   value: string;
   tone?: "neutral" | "gain" | "loss";
+  compact?: boolean;
 }) {
   return (
-    <Card className="gap-1 rounded-lg border-border/60 bg-card/60 p-4">
-      <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+    <Card
+      className={cn(
+        "gap-0.5 rounded-md border-border/60 bg-card/60",
+        compact ? "p-2" : "gap-1 rounded-lg p-4",
+      )}
+    >
+      <span
+        className={cn(
+          "font-medium uppercase tracking-wider text-muted-foreground",
+          compact ? "text-[10px]" : "text-[11px]",
+        )}
+      >
         {label}
       </span>
       <span
         className={cn(
-          "font-mono text-xl font-semibold tabular-nums",
+          "font-mono font-semibold tabular-nums",
+          compact ? "text-sm" : "text-xl",
           tone === "gain" && "text-[var(--gain)]",
           tone === "loss" && "text-[var(--loss)]",
         )}

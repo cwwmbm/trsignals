@@ -70,3 +70,84 @@ class IndicatorSweepRequest(BaseModel):
     check_breadth: bool = False
     check_both: bool = False
     runtime_options: RuntimeOptions = Field(default_factory=RuntimeOptions)
+
+
+class BuilderCondition(BaseModel):
+    left: str
+    operator: Literal["<", "<=", ">", ">=", "=", "crosses above", "crosses below", "is true", "is false"]
+    right: str = ""
+    logic: Literal["AND", "OR"] = "AND"
+
+
+class BuilderBacktestRequest(BaseModel):
+    symbol: str = "SPY"
+    years: int = Field(default=25, ge=1, le=100)
+    direction: Literal["long", "short"] = "long"
+    hold_days: int = Field(default=2, ge=1, le=100)
+    profit: int = Field(default=1, ge=0, le=100)
+    name: str = ""
+    description: str = ""
+    conditions: list[BuilderCondition] = Field(min_length=1)
+    sell_conditions: list[BuilderCondition] = Field(default_factory=list)
+
+
+BuilderRefineMode = Literal[
+    "signal-combo-sweep",
+    "symbol-confirm-sweep",
+    "hold-days-sweep",
+    "indicator-sweep",
+]
+
+
+class BuilderRefineRequest(BaseModel):
+    mode: BuilderRefineMode
+    strategy: BuilderBacktestRequest
+    secondary_strategy_id: str | None = None
+    primary_symbol: str | None = None
+    symbol_pool: list[str] | None = None
+    max_days: int = Field(default=7, ge=1, le=100)
+    is_sell: bool = False
+    check_breadth: bool = False
+    check_both: bool = False
+
+
+class SavedStrategy(BaseModel):
+    id: str
+    name: str
+    symbol: str
+    direction: Literal["long", "short"]
+    hold_days: int
+    profit: int
+    description: str
+    conditions: list[BuilderCondition]
+    sell_conditions: list[BuilderCondition] = Field(default_factory=list)
+    legacy_signal: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class SaveStrategyRequest(BaseModel):
+    name: str = Field(min_length=1)
+    symbol: str
+    direction: Literal["long", "short"] = "long"
+    hold_days: int = Field(default=2, ge=1, le=100)
+    profit: int = Field(default=1, ge=0, le=100)
+    description: str = ""
+    conditions: list[BuilderCondition] = Field(min_length=1)
+    sell_conditions: list[BuilderCondition] = Field(default_factory=list)
+
+
+class ScanRowResponse(BaseModel):
+    id: str
+    source: Literal["legacy", "builder"]
+    strategy_id: str | None = None
+    symbol: str
+    signal: str
+    buy_signal: bool
+    hold_long: bool
+    sell_signal: bool
+    days: int
+    profit: int
+    trade_pnl: float
+    kelly: float | None
+    description: str

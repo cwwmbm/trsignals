@@ -38,3 +38,11 @@ export const RUN_MODES: RunModeOption[] = [
     description: "Layer indicator threshold filters onto the selected signal and rank results.",
   },
 ];
+
+export function showSignalPanel(mode: RunMode) {
+  return mode !== "signal-combo-sweep";
+}
+
+export function isSymbolConfirmMode(mode: RunMode) {
+  return mode === "symbol-confirm-sweep" || mode === "symbol-confirm-detail";
+}
