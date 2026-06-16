@@ -392,11 +392,15 @@ Key output columns: `LongTradeIn`, `LongTradeOut`, `HoldLong`, `TradePnL`, `Roll
 
 [`indicators.add_indicators()`](indicators.py) adds:
 
-- **Trend:** SMA, EMA, Bollinger Bands, ATR
-- **Momentum:** RSI (2/5/14), Stochastic, CCI, MACD
-- **Custom:** IBR, Kaufman ER, ValueCharts, VFI, Hurst, Change Velocity
+- **Trend:** SMA, EMA, Bollinger Bands, Donchian (20/55), Keltner (TTM standard), Parabolic SAR, ATR
+- **Momentum:** RSI (2/5/14), Stochastic, CCI, MACD, ADX(14), Williams %R, ROC(20), TRIX, linear regression slope
+- **Volatility:** Bollinger width/%B, realized volatility, volatility percentile, BB/Keltner squeeze flag
+- **Volume / flow:** OBV, OBV slope, Chaikin Money Flow, VFI, volume vs EMA
+- **Custom:** IBR, Kaufman ER, ValueCharts, Hurst, Change Velocity
 - **Breadth:** sector/index ratios vs SPY with RSI overlays
-- **Context:** VIX, SPY 50/200 bull flag, volume vs EMA
+- **Context:** VIX, SPY 50/200 bull flag, Donchian/Keltner/PSAR breakout flags
+
+Session VWAP is not available (daily EOD data only).
 
 ## Data sources
 

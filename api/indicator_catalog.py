@@ -94,6 +94,7 @@ _SWEEP = {
     "LinRegSlope20": {"min": -2, "max": 2},
     "OBVSlope20": {"min": -5, "max": 5},
     "VolatilityPercentile": {"min": 0, "max": 100},
+    "TRIX": {"min": -0.5, "max": 0.5},
 }
 
 
@@ -217,7 +218,7 @@ INDICATOR_CATALOG: list[IndicatorDef] = [
     _entry("ADX14", "ADX(14)", "Momentum / oscillators", "momentum", "continuous", typical_range=_range("ADX14"), description="14-period Average Directional Index — trend strength from 0 (no trend) to 100 (strong trend)."),
     _entry("WilliamsR14", "Williams %R(14)", "Momentum / oscillators", "momentum", "continuous", typical_range=_range("WilliamsR14"), description="14-period Williams %R — oversold/overbought oscillator ranging from −100 (oversold) to 0 (overbought)."),
     _entry("ROC20", "ROC(20)", "Momentum / oscillators", "momentum", "continuous", typical_range=_range("ROC20"), description="20-bar rate of change of close — plain momentum distinct from leveraged daily % change."),
-    _entry("TRIX", "TRIX(15)", "Momentum / oscillators", "momentum", "continuous", description="15-period TRIX — triple-smoothed EMA rate of change; less noisy than MACD histogram alone."),
+    _entry("TRIX", "TRIX(15)", "Momentum / oscillators", "momentum", "continuous", typical_range=_range("TRIX"), description="15-period TRIX — triple-smoothed EMA rate of change; less noisy than MACD histogram alone."),
     _entry(
         "LinRegSlope20",
         "Lin reg slope (20)",

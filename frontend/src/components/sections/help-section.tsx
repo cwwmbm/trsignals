@@ -95,7 +95,8 @@ export function HelpSection() {
       <Card className="border-border/60 p-6">
         <h3 className="text-sm font-semibold">Indicator glossary</h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          Brief definitions for every indicator available in the strategy builder, grouped by category.
+          Definitions for every indicator in the strategy builder, grouped by category. Descriptions
+          and sweep ranges are loaded from the API catalog.
         </p>
         <div className="mt-4">
           <IndicatorGlossary />

@@ -4,6 +4,10 @@ import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getIndicators } from '@/api'
 import { groupIndicators } from '@/lib/indicator-groups'
+import {
+  INDICATOR_CATEGORY_INTROS,
+  sortIndicatorCategories,
+} from '@/lib/indicator-glossary-content'
 import { CollapsibleSection } from '@/components/strategy-builder/collapsible-section'
 
 function formatTypicalRange(min: number, max: number) {
@@ -22,6 +26,7 @@ export function IndicatorGlossary() {
   })
 
   const groups = useMemo(() => groupIndicators(indicators), [indicators])
+  const categories = useMemo(() => sortIndicatorCategories(groups.keys()), [groups])
 
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Loading indicators…</p>
@@ -33,30 +38,48 @@ export function IndicatorGlossary() {
 
   return (
     <div className="flex flex-col gap-1">
-      {[...groups.entries()].map(([category, items]) => (
-        <CollapsibleSection
-          key={category}
-          title={category}
-          summary={`${items.length} indicator${items.length === 1 ? '' : 's'}`}
-          defaultOpen={false}
-        >
-          <dl className="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2">
-            {items.map((item) => (
-              <div key={item.id} className="flex flex-col gap-0.5">
-                <dt className="text-sm font-semibold">{item.label}</dt>
-                <dd className="text-sm leading-relaxed text-muted-foreground">
-                  {item.description ?? 'No description available.'}
-                </dd>
-                {item.typicalRange ? (
-                  <dd className="text-xs text-muted-foreground/80">
-                    Typical sweep range: {formatTypicalRange(item.typicalRange.min, item.typicalRange.max)}
+      <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
+        {indicators.length} builder indicators, loaded from the API. Recent additions include
+        Donchian breakouts, ADX, Williams %R, ROC, TRIX, OBV/CMF, Bollinger width/%B, volatility
+        percentile, Keltner channels, and TTM-style BB/Keltner squeeze flags. Session VWAP is not
+        available on daily data.
+      </p>
+      {categories.map((category) => {
+        const items = groups.get(category) ?? []
+        const intro = INDICATOR_CATEGORY_INTROS[category as keyof typeof INDICATOR_CATEGORY_INTROS]
+        return (
+          <CollapsibleSection
+            key={category}
+            title={category}
+            summary={`${items.length} indicator${items.length === 1 ? '' : 's'}`}
+            defaultOpen={false}
+          >
+            {intro ? (
+              <p className="mb-4 text-sm leading-relaxed text-muted-foreground">{intro}</p>
+            ) : null}
+            <dl className="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2">
+              {items.map((item) => (
+                <div key={item.id} className="flex flex-col gap-0.5">
+                  <dt className="text-sm font-semibold">
+                    {item.label}
+                    {item.valueType === 'flag' ? (
+                      <span className="ml-1.5 font-normal text-muted-foreground">(flag)</span>
+                    ) : null}
+                  </dt>
+                  <dd className="text-sm leading-relaxed text-muted-foreground">
+                    {item.description ?? 'No description available.'}
                   </dd>
-                ) : null}
-              </div>
-            ))}
-          </dl>
-        </CollapsibleSection>
-      ))}
+                  {item.typicalRange ? (
+                    <dd className="text-xs text-muted-foreground/80">
+                      Typical sweep range: {formatTypicalRange(item.typicalRange.min, item.typicalRange.max)}
+                    </dd>
+                  ) : null}
+                </div>
+              ))}
+            </dl>
+          </CollapsibleSection>
+        )
+      })}
     </div>
   )
 }
