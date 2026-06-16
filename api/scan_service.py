@@ -165,7 +165,34 @@ def _legacy_scan_row(
     }
 
 
-def execute_saved_strategy(data: pd.DataFrame, strategy) -> pd.DataFrame:
+def execute_saved_strategy(data: pd.DataFrame, strategy, *, years: int = 1) -> pd.DataFrame:
+    confirm_symbols = getattr(strategy, "confirm_symbols", None) or []
+    if confirm_symbols:
+        from api.builder_strategy import builder_signal_callable
+
+        labels = {item["id"]: item["label"] for item in list_indicators(builder_only=True)}
+        labels.update(
+            {
+                f"strategy:{saved.id}": saved.name
+                for saved in list_strategies()
+            }
+        )
+        signal = builder_signal_callable(
+            strategy,
+            strategy_resolver=get_strategy_by_id,
+            labels=labels,
+        )
+        primary_symbol = strategy.symbol.strip().upper()
+        needed = list(dict.fromkeys([primary_symbol, *confirm_symbols]))
+        symbol_data = bt.load_symbol_dataset(needed, years=years)
+        frame, days, profit, _, _, is_long, _ = bt.apply_cross_symbol_signal(
+            signal,
+            primary_symbol,
+            confirm_symbols,
+            symbol_data,
+        )
+        return bt.execute_strategy(frame, days, profit, is_long)
+
     conditions = [condition.model_dump() for condition in strategy.conditions]
     buy = compile_buy_mask(data, conditions, strategy_resolver=get_strategy_by_id)
     sell_conditions = [condition.model_dump() for condition in strategy.sell_conditions]

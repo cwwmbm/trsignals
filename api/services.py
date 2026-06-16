@@ -164,20 +164,44 @@ def run_builder_backtest(request) -> dict:
         description = f"{request.name.strip()}: {description}"
 
     from api.schemas import SavedStrategy
+    from api.strategy_store import _normalize_confirm_symbols
 
+    symbol = request.symbol.strip().upper()
+    confirm_symbols = _normalize_confirm_symbols(symbol, request.confirm_symbols)
     strategy = SavedStrategy(
         id="preview",
         name=request.name,
-        symbol=request.symbol,
+        symbol=symbol,
         direction=request.direction,
         hold_days=request.hold_days,
         profit=request.profit,
         description=description,
         conditions=request.conditions,
         sell_conditions=request.sell_conditions,
+        confirm_symbols=confirm_symbols,
         created_at="",
         updated_at="",
     )
+
+    if confirm_symbols:
+        signal = builder_signal_callable(
+            strategy,
+            strategy_resolver=get_strategy_by_id,
+            labels=labels,
+        )
+        executed, days, profit, cross_description, _ = bt.backtest_cross_symbol(
+            signal,
+            symbol,
+            confirm_symbols,
+            years=request.years,
+        )
+        return detailed_backtest_payload(
+            executed,
+            days,
+            profit,
+            cross_description or description,
+        )
+
     executed = execute_saved_strategy(data, strategy)
     return detailed_backtest_payload(executed, request.hold_days, request.profit, description)
 

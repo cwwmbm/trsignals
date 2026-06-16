@@ -1,7 +1,7 @@
 'use client'
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import {
   getIndicators,
   getSavedStrategies,
@@ -88,10 +88,24 @@ export function StrategyBuilderSection({
   const [refineCheckBreadth, setRefineCheckBreadth] = useState(false)
   const [refineCheckBoth, setRefineCheckBoth] = useState(false)
   const [refineIsSell, setRefineIsSell] = useState(false)
+  const [paneResetVersion, setPaneResetVersion] = useState(0)
 
   const handleSymbolChange = useCallback((symbol: string) => {
     setRefinePrimarySymbol(symbol)
   }, [])
+
+  const handleReset = useCallback(() => {
+    setBuilderResult(undefined)
+    setBuilderSelectedSweepRow(undefined)
+    setRefineResult(undefined)
+    setRefineSelectedSweepRow(undefined)
+    setValidationError(null)
+    setSaveMessage(null)
+    setAddMessage(null)
+    setPaneResetVersion((version) => version + 1)
+    mutation.reset()
+    refineMutation.reset()
+  }, [mutation, refineMutation])
 
   const handleRunBacktest = useCallback(
     (payload: Parameters<typeof runBuilderBacktest>[0]) => {
@@ -176,6 +190,7 @@ export function StrategyBuilderSection({
         onSymbolChange={handleSymbolChange}
         onRunBacktest={handleRunBacktest}
         onSave={handleSave}
+        onReset={handleReset}
         isBacktestRunning={mutation.isPending}
         isSaving={saveMutation.isPending}
       />
@@ -210,6 +225,7 @@ export function StrategyBuilderSection({
         refineResultsVersion={refineResultsVersion}
         refineSelectedSweepRow={refineSelectedSweepRow}
         onRefineSelectSweepRow={setRefineSelectedSweepRow}
+        resetVersion={paneResetVersion}
         onAddConditionFromSweepRow={handleAddFromSweepRow}
         canAddSweepRow={canAddSweepRow}
         sweepRowAddLabel={sweepRowAddLabel}

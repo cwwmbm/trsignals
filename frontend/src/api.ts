@@ -87,6 +87,7 @@ export type BuilderBacktestPayload = {
   description?: string;
   conditions: BuilderConditionPayload[];
   sell_conditions?: BuilderConditionPayload[];
+  confirm_symbols?: string[];
 };
 
 export type BuilderRefinePayload = {
@@ -110,6 +111,7 @@ export type SaveStrategyPayload = {
   description?: string;
   conditions: BuilderConditionPayload[];
   sell_conditions?: BuilderConditionPayload[];
+  confirm_symbols?: string[];
 };
 
 export type SavedStrategy = SaveStrategyPayload & {

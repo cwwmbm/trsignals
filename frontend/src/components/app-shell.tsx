@@ -168,7 +168,14 @@ export function AppShell() {
             />
           )}
           {active === 'builder' && <StrategyBuilderSection initialStrategy={builderInitialStrategy} />}
-          {active === 'scan' && <ScanSection />}
+          {active === 'scan' && (
+            <ScanSection
+              onBacktestStrategy={(strategy) => {
+                setBuilderInitialStrategy(strategy)
+                setActive('builder')
+              }}
+            />
+          )}
           {active === 'help' && <HelpSection />}
         </main>
       </div>

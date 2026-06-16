@@ -1,4 +1,6 @@
 import math
+import warnings
+
 import numpy as np
 import pandas as pd
 import ta
@@ -341,6 +343,37 @@ def macd_histogram(data, fast_period=12, slow_period=26, signal_period=9):
     hist = macd_indicator.macd_diff()
     return hist
 
+
+def rolling_linreg_slope_pct(series: pd.Series, window: int) -> pd.Series:
+    def slope(values):
+        if len(values) < window:
+            return np.nan
+        y = np.asarray(values, dtype=float)
+        if np.any(np.isnan(y)) or y[-1] == 0:
+            return np.nan
+        t = np.arange(len(y))
+        m, _ = np.polyfit(t, y, 1)
+        return m / y[-1] * 100
+
+    return series.rolling(window).apply(slope, raw=True)
+
+
+def rolling_percentile_rank(series: pd.Series, window: int) -> pd.Series:
+    def percentile_rank(values):
+        if len(values) < window:
+            return np.nan
+        ranks = pd.Series(values).rank(pct=True)
+        return ranks.iloc[-1]
+
+    return series.rolling(window).apply(percentile_rank, raw=False)
+
+
+def _adx14(high: pd.Series, low: pd.Series, close: pd.Series, window: int = 14) -> pd.Series:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        return ta.trend.ADXIndicator(high, low, close, window=window).adx()
+
+
 def add_indicators(data):
     data['%Change'] = Leverage*data['Close'].pct_change()
     data['SPYBull'] = data['Spybull']
@@ -384,7 +417,12 @@ def add_indicators(data):
     data['RSI2BondBreadth'] = ta.momentum.RSIIndicator(data['Bondbreadth'], window=2).rsi()
     data['RSI5BondBreadth'] = ta.momentum.RSIIndicator(data['Bondbreadth'], window=5).rsi()
     data['RSI14BondBreadth'] = ta.momentum.RSIIndicator(data['Bondbreadth'], window=14).rsi()
-    data['BBUpper'], data['BBMiddle'], data['BBLower'] = ta.volatility.bollinger_hband(data['Close']), ta.volatility.bollinger_mavg(data['Close']), ta.volatility.bollinger_lband(data['Close'])
+    bb = ta.volatility.BollingerBands(data['Close'], window=20, window_dev=2)
+    data['BBUpper'] = bb.bollinger_hband()
+    data['BBMiddle'] = bb.bollinger_mavg()
+    data['BBLower'] = bb.bollinger_lband()
+    data['BBWidth'] = bb.bollinger_wband()
+    data['BBPercentB'] = bb.bollinger_pband()
     data['EMA8'] = ta.trend.ema_indicator(data['Close'], window=8)
     data['EMA8CrossUp'] = np.where((data['Close'] > data['EMA8']) & (data['Close'].shift(1) < data['EMA8'].shift(1)), 1, -1)
     data['EMA8CrossDown'] = np.where((data['Close'] < data['EMA8']) & (data['Close'].shift(1) > data['EMA8'].shift(1)), 1, -1)
@@ -393,16 +431,25 @@ def add_indicators(data):
     data['VolumeEMADiff'] = (data['Volume'] - ta.trend.ema_indicator(data['Volume'], window=8)) / ta.trend.ema_indicator(data['Volume'], window=8)
     data['AdjustedChange'] = data['Close']/data['Close'].shift(1) - 1
     data['Volatility'] = data['AdjustedChange'].rolling(VolatilityPeriod).std() * math.sqrt(252)
+    data['VolatilityPercentile'] = rolling_percentile_rank(data['Volatility'], 252)
     data = kaufman_efficiency_ratio(data)
     data['Stoch'] = ta.momentum.stoch(data['High'], data['Low'], data['Close'], window=14, smooth_window=3)
     data['StochSlow'] = data['Stoch'].rolling(window=3).mean()
     data['StochOscilator'] = data['Stoch'] - data['StochSlow']
     data['ValueCharts'] = value_charts(data)
     data['MACDHist'] = macd_histogram(data)
+    data['WilliamsR14'] = ta.momentum.WilliamsRIndicator(data['High'], data['Low'], data['Close'], lbp=14).williams_r()
+    data['ROC20'] = ta.momentum.ROCIndicator(data['Close'], window=20).roc()
+    data['TRIX'] = ta.trend.TRIXIndicator(data['Close'], window=15).trix()
     data['VFI40'] = vfi(data)
     data['VFI20'] = vfi(data, period=20)
     data['VFI80'] = vfi(data, period=80)
     data['VFI10'] = vfi(data, period=10)
+    data['OBV'] = ta.volume.OnBalanceVolumeIndicator(data['Close'], data['Volume']).on_balance_volume()
+    data['OBVSlope20'] = data['OBV'].pct_change(20) * 100
+    data['CMF20'] = ta.volume.ChaikinMoneyFlowIndicator(
+        data['High'], data['Low'], data['Close'], data['Volume'], window=20
+    ).chaikin_money_flow()
     data['Close_EMA8'] = (data['Close'] - data['EMA8'])/data['Close']*100
     data['EMA20_EMA100'] = (data['EMA20'] - data['EMA100'])/data['EMA20']*100
     data['SMA50_SMA200'] = (data['SMA50'] - data['SMA200'])/data['SMA50']*100
@@ -417,21 +464,67 @@ def add_indicators(data):
     data['ATR20'] = ta.volatility.average_true_range(data['High'], data['Low'], data['Close'], window=20)
     data['ATR50'] = ta.volatility.average_true_range(data['High'], data['Low'], data['Close'], window=50)
     data['ATR20_ATR50'] = data['ATR20'] - data['ATR50']
-    data['ChangeVelocity'] = (data['Close'] - data['Close'].shift(1)) / data['ATR20'].shift(1)
-    data['HigherCloses2'] = np.where((data['Close'] > data['Close'].shift(1)) & (data['Close'].shift(1) > data['Close'].shift(2)), 1, -1)
-    data['HigherCloses3'] = np.where((data['Close'] > data['Close'].shift(1)) & (data['Close'].shift(1) > data['Close'].shift(2)) & (data['Close'].shift(2) > data['Close'].shift(3)), 1, -1)
-    data['LowerCloses2'] = np.where((data['Close'] < data['Close'].shift(1)) & (data['Close'].shift(1) < data['Close'].shift(2)), 1, -1)
-    data['LowerCloses3'] = np.where((data['Close'] < data['Close'].shift(1)) & (data['Close'].shift(1) < data['Close'].shift(2)) & (data['Close'].shift(2) < data['Close'].shift(3)), 1, -1)
-    data['CloseLag1'] = data['Close'].shift(1)
-    data['CloseLag2'] = data['Close'].shift(2)
-    data['CloseLag3'] = data['Close'].shift(3)
-    data['LowLag1'] = data['Low'].shift(1)
-    data['LowMin2Lag1'] = data['Low'].rolling(window=2).min().shift(1)
-    data = data.drop(columns=['StochSlow'])
-    data = data.drop(columns=['Spybull'])
-    #data['StochFast'] = ta.momentum.stoch(data['High'], data['Low'], data['Close'], window=14, smooth_window=3, fastd=True)
-    data['Sell'] = False
-    return data
+    data['ADX14'] = _adx14(data['High'], data['Low'], data['Close'], window=14)
+    data['PSAR'] = ta.trend.PSARIndicator(data['High'], data['Low'], data['Close']).psar()
+    data['LinRegSlope20'] = rolling_linreg_slope_pct(data['Close'], 20)
+    # Prior-period Donchian levels (standard breakout: compare close to yesterday's N-day extreme)
+    data['DonchianUpper20'] = data['High'].rolling(20).max().shift(1)
+    data['DonchianLower20'] = data['Low'].rolling(20).min().shift(1)
+    data['DonchianUpper55'] = data['High'].rolling(55).max().shift(1)
+    data['DonchianLower55'] = data['Low'].rolling(55).min().shift(1)
+    keltner20 = ta.volatility.KeltnerChannel(
+        data['High'], data['Low'], data['Close'],
+        window=20, window_atr=20, multiplier=1.5, original_version=False,
+    )
+    data['KCUpper20'] = keltner20.keltner_channel_hband()
+    data['KCMiddle20'] = keltner20.keltner_channel_mband()
+    data['KCLower20'] = keltner20.keltner_channel_lband()
+    data['BBSqueeze'] = np.where(
+        (data['BBUpper'] < data['KCUpper20']) & (data['BBLower'] > data['KCLower20']), 1, -1
+    )
+    close = data['Close']
+    low = data['Low']
+    tail = pd.DataFrame(
+        {
+            'ChangeVelocity': (close - close.shift(1)) / data['ATR20'].shift(1),
+            'HigherCloses2': np.where(
+                (close > close.shift(1)) & (close.shift(1) > close.shift(2)), 1, -1
+            ),
+            'HigherCloses3': np.where(
+                (close > close.shift(1))
+                & (close.shift(1) > close.shift(2))
+                & (close.shift(2) > close.shift(3)),
+                1,
+                -1,
+            ),
+            'LowerCloses2': np.where(
+                (close < close.shift(1)) & (close.shift(1) < close.shift(2)), 1, -1
+            ),
+            'LowerCloses3': np.where(
+                (close < close.shift(1))
+                & (close.shift(1) < close.shift(2))
+                & (close.shift(2) < close.shift(3)),
+                1,
+                -1,
+            ),
+            'CloseLag1': close.shift(1),
+            'CloseLag2': close.shift(2),
+            'CloseLag3': close.shift(3),
+            'LowLag1': low.shift(1),
+            'LowMin2Lag1': low.rolling(window=2).min().shift(1),
+            'CloseAboveDonchianUpper20': np.where(close > data['DonchianUpper20'], 1, -1),
+            'CloseBelowDonchianLower20': np.where(close < data['DonchianLower20'], 1, -1),
+            'CloseAboveDonchianUpper55': np.where(close > data['DonchianUpper55'], 1, -1),
+            'CloseBelowDonchianLower55': np.where(close < data['DonchianLower55'], 1, -1),
+            'CloseAbovePSAR': np.where(close > data['PSAR'], 1, -1),
+            'CloseAboveKCUpper20': np.where(close > data['KCUpper20'], 1, -1),
+            'CloseBelowKCLower20': np.where(close < data['KCLower20'], 1, -1),
+            'Sell': False,
+        },
+        index=data.index,
+    )
+    data = data.drop(columns=['StochSlow', 'Spybull'])
+    return pd.concat([data, tail], axis=1)
 
 def buy_signal1 (data, symbol = ticker):
     allowed_symbols = ['XBI']

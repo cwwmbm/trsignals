@@ -64,6 +64,7 @@ type StrategyBuilderResultsPaneProps = {
   canAddSweepRow?: (row: Record<string, unknown>) => boolean;
   sweepRowAddLabel?: (row: Record<string, unknown>) => string;
   refineProps: BuilderRefinePanelProps;
+  resetVersion?: number;
 };
 
 function StrategyBuilderResultsPane({
@@ -79,8 +80,13 @@ function StrategyBuilderResultsPane({
   canAddSweepRow,
   sweepRowAddLabel,
   refineProps,
+  resetVersion = 0,
 }: StrategyBuilderResultsPaneProps) {
   const [activeTab, setActiveTab] = useState<"results" | "refine" | "refinement-results">("results");
+
+  useEffect(() => {
+    setActiveTab("results");
+  }, [resetVersion]);
 
   useEffect(() => {
     if (builderResultsVersion > 0) {

@@ -7,7 +7,7 @@ import {
   useMemo,
   useState,
 } from 'react'
-import { Loader2, Play, Save } from 'lucide-react'
+import { Loader2, Play, RotateCcw, Save } from 'lucide-react'
 import {
   type BuilderConditionPayload,
   type BuilderBacktestPayload,
@@ -30,6 +30,7 @@ import {
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { isFlagIndicator } from '@/lib/strategy-builder'
+import { csv } from '@/lib/backtest-form'
 import { updateStrategyBuilderDraftPreview } from '@/lib/strategy-builder-draft-store'
 import { CollapsibleSection } from '@/components/strategy-builder/collapsible-section'
 import {
@@ -45,8 +46,10 @@ import { indicatorLabel } from '@/components/strategy-builder/indicator-select'
 import {
   holdDaysSweepRowValues,
   isHoldDaysSweepRow,
+  isSymbolConfirmSweepRow,
   sweepRowSide,
   sweepRowToConditionRow,
+  symbolConfirmSweepRowValues,
 } from '@/lib/sweep-to-condition'
 
 const STRATEGY_INDICATOR_PREFIX = 'strategy:'
@@ -105,6 +108,7 @@ function buildPayload(
   profitableCloses: string,
   name: string,
   description: string,
+  confirmSymbols: string,
   entryConditions: ConditionRow[],
   exitConditions: ConditionRow[],
   entryIndicators: IndicatorInfo[],
@@ -138,6 +142,7 @@ function buildPayload(
     description: description.trim(),
     conditions: toConditionPayload(entryConditions),
     sell_conditions: toConditionPayload(exitConditions),
+    confirm_symbols: csv(confirmSymbols),
   } satisfies BuilderBacktestPayload
 }
 
@@ -148,6 +153,7 @@ function buildSavePayload(
   profitableCloses: string,
   name: string,
   description: string,
+  confirmSymbols: string,
   entryConditions: ConditionRow[],
   exitConditions: ConditionRow[],
   entryIndicators: IndicatorInfo[],
@@ -160,6 +166,7 @@ function buildSavePayload(
     profitableCloses,
     name,
     description,
+    confirmSymbols,
     entryConditions,
     exitConditions,
     entryIndicators,
@@ -177,6 +184,7 @@ function buildSavePayload(
     description: payload.description,
     conditions: payload.conditions,
     sell_conditions: payload.sell_conditions,
+    confirm_symbols: payload.confirm_symbols,
   }
 }
 
@@ -259,6 +267,7 @@ type StrategyBuilderSetupProps = {
   onSymbolChange?: (symbol: string) => void
   onRunBacktest: (payload: BuilderBacktestPayload) => void
   onSave: (payload: SaveStrategyPayload) => void
+  onReset?: () => void
   isBacktestRunning: boolean
   isSaving: boolean
 }
@@ -274,6 +283,7 @@ export const StrategyBuilderSetup = forwardRef<
     onSymbolChange,
     onRunBacktest,
     onSave,
+    onReset,
     isBacktestRunning,
     isSaving,
   },
@@ -287,6 +297,7 @@ export const StrategyBuilderSetup = forwardRef<
   const [direction, setDirection] = useState('long')
   const [holdDays, setHoldDays] = useState('2')
   const [profitableCloses, setProfitableCloses] = useState('1')
+  const [confirmSymbols, setConfirmSymbols] = useState('')
   const [description, setDescription] = useState('')
   const [entryConditions, setEntryConditions] = useState<ConditionRow[]>(defaultEntryConditions)
   const [exitConditions, setExitConditions] = useState<ConditionRow[]>([])
@@ -347,22 +358,29 @@ export const StrategyBuilderSetup = forwardRef<
     onSymbolChange?.(draftSymbol)
   }, [draftSymbol, onSymbolChange])
 
-  useEffect(() => {
+  function resetFormToDefaults() {
     setValidationError(null)
+    setName('')
+    setSymbol('SPY')
+    setDirection('long')
+    setHoldDays('2')
+    setProfitableCloses('1')
+    setConfirmSymbols('')
+    setDescription('')
+    setEntryConditions(defaultEntryConditions())
+    setExitConditions([])
+    setEntryOpen(true)
+    setExitOpen(false)
+    onReset?.()
+  }
+
+  useEffect(() => {
     if (!initialStrategy) {
-      setName('')
-      setSymbol('SPY')
-      setDirection('long')
-      setHoldDays('2')
-      setProfitableCloses('1')
-      setDescription('')
-      setEntryConditions(defaultEntryConditions())
-      setExitConditions([])
-      setEntryOpen(true)
-      setExitOpen(false)
+      resetFormToDefaults()
       return
     }
 
+    setValidationError(null)
     const entryRows = conditionRowsFromPayload(
       initialStrategy.conditions,
       `entry-${initialStrategy.id}`,
@@ -376,6 +394,7 @@ export const StrategyBuilderSetup = forwardRef<
     setDirection(initialStrategy.direction)
     setHoldDays(String(initialStrategy.hold_days))
     setProfitableCloses(String(initialStrategy.profit))
+    setConfirmSymbols((initialStrategy.confirm_symbols ?? []).join(', '))
     setDescription(initialStrategy.description ?? '')
     setEntryConditions(entryRows.length > 0 ? entryRows : defaultEntryConditions())
     setExitConditions(exitRows)
@@ -394,6 +413,7 @@ export const StrategyBuilderSetup = forwardRef<
           profitableCloses,
           name,
           description,
+          confirmSymbols,
           entryConditions,
           exitConditions,
           builderIndicators,
@@ -407,6 +427,7 @@ export const StrategyBuilderSetup = forwardRef<
           profitableCloses,
           name,
           description,
+          confirmSymbols,
           entryConditions,
           exitConditions,
           builderIndicators,
@@ -420,6 +441,7 @@ export const StrategyBuilderSetup = forwardRef<
           profitableCloses,
           name,
           description,
+          confirmSymbols,
           entryConditions,
           exitConditions,
           builderIndicators,
@@ -433,6 +455,15 @@ export const StrategyBuilderSetup = forwardRef<
           setProfitableCloses(String(values.profit))
           setExitOpen(true)
           return `Applied ${values.holdDays}d hold · ${values.profit} profit close${values.profit === 1 ? '' : 's'}.`
+        }
+
+        if (isSymbolConfirmSweepRow(row)) {
+          const value = symbolConfirmSweepRowValues(row)
+          if (value === null) return 'Could not apply confirmation symbols from this sweep row.'
+          setConfirmSymbols(value)
+          return value
+            ? `Applied confirmation: ${value}.`
+            : 'Cleared confirmation symbols.'
         }
 
         const mapped = sweepRowToConditionRow(row, builderIndicators)
@@ -464,6 +495,7 @@ export const StrategyBuilderSetup = forwardRef<
       profitableCloses,
       name,
       description,
+      confirmSymbols,
       entryConditions,
       exitConditions,
       builderIndicators,
@@ -482,6 +514,7 @@ export const StrategyBuilderSetup = forwardRef<
           profitableCloses,
           name,
           description,
+          confirmSymbols,
           entryConditions,
           exitConditions,
           builderIndicators,
@@ -504,6 +537,7 @@ export const StrategyBuilderSetup = forwardRef<
           profitableCloses,
           name,
           description,
+          confirmSymbols,
           entryConditions,
           exitConditions,
           builderIndicators,
@@ -521,6 +555,15 @@ export const StrategyBuilderSetup = forwardRef<
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-base font-semibold">Strategy builder</h2>
           <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 gap-1.5"
+              onClick={resetFormToDefaults}
+            >
+              <RotateCcw className="size-3.5" />
+              Reset
+            </Button>
             <Button
               size="sm"
               variant="outline"
@@ -575,6 +618,18 @@ export const StrategyBuilderSetup = forwardRef<
                 <SelectItem value="short">Short</SelectItem>
               </SelectContent>
             </Select>
+          </Field>
+        </div>
+
+        <div className="mt-2">
+          <Field label="Confirm symbols" htmlFor="strat-confirm-symbols">
+            <Input
+              id="strat-confirm-symbols"
+              placeholder="Optional, e.g. SMH, QQQ"
+              value={confirmSymbols}
+              onChange={(e) => setConfirmSymbols(e.target.value.toUpperCase())}
+              className="h-8 font-mono text-sm"
+            />
           </Field>
         </div>
 

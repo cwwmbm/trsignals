@@ -27,6 +27,22 @@ export function isStrategyComboSweepRow(row: Record<string, unknown>): boolean {
   );
 }
 
+export function isSymbolConfirmSweepRow(row: Record<string, unknown>): boolean {
+  return row.Confirm !== undefined && row.Primary !== undefined;
+}
+
+export function symbolConfirmSweepRowValues(row: Record<string, unknown>): string | null {
+  if (!isSymbolConfirmSweepRow(row)) return null;
+
+  const confirm = String(row.Confirm ?? "").trim();
+  if (!confirm || confirm === "(none)") return "";
+  return confirm
+    .split("+")
+    .map((item) => item.trim().toUpperCase())
+    .filter(Boolean)
+    .join(", ");
+}
+
 export function holdDaysSweepRowValues(
   row: Record<string, unknown>,
 ): { holdDays: number; profit: number } | null {
@@ -76,6 +92,7 @@ export function canAddSweepRowToBuilder(
 ): boolean {
   if (holdDaysSweepRowValues(row)) return true;
   if (isStrategyComboSweepRow(row)) return true;
+  if (isSymbolConfirmSweepRow(row)) return symbolConfirmSweepRowValues(row) !== null;
   if (!isIndicatorSweepRow(row)) return false;
   if (!sweepRowSide(row)) return false;
   const indicator = String(row.Indicator);
@@ -124,6 +141,10 @@ export function sweepRowToConditionRow(
 export function sweepRowAddLabel(row: Record<string, unknown>): string {
   if (isHoldDaysSweepRow(row)) return "Apply hold and profit";
   if (isStrategyComboSweepRow(row)) return "Add strategy condition";
+  if (isSymbolConfirmSweepRow(row)) {
+    const value = symbolConfirmSweepRowValues(row);
+    return value ? "Apply confirmation symbols" : "Clear confirmation";
+  }
   const side = sweepRowSide(row);
   return side === "Sell" ? "Add to exit" : "Add to entry";
 }

@@ -13,7 +13,7 @@ from api.builder_strategy import (
     draft_to_saved_strategy,
 )
 from api.schemas import BuilderBacktestRequest, BuilderCondition, BuilderRefineRequest, SaveStrategyRequest
-from api.services import run_builder_refine
+from api.services import run_builder_backtest, run_builder_refine
 from api.strategy_store import create_strategy, get_strategy_by_id
 
 
@@ -53,6 +53,12 @@ class BuilderStrategyHelperTests(unittest.TestCase):
         self.assertEqual(saved.name, "Draft RSI")
         self.assertEqual(saved.symbol, "SPY")
         self.assertIn("RSI(2)", saved.description)
+
+    def test_draft_to_saved_strategy_normalizes_confirm_symbols(self):
+        saved = draft_to_saved_strategy(
+            _draft_request(confirm_symbols=["spy", "smh", "QQQ"])
+        )
+        self.assertEqual(saved.confirm_symbols, ["SMH", "QQQ"])
 
     def test_combine_builder_buy_masks_and_mode(self):
         data = _sample_data()
@@ -188,6 +194,31 @@ class BuilderRefineServiceTests(unittest.TestCase):
 
         self.assertEqual(len(rows), 2)
         tryout.assert_called_once()
+
+
+class BuilderBacktestServiceTests(unittest.TestCase):
+    def test_run_builder_backtest_uses_cross_symbol_when_confirm_symbols_set(self):
+        request = _draft_request(confirm_symbols=["SMH", "QQQ"])
+        data = _sample_data()
+        executed = data.copy()
+
+        with patch("api.services.load_ticker_data", return_value=data.copy()):
+            with patch("api.services.compile_buy_mask"):
+                with patch("api.services.compile_sell_mask"):
+                    with patch("api.services.builder_signal_callable") as signal_fn:
+                        signal_fn.return_value = object()
+                        with patch("api.services.bt.backtest_cross_symbol") as cross:
+                            cross.return_value = (executed, 2, 1, "Cross description", True)
+                            with patch("api.services.detailed_backtest_payload") as payload:
+                                payload.return_value = {"summary": {"PnL": 1}}
+                                result = run_builder_backtest(request)
+
+        cross.assert_called_once()
+        cross_args = cross.call_args[0]
+        self.assertEqual(cross_args[1], "SPY")
+        self.assertEqual(cross_args[2], ["SMH", "QQQ"])
+        payload.assert_called_once_with(executed, 2, 1, "Cross description")
+        self.assertEqual(result, {"summary": {"PnL": 1}})
 
 
 class BuilderComboSweepTests(unittest.TestCase):

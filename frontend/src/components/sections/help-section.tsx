@@ -3,6 +3,7 @@
 import { BookOpen, FlaskConical, ListChecks, Radar, Wrench } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { RUN_MODES } from '@/lib/mock-data'
+import { IndicatorGlossary } from '@/components/sections/indicator-glossary'
 
 const SECTION_HELP = [
   {
@@ -49,7 +50,7 @@ export function HelpSection() {
           <div>
             <h2 className="text-lg font-semibold">Help &amp; documentation</h2>
             <p className="text-sm text-muted-foreground">
-              How each section works, the available run modes, and a metrics glossary.
+              How each section works, the available run modes, a metrics glossary, and an indicator glossary.
             </p>
           </div>
         </div>
@@ -89,6 +90,16 @@ export function HelpSection() {
             </div>
           ))}
         </dl>
+      </Card>
+
+      <Card className="border-border/60 p-6">
+        <h3 className="text-sm font-semibold">Indicator glossary</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Brief definitions for every indicator available in the strategy builder, grouped by category.
+        </p>
+        <div className="mt-4">
+          <IndicatorGlossary />
+        </div>
       </Card>
     </div>
   )

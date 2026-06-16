@@ -37,6 +37,17 @@ def _model_dump(model) -> dict:
     return model.dict()
 
 
+def _normalize_confirm_symbols(symbol: str, confirm_symbols: list[str]) -> list[str]:
+    primary = symbol.strip().upper()
+    normalized: list[str] = []
+    for item in confirm_symbols:
+        value = item.strip().upper()
+        if not value or value == primary or value in normalized:
+            continue
+        normalized.append(value)
+    return normalized
+
+
 def _validate_saved_strategy(item: dict) -> SavedStrategy:
     if hasattr(SavedStrategy, "model_validate"):
         return SavedStrategy.model_validate(item)
@@ -62,16 +73,18 @@ def create_strategy(
 ) -> SavedStrategy:
     path = store_path or DEFAULT_STORE_PATH
     now = _now_iso()
+    symbol = request.symbol.strip().upper()
     saved = SavedStrategy(
         id=str(uuid4()),
         name=request.name.strip(),
-        symbol=request.symbol.strip().upper(),
+        symbol=symbol,
         direction=request.direction,
         hold_days=request.hold_days,
         profit=request.profit,
         description=request.description.strip(),
         conditions=request.conditions,
         sell_conditions=request.sell_conditions,
+        confirm_symbols=_normalize_confirm_symbols(symbol, request.confirm_symbols),
         created_at=now,
         updated_at=now,
     )

@@ -10,6 +10,7 @@ import pandas as pd
 from api.indicator_catalog import list_indicators
 from api.schemas import BuilderBacktestRequest, SavedStrategy
 from api.strategy_compiler import compile_buy_mask, compile_sell_mask, format_condition_preview
+from api.strategy_store import _normalize_confirm_symbols
 
 StrategyResolver = Callable[[str], Any | None]
 
@@ -35,16 +36,18 @@ def draft_to_saved_strategy(
     if request.name.strip():
         description = f"{request.name.strip()}: {description}"
 
+    symbol = request.symbol.strip().upper()
     return SavedStrategy(
         id="draft",
         name=request.name.strip() or "Untitled draft",
-        symbol=request.symbol.strip().upper(),
+        symbol=symbol,
         direction=request.direction,
         hold_days=request.hold_days,
         profit=request.profit,
         description=description,
         conditions=conditions,
         sell_conditions=request.sell_conditions,
+        confirm_symbols=_normalize_confirm_symbols(symbol, request.confirm_symbols),
         created_at="",
         updated_at="",
     )

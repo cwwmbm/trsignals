@@ -17,6 +17,14 @@ class IndicatorCatalogTests(unittest.TestCase):
         self.assertTrue(all(item.get("builderEligible", True) for item in indicators))
         self.assertTrue(all("id" in item and "label" in item and "category" in item for item in indicators))
 
+    def test_builder_indicators_have_descriptions(self):
+        missing = [
+            item["id"]
+            for item in list_indicators(builder_only=True)
+            if not item.get("description", "").strip()
+        ]
+        self.assertEqual(missing, [])
+
 
 if __name__ == "__main__":
     unittest.main()

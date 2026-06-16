@@ -2,8 +2,8 @@
 
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Check, Loader2, RefreshCw, Search, X } from 'lucide-react'
-import { getScan, type ScanRow } from '@/api'
+import { ArrowUpRight, Check, Loader2, RefreshCw, Search, X } from 'lucide-react'
+import { getSavedStrategies, getScan, type SavedStrategy, type ScanRow } from '@/api'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -23,21 +23,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
-
-const SCAN_SYMBOL_ORDER = [
-  'SPY',
-  'SMH',
-  'QQQ',
-  'SOXX',
-  'IWM',
-  'FXI',
-  'AAPL',
-  'GDX',
-  'MSFT',
-  'GLD',
-  'XBI',
-  'TLT',
-] as const
+import { compareSymbols, sortSymbols } from '@/lib/symbol-order'
 
 const SIGNAL_ORDER = [
   'buy_signal1',
@@ -70,12 +56,9 @@ const compactHead = 'h-7 px-1.5 py-0 text-[11px] font-medium'
 const compactCell = 'px-1.5 py-0.5'
 
 function sortScanRows(rows: ScanRow[]): ScanRow[] {
-  const symbolRank = new Map(SCAN_SYMBOL_ORDER.map((symbol, index) => [symbol, index]))
   const signalRank = new Map(SIGNAL_ORDER.map((signal, index) => [signal, index]))
   return [...rows].sort((a, b) => {
-    const symbolDiff =
-      (symbolRank.get(a.symbol as (typeof SCAN_SYMBOL_ORDER)[number]) ?? SCAN_SYMBOL_ORDER.length) -
-      (symbolRank.get(b.symbol as (typeof SCAN_SYMBOL_ORDER)[number]) ?? SCAN_SYMBOL_ORDER.length)
+    const symbolDiff = compareSymbols(a.symbol, b.symbol)
     if (symbolDiff !== 0) return symbolDiff
     return (
       (signalRank.get(a.signal as (typeof SIGNAL_ORDER)[number]) ?? SIGNAL_ORDER.length) -
@@ -84,15 +67,8 @@ function sortScanRows(rows: ScanRow[]): ScanRow[] {
   })
 }
 
-function sortSymbols(symbols: string[]): string[] {
-  const symbolRank = new Map<string, number>(
-    SCAN_SYMBOL_ORDER.map((symbol, index) => [symbol, index]),
-  )
-  return [...symbols].sort(
-    (a, b) =>
-      (symbolRank.get(a) ?? SCAN_SYMBOL_ORDER.length) -
-      (symbolRank.get(b) ?? SCAN_SYMBOL_ORDER.length),
-  )
+function sortSymbolsForFilter(symbols: string[]): string[] {
+  return sortSymbols(symbols)
 }
 
 function BoolCell({ value }: { value: boolean }) {
@@ -103,7 +79,19 @@ function BoolCell({ value }: { value: boolean }) {
   )
 }
 
-export function ScanSection() {
+function resolveScanRowStrategy(
+  row: ScanRow,
+  savedStrategies: SavedStrategy[],
+): SavedStrategy | undefined {
+  if (row.source !== 'builder' || !row.strategy_id) return undefined
+  return savedStrategies.find((strategy) => strategy.id === row.strategy_id)
+}
+
+export function ScanSection({
+  onBacktestStrategy,
+}: {
+  onBacktestStrategy?: (strategy: SavedStrategy) => void
+}) {
   const [query, setQuery] = useState('')
   const [symbolFilter, setSymbolFilter] = useState<string>('all')
 
@@ -117,9 +105,13 @@ export function ScanSection() {
     queryKey: ['scan'],
     queryFn: getScan,
   })
+  const { data: savedStrategies = [] } = useQuery({
+    queryKey: ['strategies'],
+    queryFn: getSavedStrategies,
+  })
 
   const symbols = useMemo(
-    () => sortSymbols([...new Set(rows.map((row) => row.symbol))]),
+    () => sortSymbolsForFilter([...new Set(rows.map((row) => row.symbol))]),
     [rows],
   )
 
@@ -217,11 +209,17 @@ export function ScanSection() {
                 <TableHead className={cn(compactHead, 'w-14 text-right')}>PnL</TableHead>
                 <TableHead className={cn(compactHead, 'w-14 text-right')}>Kelly</TableHead>
                 <TableHead className={cn(compactHead, 'min-w-[200px]')}>Description</TableHead>
+                <TableHead className={cn(compactHead, 'w-24 text-right')}>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filtered.map((r) => (
-                <ScanTableRow key={r.id} row={r} />
+                <ScanTableRow
+                  key={r.id}
+                  row={r}
+                  savedStrategies={savedStrategies}
+                  onBacktestStrategy={onBacktestStrategy}
+                />
               ))}
             </TableBody>
           </Table>
@@ -235,7 +233,17 @@ export function ScanSection() {
   )
 }
 
-function ScanTableRow({ row: r }: { row: ScanRow }) {
+function ScanTableRow({
+  row: r,
+  savedStrategies,
+  onBacktestStrategy,
+}: {
+  row: ScanRow
+  savedStrategies: SavedStrategy[]
+  onBacktestStrategy?: (strategy: SavedStrategy) => void
+}) {
+  const strategy = resolveScanRowStrategy(r, savedStrategies)
+
   return (
     <TableRow className={cn('hover:bg-muted/30', (r.buy_signal || r.hold_long) && 'bg-[var(--gain)]/8')}>
       <TableCell className={cn(compactCell, 'font-mono font-medium')}>{r.symbol}</TableCell>
@@ -265,6 +273,21 @@ function ScanTableRow({ row: r }: { row: ScanRow }) {
       </TableCell>
       <TableCell className={cn(compactCell, 'max-w-[360px] truncate text-[11px] text-muted-foreground')} title={r.description}>
         {r.description}
+      </TableCell>
+      <TableCell className={compactCell}>
+        {strategy ? (
+          <div className="flex justify-end">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 gap-1 px-1.5 text-[11px]"
+              onClick={() => onBacktestStrategy?.(strategy)}
+            >
+              Backtest
+              <ArrowUpRight className="size-3" />
+            </Button>
+          </div>
+        ) : null}
       </TableCell>
     </TableRow>
   )

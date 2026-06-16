@@ -1,5 +1,6 @@
 import { memo, useMemo } from "react";
 import type { IndicatorInfo } from "@/api";
+import { groupIndicators } from "@/lib/indicator-groups";
 import { cn } from "@/lib/utils";
 import {
   Select,
@@ -10,16 +11,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
-export function groupIndicators(indicators: IndicatorInfo[]) {
-  const groups = new Map<string, IndicatorInfo[]>();
-  for (const indicator of indicators) {
-    const list = groups.get(indicator.category) ?? [];
-    list.push(indicator);
-    groups.set(indicator.category, list);
-  }
-  return groups;
-}
 
 function IndicatorSelectInner({
   id,

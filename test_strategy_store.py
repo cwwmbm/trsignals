@@ -52,6 +52,48 @@ class StrategyStoreTests(unittest.TestCase):
         self.assertEqual(list_strategies(store_path=self.store_path), [])
         self.assertFalse(delete_strategy(saved.id, store_path=self.store_path))
 
+    def test_confirm_symbols_persist_and_normalize(self):
+        request = SaveStrategyRequest(
+            name="Confirm Test",
+            symbol="SPY",
+            direction="long",
+            hold_days=2,
+            profit=1,
+            description="",
+            conditions=[
+                BuilderCondition(left="RSI2", operator="<=", right="20", logic="AND"),
+            ],
+            confirm_symbols=["smh", "SPY", "QQQ", "smh"],
+        )
+        saved = create_strategy(request, store_path=self.store_path)
+        self.assertEqual(saved.confirm_symbols, ["SMH", "QQQ"])
+
+        loaded = list_strategies(store_path=self.store_path)[0]
+        self.assertEqual(loaded.confirm_symbols, ["SMH", "QQQ"])
+
+    def test_saved_strategy_without_confirm_symbols_defaults_empty(self):
+        from api.schemas import SavedStrategy
+
+        payload = {
+            "id": "legacy-id",
+            "name": "Legacy",
+            "symbol": "SPY",
+            "direction": "long",
+            "hold_days": 2,
+            "profit": 1,
+            "description": "",
+            "conditions": [
+                {"left": "RSI2", "operator": "<=", "right": "20", "logic": "AND"},
+            ],
+            "created_at": "2026-01-01T00:00:00+00:00",
+            "updated_at": "2026-01-01T00:00:00+00:00",
+        }
+        if hasattr(SavedStrategy, "model_validate"):
+            strategy = SavedStrategy.model_validate(payload)
+        else:
+            strategy = SavedStrategy.parse_obj(payload)
+        self.assertEqual(strategy.confirm_symbols, [])
+
     def _request(self):
         return SaveStrategyRequest(
             name="RSI Dip",
