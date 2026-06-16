@@ -8,6 +8,7 @@ import pandas as pd
 
 from api.builder_strategy import (
     backtest_builder_signal_combinations,
+    backtest_builder_signal_sweep,
     combine_builder_buy_masks,
     draft_to_saved_strategy,
 )
@@ -51,7 +52,7 @@ class BuilderStrategyHelperTests(unittest.TestCase):
         self.assertEqual(saved.id, "draft")
         self.assertEqual(saved.name, "Draft RSI")
         self.assertEqual(saved.symbol, "SPY")
-        self.assertIn("RSI2", saved.description)
+        self.assertIn("RSI(2)", saved.description)
 
     def test_combine_builder_buy_masks_and_mode(self):
         data = _sample_data()
@@ -78,22 +79,14 @@ class BuilderRefineServiceTests(unittest.TestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
-    def test_combo_sweep_requires_secondary_strategy(self):
+    def test_combo_sweep_requires_same_symbol_saved_strategies(self):
         request = BuilderRefineRequest(
             mode="signal-combo-sweep",
             strategy=_draft_request(),
         )
-        with self.assertRaisesRegex(ValueError, "Secondary strategy"):
-            run_builder_refine(request)
-
-    def test_combo_sweep_unknown_secondary_strategy(self):
-        request = BuilderRefineRequest(
-            mode="signal-combo-sweep",
-            strategy=_draft_request(),
-            secondary_strategy_id="missing-id",
-        )
-        with self.assertRaisesRegex(ValueError, "Unknown strategy"):
-            run_builder_refine(request)
+        with patch("api.services.list_strategies", return_value=[]):
+            with self.assertRaisesRegex(ValueError, "No saved strategies found for SPY"):
+                run_builder_refine(request)
 
     def test_get_strategy_by_id(self):
         saved = create_strategy(
@@ -112,11 +105,33 @@ class BuilderRefineServiceTests(unittest.TestCase):
         assert loaded is not None
         self.assertEqual(loaded.name, "Saved RSI")
 
-    def test_combo_sweep_returns_four_rows(self):
-        secondary = create_strategy(
+    def test_combo_sweep_uses_all_same_symbol_strategies(self):
+        secondary_a = create_strategy(
             SaveStrategyRequest(
-                name="Secondary",
+                name="Secondary A",
                 symbol="SPY",
+                direction="long",
+                hold_days=2,
+                profit=1,
+                conditions=[BuilderCondition(left="RSI2", operator="<=", right="25", logic="AND")],
+            ),
+            store_path=self.store_path,
+        )
+        secondary_b = create_strategy(
+            SaveStrategyRequest(
+                name="Secondary B",
+                symbol="SPY",
+                direction="long",
+                hold_days=2,
+                profit=1,
+                conditions=[BuilderCondition(left="Close", operator="<", right="SMA200", logic="AND")],
+            ),
+            store_path=self.store_path,
+        )
+        other_symbol = create_strategy(
+            SaveStrategyRequest(
+                name="Other Symbol",
+                symbol="QQQ",
                 direction="long",
                 hold_days=2,
                 profit=1,
@@ -127,24 +142,30 @@ class BuilderRefineServiceTests(unittest.TestCase):
         request = BuilderRefineRequest(
             mode="signal-combo-sweep",
             strategy=_draft_request(),
-            secondary_strategy_id=secondary.id,
         )
         data = _sample_data()
 
+        captured_secondaries = []
+
+        def fake_sweep(_primary, secondaries, *_args, **_kwargs):
+            captured_secondaries.extend(secondaries)
+            return pd.DataFrame(
+                [
+                    {"Primary": "Draft RSI", "Secondary": "Secondary A", "Mode": "AND", "Sharpe": 1.2},
+                    {"Primary": "Draft RSI", "Secondary": "Secondary A", "Mode": "OR", "Sharpe": 1.0},
+                    {"Primary": "Draft RSI", "Secondary": "Secondary B", "Mode": "AND", "Sharpe": 0.9},
+                    {"Primary": "Draft RSI", "Secondary": "Secondary B", "Mode": "OR", "Sharpe": 0.8},
+                ]
+            )
+
         with patch("api.services.load_ticker_data", return_value=data.copy()):
-            with patch("api.services.backtest_builder_signal_combinations") as combo:
-                combo.return_value = pd.DataFrame(
-                    [
-                        {"Primary": "Draft RSI", "Secondary": "Secondary", "Mode": "AND", "Sharpe": 1.2},
-                        {"Primary": "Draft RSI", "Secondary": "Secondary", "Mode": "OR", "Sharpe": 1.0},
-                        {"Primary": "Secondary", "Secondary": "Draft RSI", "Mode": "AND", "Sharpe": 0.9},
-                        {"Primary": "Secondary", "Secondary": "Draft RSI", "Mode": "OR", "Sharpe": 0.8},
-                    ]
-                )
-                rows = run_builder_refine(request)
+            with patch("api.services.list_strategies", return_value=[secondary_a, secondary_b, other_symbol]):
+                with patch("api.services.backtest_builder_signal_sweep", side_effect=fake_sweep) as combo:
+                    rows = run_builder_refine(request)
 
         self.assertEqual(len(rows), 4)
         combo.assert_called_once()
+        self.assertEqual([item.id for item in captured_secondaries], [secondary_a.id, secondary_b.id])
 
     def test_indicator_sweep_returns_rows(self):
         request = BuilderRefineRequest(
@@ -193,6 +214,38 @@ class BuilderComboSweepTests(unittest.TestCase):
                 results = backtest_builder_signal_combinations(primary, secondary, data, "SPY")
 
         self.assertEqual(len(results), 4)
+        self.assertEqual(set(results["Mode"]), {"AND", "OR"})
+
+    def test_backtest_builder_signal_sweep_produces_two_rows_per_secondary(self):
+        primary = draft_to_saved_strategy(_draft_request())
+        secondaries = [
+            draft_to_saved_strategy(
+                _draft_request(name="Secondary A", conditions=[BuilderCondition(left="RSI2", operator="<=", right="25", logic="AND")])
+            ),
+            draft_to_saved_strategy(
+                _draft_request(name="Secondary B", conditions=[BuilderCondition(left="Close", operator="<", right="SMA200", logic="AND")])
+            ),
+        ]
+        data = _sample_data()
+
+        with patch("api.builder_strategy.bt.execute_strategy") as execute_strategy:
+            with patch("api.builder_strategy.bt._ranking_metrics") as ranking:
+                execute_strategy.side_effect = lambda frame, *_args: frame
+                ranking.return_value = {
+                    "PnL": 1000,
+                    "MaxDD": 10.0,
+                    "Trades": 5,
+                    "%Pstv": 60.0,
+                    "CAGR": 12.0,
+                    "Sharpe": 1.0,
+                    "Sortino": 1.1,
+                    "Yearly": [],
+                }
+                results = backtest_builder_signal_sweep(primary, secondaries, data, "SPY")
+
+        self.assertEqual(len(results), 4)
+        self.assertEqual(set(results["Primary"]), {"Draft RSI"})
+        self.assertEqual(set(results["Secondary"]), {"Secondary A", "Secondary B"})
         self.assertEqual(set(results["Mode"]), {"AND", "OR"})
 
 

@@ -3,7 +3,7 @@ from backtest_runners import load_ticker_data
 from indicator_sweep import indicator_tryout
 
 from api.builder_strategy import (
-    backtest_builder_signal_combinations,
+    backtest_builder_signal_sweep,
     builder_signal_callable,
     draft_to_saved_strategy,
 )
@@ -12,8 +12,31 @@ from api.signal_registry import get_signal, resolve_signal
 from api.strategy_compiler import compile_buy_mask, compile_sell_mask, format_condition_preview
 from api.scan_service import execute_saved_strategy
 from api.indicator_catalog import list_indicators
-from api.strategy_store import create_strategy, get_strategy_by_id, list_strategies
+from api.strategy_store import (
+    create_strategy,
+    delete_strategy,
+    get_strategy_by_id,
+    list_strategies,
+    update_strategy,
+)
 from api.scan_service import run_scan
+
+
+def _builder_condition_labels() -> dict[str, str]:
+    labels = {item["id"]: item["label"] for item in list_indicators(builder_only=True)}
+    labels.update(
+        {
+            f"strategy:{strategy.id}": strategy.name
+            for strategy in list_strategies()
+        }
+    )
+    return labels
+
+
+def _model_dump(model) -> dict:
+    if hasattr(model, "model_dump"):
+        return model.model_dump()
+    return model.dict()
 
 
 def _apply_runtime_options(request):
@@ -128,13 +151,13 @@ def run_indicator_sweep(request) -> list[dict]:
 
 def run_builder_backtest(request) -> dict:
     data = load_ticker_data(request.symbol, years=request.years)
-    conditions = [condition.model_dump() for condition in request.conditions]
-    sell_conditions = [condition.model_dump() for condition in request.sell_conditions]
-    compile_buy_mask(data, conditions)
+    conditions = [_model_dump(condition) for condition in request.conditions]
+    sell_conditions = [_model_dump(condition) for condition in request.sell_conditions]
+    compile_buy_mask(data, conditions, strategy_resolver=get_strategy_by_id)
     if sell_conditions:
-        compile_sell_mask(data, sell_conditions)
+        compile_sell_mask(data, sell_conditions, strategy_resolver=get_strategy_by_id)
 
-    labels = {item["id"]: item["label"] for item in list_indicators(builder_only=True)}
+    labels = _builder_condition_labels()
     rule_preview = format_condition_preview(conditions, labels)
     description = request.description.strip() or rule_preview
     if request.name.strip():
@@ -163,23 +186,35 @@ def run_builder_refine(request) -> dict | list[dict]:
     if not request.strategy.conditions:
         raise ValueError("Draft strategy must have at least one entry condition")
 
-    primary = draft_to_saved_strategy(request.strategy)
+    labels = _builder_condition_labels()
+    primary = draft_to_saved_strategy(request.strategy, labels=labels)
     symbol = primary.symbol
     years = request.strategy.years
 
     if request.mode == "signal-combo-sweep":
-        if not request.secondary_strategy_id:
-            raise ValueError("Secondary strategy is required for signal combo sweep")
-        secondary = get_strategy_by_id(request.secondary_strategy_id)
-        if secondary is None:
-            raise ValueError(f"Unknown strategy: {request.secondary_strategy_id}")
-        if secondary.symbol.strip().upper() != symbol:
-            raise ValueError("Secondary strategy must use the same symbol as the draft")
+        secondary_strategies = [
+            strategy
+            for strategy in list_strategies()
+            if strategy.symbol.strip().upper() == symbol
+        ]
+        if not secondary_strategies:
+            raise ValueError(f"No saved strategies found for {symbol}")
         data = load_ticker_data(symbol, years=years)
-        results = backtest_builder_signal_combinations(primary, secondary, data, symbol)
+        results = backtest_builder_signal_sweep(
+            primary,
+            secondary_strategies,
+            data,
+            symbol,
+            strategy_resolver=get_strategy_by_id,
+            labels=labels,
+        )
         return dataframe_records(results)
 
-    signal = builder_signal_callable(primary)
+    signal = builder_signal_callable(
+        primary,
+        strategy_resolver=get_strategy_by_id,
+        labels=labels,
+    )
 
     if request.mode == "symbol-confirm-sweep":
         primary_symbol = (request.primary_symbol or symbol).strip().upper()
@@ -217,18 +252,32 @@ def run_builder_refine(request) -> dict | list[dict]:
 
 
 def save_strategy(request) -> dict:
-    conditions = [condition.model_dump() for condition in request.conditions]
-    sell_conditions = [condition.model_dump() for condition in request.sell_conditions]
+    conditions = [_model_dump(condition) for condition in request.conditions]
+    sell_conditions = [_model_dump(condition) for condition in request.sell_conditions]
     data = load_ticker_data(request.symbol.strip().upper(), years=1)
-    compile_buy_mask(data, conditions)
+    compile_buy_mask(data, conditions, strategy_resolver=get_strategy_by_id)
     if sell_conditions:
-        compile_sell_mask(data, sell_conditions)
+        compile_sell_mask(data, sell_conditions, strategy_resolver=get_strategy_by_id)
     saved = create_strategy(request)
-    return saved.model_dump()
+    return _model_dump(saved)
+
+
+def update_saved_strategy(strategy_id: str, request) -> dict:
+    updated = update_strategy(strategy_id, request)
+    if updated is None:
+        raise ValueError(f"Unknown strategy: {strategy_id}")
+    return _model_dump(updated)
+
+
+def delete_saved_strategy(strategy_id: str) -> dict:
+    deleted = delete_strategy(strategy_id)
+    if not deleted:
+        raise ValueError(f"Unknown strategy: {strategy_id}")
+    return {"deleted": True}
 
 
 def list_saved_strategies() -> list[dict]:
-    return [strategy.model_dump() for strategy in list_strategies()]
+    return [_model_dump(strategy) for strategy in list_strategies()]
 
 
 def run_live_scan() -> list[dict]:

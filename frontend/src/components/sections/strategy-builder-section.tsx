@@ -10,6 +10,7 @@ import {
   saveStrategy,
   type DetailedResult,
   type SaveStrategyPayload,
+  type SavedStrategy,
   type SweepResult,
 } from '@/api'
 import { MemoizedStrategyBuilderResultsPane } from '@/components/backtest/strategy-builder-results-pane'
@@ -22,7 +23,11 @@ import type { BuilderRefineMode } from '@/lib/builder-refine-config'
 import { buildBuilderRefinePayload } from '@/lib/builder-refine-form'
 import { canAddSweepRowToBuilder, sweepRowAddLabel } from '@/lib/sweep-to-condition'
 
-export function StrategyBuilderSection() {
+export function StrategyBuilderSection({
+  initialStrategy,
+}: {
+  initialStrategy?: SavedStrategy
+}) {
   const queryClient = useQueryClient()
   const setupRef = useRef<StrategyBuilderSetupHandle>(null)
 
@@ -77,7 +82,6 @@ export function StrategyBuilderSection() {
   const [addMessage, setAddMessage] = useState<string | null>(null)
 
   const [refineMode, setRefineMode] = useState<BuilderRefineMode>('indicator-sweep')
-  const [refineSecondaryStrategyId, setRefineSecondaryStrategyId] = useState('')
   const [refinePrimarySymbol, setRefinePrimarySymbol] = useState('SPY')
   const [refineSymbolPool, setRefineSymbolPool] = useState('SPY, SMH, QQQ, SOXX')
   const [refineMaxDays, setRefineMaxDays] = useState(7)
@@ -142,7 +146,6 @@ export function StrategyBuilderSection() {
           mode: refineMode,
           primarySymbol: refinePrimarySymbol,
           symbolPool: refineSymbolPool,
-          secondaryStrategyId: refineSecondaryStrategyId,
           maxDays: refineMaxDays,
           checkBreadth: refineCheckBreadth,
           checkBoth: refineCheckBoth,
@@ -156,7 +159,6 @@ export function StrategyBuilderSection() {
     refineMode,
     refinePrimarySymbol,
     refineSymbolPool,
-    refineSecondaryStrategyId,
     refineMaxDays,
     refineCheckBreadth,
     refineCheckBoth,
@@ -169,6 +171,8 @@ export function StrategyBuilderSection() {
       <StrategyBuilderSetup
         ref={setupRef}
         indicators={indicators}
+        savedStrategies={savedStrategies}
+        initialStrategy={initialStrategy}
         onSymbolChange={handleSymbolChange}
         onRunBacktest={handleRunBacktest}
         onSave={handleSave}
@@ -213,8 +217,6 @@ export function StrategyBuilderSection() {
           mode: refineMode,
           onModeChange: setRefineMode,
           savedStrategies,
-          secondaryStrategyId: refineSecondaryStrategyId,
-          onSecondaryStrategyChange: setRefineSecondaryStrategyId,
           primarySymbol: refinePrimarySymbol,
           onPrimarySymbolChange: setRefinePrimarySymbol,
           symbolPool: refineSymbolPool,

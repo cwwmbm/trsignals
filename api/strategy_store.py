@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from api.schemas import SaveStrategyRequest, SavedStrategy
+from api.schemas import SaveStrategyRequest, SavedStrategy, UpdateStrategyRequest
 
 DEFAULT_STORE_PATH = Path(__file__).resolve().parent.parent / "data" / "strategies.json"
 
@@ -31,16 +31,28 @@ def _write_raw(path: Path, items: list[dict]) -> None:
         handle.write("\n")
 
 
+def _model_dump(model) -> dict:
+    if hasattr(model, "model_dump"):
+        return model.model_dump()
+    return model.dict()
+
+
+def _validate_saved_strategy(item: dict) -> SavedStrategy:
+    if hasattr(SavedStrategy, "model_validate"):
+        return SavedStrategy.model_validate(item)
+    return SavedStrategy.parse_obj(item)
+
+
 def list_strategies(store_path: Path | None = None) -> list[SavedStrategy]:
     path = store_path or DEFAULT_STORE_PATH
-    return [SavedStrategy.model_validate(item) for item in _load_raw(path)]
+    return [_validate_saved_strategy(item) for item in _load_raw(path)]
 
 
 def get_strategy_by_id(strategy_id: str, store_path: Path | None = None) -> SavedStrategy | None:
     path = store_path or DEFAULT_STORE_PATH
     for item in _load_raw(path):
         if item.get("id") == strategy_id:
-            return SavedStrategy.model_validate(item)
+            return _validate_saved_strategy(item)
     return None
 
 
@@ -64,6 +76,37 @@ def create_strategy(
         updated_at=now,
     )
     items = _load_raw(path)
-    items.append(saved.model_dump())
+    items.append(_model_dump(saved))
     _write_raw(path, items)
     return saved
+
+
+def update_strategy(
+    strategy_id: str,
+    request: UpdateStrategyRequest,
+    store_path: Path | None = None,
+) -> SavedStrategy | None:
+    path = store_path or DEFAULT_STORE_PATH
+    items = _load_raw(path)
+    for index, item in enumerate(items):
+        if item.get("id") != strategy_id:
+            continue
+        updated = {
+            **item,
+            "description": request.description.strip(),
+            "updated_at": _now_iso(),
+        }
+        items[index] = updated
+        _write_raw(path, items)
+        return _validate_saved_strategy(updated)
+    return None
+
+
+def delete_strategy(strategy_id: str, store_path: Path | None = None) -> bool:
+    path = store_path or DEFAULT_STORE_PATH
+    items = _load_raw(path)
+    next_items = [item for item in items if item.get("id") != strategy_id]
+    if len(next_items) == len(items):
+        return False
+    _write_raw(path, next_items)
+    return True

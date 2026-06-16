@@ -14,6 +14,7 @@ import {
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { ThemeToggle } from '@/components/theme-toggle'
+import type { SavedStrategy } from '@/api'
 import { BacktestSection } from '@/components/sections/backtest-section'
 import { ScanSection } from '@/components/sections/scan-section'
 import { StrategiesSection } from '@/components/sections/strategies-section'
@@ -41,8 +42,12 @@ const TITLES: Record<SectionId, { title: string; subtitle: string }> = {
 export function AppShell() {
   const [active, setActive] = useState<SectionId>('backtest')
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [builderInitialStrategy, setBuilderInitialStrategy] = useState<SavedStrategy | undefined>()
 
   const goTo = (id: SectionId) => {
+    if (id === 'builder') {
+      setBuilderInitialStrategy(undefined)
+    }
     setActive(id)
     setMobileOpen(false)
   }
@@ -151,9 +156,18 @@ export function AppShell() {
         <main className="flex-1 p-5 lg:p-8">
           {active === 'backtest' && <BacktestSection />}
           {active === 'strategies' && (
-            <StrategiesSection onNewStrategy={() => setActive('builder')} />
+            <StrategiesSection
+              onNewStrategy={() => {
+                setBuilderInitialStrategy(undefined)
+                setActive('builder')
+              }}
+              onBacktestStrategy={(strategy) => {
+                setBuilderInitialStrategy(strategy)
+                setActive('builder')
+              }}
+            />
           )}
-          {active === 'builder' && <StrategyBuilderSection />}
+          {active === 'builder' && <StrategyBuilderSection initialStrategy={builderInitialStrategy} />}
           {active === 'scan' && <ScanSection />}
           {active === 'help' && <HelpSection />}
         </main>

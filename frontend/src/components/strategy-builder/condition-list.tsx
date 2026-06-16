@@ -68,6 +68,8 @@ export const ConditionList = memo(function ConditionList({
   onChange,
   indicators,
   indicatorIds,
+  rightIndicators = indicators,
+  rightIndicatorIds = indicatorIds,
   minConditions = 1,
   emptyHint,
 }: {
@@ -75,6 +77,8 @@ export const ConditionList = memo(function ConditionList({
   onChange: (next: ConditionRow[] | ((prev: ConditionRow[]) => ConditionRow[])) => void
   indicators: IndicatorInfo[]
   indicatorIds: Set<string>
+  rightIndicators?: IndicatorInfo[]
+  rightIndicatorIds?: Set<string>
   minConditions?: number
   emptyHint?: string
 }) {
@@ -164,15 +168,15 @@ export const ConditionList = memo(function ConditionList({
                   </SelectContent>
                 </Select>
                 <IndicatorSelect
-                  value={indicatorIds.has(c.right) ? c.right : ''}
+                  value={rightIndicatorIds.has(c.right) ? c.right : ''}
                   onChange={(right) => update(c.id, { right })}
-                  indicators={indicators}
+                  indicators={rightIndicators}
                   compact
                   placeholder="Indicator"
                   className="min-w-[12rem] flex-[2]"
                 />
                 <Input
-                  value={indicatorIds.has(c.right) ? '' : c.right}
+                  value={rightIndicatorIds.has(c.right) ? '' : c.right}
                   onChange={(e) => update(c.id, { right: e.target.value })}
                   className="h-8 w-[5.5rem] shrink-0 font-mono text-xs"
                   placeholder="Value"

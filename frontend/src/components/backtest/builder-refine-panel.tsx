@@ -1,5 +1,5 @@
 import { Loader2, Play } from "lucide-react";
-import { useEffect, useMemo, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import type { SavedStrategy } from "@/api";
 import { useStrategyBuilderDraftPreview } from "@/lib/strategy-builder-draft-store";
 import { Button } from "@/components/ui/button";
@@ -101,8 +101,6 @@ export type BuilderRefinePanelProps = {
   mode: BuilderRefineMode;
   onModeChange: (mode: BuilderRefineMode) => void;
   savedStrategies: SavedStrategy[];
-  secondaryStrategyId: string;
-  onSecondaryStrategyChange: (id: string) => void;
   primarySymbol: string;
   onPrimarySymbolChange: (value: string) => void;
   symbolPool: string;
@@ -123,8 +121,6 @@ export function BuilderRefinePanel({
   mode,
   onModeChange,
   savedStrategies,
-  secondaryStrategyId,
-  onSecondaryStrategyChange,
   primarySymbol,
   onPrimarySymbolChange,
   symbolPool,
@@ -148,16 +144,7 @@ export function BuilderRefinePanel({
     [savedStrategies, draftSymbol],
   );
 
-  useEffect(() => {
-    if (mode !== "signal-combo-sweep") return;
-    const currentValid = comboSecondaryStrategies.some(
-      (item) => item.id === secondaryStrategyId,
-    );
-    if (currentValid) return;
-    onSecondaryStrategyChange(comboSecondaryStrategies[0]?.id ?? "");
-  }, [mode, comboSecondaryStrategies, secondaryStrategyId, onSecondaryStrategyChange]);
-
-  const comboReady = mode !== "signal-combo-sweep" || Boolean(secondaryStrategyId);
+  const comboReady = mode !== "signal-combo-sweep" || comboSecondaryStrategies.length > 0;
 
   return (
     <div className="flex flex-col gap-3">
@@ -186,35 +173,12 @@ export function BuilderRefinePanel({
       </div>
 
       {mode === "signal-combo-sweep" && (
-        <Section title="Secondary strategy">
-          <Field label="Compare draft against" htmlFor="secondary-strategy">
-            <Select
-              value={secondaryStrategyId}
-              onValueChange={(v) => v && onSecondaryStrategyChange(v)}
-            >
-              <SelectTrigger id="secondary-strategy" size="sm" className="h-8 w-full text-sm">
-                <SelectValue placeholder="Select a saved strategy">
-                  {(value: string) => {
-                    const match = savedStrategies.find((item) => item.id === value);
-                    return match ? `${match.name} · ${match.symbol}` : "Select a saved strategy";
-                  }}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {comboSecondaryStrategies.length === 0 ? (
-                  <SelectItem value="__none" disabled>
-                    No saved strategies for {draftSymbol}
-                  </SelectItem>
-                ) : (
-                  comboSecondaryStrategies.map((item) => (
-                    <SelectItem key={item.id} value={item.id}>
-                      {item.name} · {item.symbol}
-                    </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
-          </Field>
+        <Section title="Signal combo sweep">
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            {comboSecondaryStrategies.length > 0
+              ? `Will sweep draft AND/OR against ${comboSecondaryStrategies.length} saved strateg${comboSecondaryStrategies.length === 1 ? "y" : "ies"} for ${draftSymbol}.`
+              : `No saved strategies found for ${draftSymbol}. Save a strategy for this symbol before running a combo sweep.`}
+          </p>
         </Section>
       )}
 

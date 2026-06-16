@@ -157,6 +157,24 @@ async function postJson<T>(path: string, payload: unknown): Promise<T> {
   return response.json();
 }
 
+async function patchJson<T>(path: string, payload: unknown): Promise<T> {
+  const response = await fetch(`${API_URL}${path}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}
+
+async function deleteJson<T>(path: string): Promise<T> {
+  const response = await fetch(`${API_URL}${path}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}
+
 export function runBacktest(mode: RunMode, payload: Record<string, unknown>) {
   const pathByMode: Record<RunMode, string> = {
     single: "/backtests/single",
@@ -182,6 +200,17 @@ export function runBuilderRefine(
 
 export function saveStrategy(payload: SaveStrategyPayload): Promise<SavedStrategy> {
   return postJson<SavedStrategy>("/strategies", payload);
+}
+
+export function updateStrategy(
+  id: string,
+  payload: { description: string },
+): Promise<SavedStrategy> {
+  return patchJson<SavedStrategy>(`/strategies/${id}`, payload);
+}
+
+export function deleteStrategy(id: string): Promise<{ deleted: boolean }> {
+  return deleteJson<{ deleted: boolean }>(`/strategies/${id}`);
 }
 
 export async function getSavedStrategies(): Promise<SavedStrategy[]> {

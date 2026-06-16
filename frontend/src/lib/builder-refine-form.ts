@@ -5,7 +5,6 @@ export type BuilderRefineFormState = {
   mode: BuilderRefineMode;
   primarySymbol: string;
   symbolPool: string;
-  secondaryStrategyId: string;
   maxDays: number;
   checkBreadth: boolean;
   checkBoth: boolean;
@@ -29,10 +28,7 @@ export function buildBuilderRefinePayload(
   };
 
   if (state.mode === "signal-combo-sweep") {
-    return {
-      ...base,
-      secondary_strategy_id: state.secondaryStrategyId,
-    };
+    return base;
   }
 
   if (state.mode === "symbol-confirm-sweep") {

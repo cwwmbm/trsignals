@@ -9,7 +9,7 @@ import indicators as ind
 
 from api.indicator_catalog import list_indicators
 from api.strategy_compiler import compile_buy_mask, compile_sell_mask, format_condition_preview
-from api.strategy_store import list_strategies
+from api.strategy_store import get_strategy_by_id, list_strategies
 
 SCAN_SYMBOLS = [
     "SPY",
@@ -167,9 +167,13 @@ def _legacy_scan_row(
 
 def execute_saved_strategy(data: pd.DataFrame, strategy) -> pd.DataFrame:
     conditions = [condition.model_dump() for condition in strategy.conditions]
-    buy = compile_buy_mask(data, conditions)
+    buy = compile_buy_mask(data, conditions, strategy_resolver=get_strategy_by_id)
     sell_conditions = [condition.model_dump() for condition in strategy.sell_conditions]
-    sell = compile_sell_mask(data, sell_conditions) if sell_conditions else False
+    sell = (
+        compile_sell_mask(data, sell_conditions, strategy_resolver=get_strategy_by_id)
+        if sell_conditions
+        else False
+    )
     is_long = strategy.direction == "long"
 
     frame = data.copy()
@@ -184,6 +188,12 @@ def _builder_scan_row(strategy, data: pd.DataFrame) -> dict:
     is_long = strategy.direction == "long"
 
     labels = {item["id"]: item["label"] for item in list_indicators(builder_only=True)}
+    labels.update(
+        {
+            f"strategy:{saved.id}": saved.name
+            for saved in list_strategies()
+        }
+    )
     rule_preview = format_condition_preview(conditions, labels)
     description = strategy.description.strip() or rule_preview
 

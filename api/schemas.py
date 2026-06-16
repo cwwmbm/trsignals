@@ -87,7 +87,7 @@ class BuilderBacktestRequest(BaseModel):
     profit: int = Field(default=1, ge=0, le=100)
     name: str = ""
     description: str = ""
-    conditions: list[BuilderCondition] = Field(min_length=1)
+    conditions: list[BuilderCondition] = Field(min_items=1)
     sell_conditions: list[BuilderCondition] = Field(default_factory=list)
 
 
@@ -133,8 +133,12 @@ class SaveStrategyRequest(BaseModel):
     hold_days: int = Field(default=2, ge=1, le=100)
     profit: int = Field(default=1, ge=0, le=100)
     description: str = ""
-    conditions: list[BuilderCondition] = Field(min_length=1)
+    conditions: list[BuilderCondition] = Field(min_items=1)
     sell_conditions: list[BuilderCondition] = Field(default_factory=list)
+
+
+class UpdateStrategyRequest(BaseModel):
+    description: str = ""
 
 
 class ScanRowResponse(BaseModel):

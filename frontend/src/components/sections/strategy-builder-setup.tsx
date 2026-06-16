@@ -9,8 +9,10 @@ import {
 } from 'react'
 import { Loader2, Play, Save } from 'lucide-react'
 import {
+  type BuilderConditionPayload,
   type BuilderBacktestPayload,
   type IndicatorInfo,
+  type SavedStrategy,
   type SaveStrategyPayload,
 } from '@/api'
 import { isFlagOperator } from '@/api'
@@ -47,6 +49,49 @@ import {
   sweepRowToConditionRow,
 } from '@/lib/sweep-to-condition'
 
+const STRATEGY_INDICATOR_PREFIX = 'strategy:'
+
+function savedStrategyToIndicator(strategy: SavedStrategy): IndicatorInfo {
+  return {
+    id: `${STRATEGY_INDICATOR_PREFIX}${strategy.id}`,
+    label: strategy.name,
+    kind: 'signal_flag',
+    valueType: 'flag',
+    category: 'Saved strategies',
+    description: strategy.description || `Saved strategy ${strategy.name}`,
+    builderEligible: true,
+  }
+}
+
+function uniqueSavedStrategiesByName(strategies: SavedStrategy[]) {
+  const seen = new Set<string>()
+  return strategies.filter((strategy) => {
+    const key = strategy.name.trim().toLowerCase()
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function defaultEntryConditions(): ConditionRow[] {
+  return [
+    { id: 'c0', left: 'Close', operator: '<=', right: 'SMA200', logic: 'AND' },
+  ]
+}
+
+function conditionRowsFromPayload(
+  conditions: BuilderConditionPayload[] | undefined,
+  prefix: string,
+): ConditionRow[] {
+  return (conditions ?? []).map((condition, index) => ({
+    id: `${prefix}-${index}`,
+    left: condition.left,
+    operator: condition.operator,
+    right: condition.right,
+    logic: condition.logic,
+  }))
+}
+
 function buildPayload(
   symbol: string,
   direction: string,
@@ -56,7 +101,8 @@ function buildPayload(
   description: string,
   entryConditions: ConditionRow[],
   exitConditions: ConditionRow[],
-  indicators: IndicatorInfo[],
+  entryIndicators: IndicatorInfo[],
+  exitIndicators: IndicatorInfo[],
 ) {
   const parsedHoldDays = Number(holdDays)
   const parsedProfit = Number(profitableCloses)
@@ -67,11 +113,11 @@ function buildPayload(
   if (!Number.isFinite(parsedProfit) || parsedProfit < 0) {
     throw new Error('Profitable closes must be 0 or more')
   }
-  validateConditions(entryConditions, indicators, {
+  validateConditions(entryConditions, entryIndicators, {
     label: 'Entry condition',
     required: true,
   })
-  validateConditions(exitConditions, indicators, {
+  validateConditions(exitConditions, exitIndicators, {
     label: 'Exit condition',
     required: false,
   })
@@ -98,7 +144,8 @@ function buildSavePayload(
   description: string,
   entryConditions: ConditionRow[],
   exitConditions: ConditionRow[],
-  indicators: IndicatorInfo[],
+  entryIndicators: IndicatorInfo[],
+  exitIndicators: IndicatorInfo[],
 ): SaveStrategyPayload {
   const payload = buildPayload(
     symbol,
@@ -109,7 +156,8 @@ function buildSavePayload(
     description,
     entryConditions,
     exitConditions,
-    indicators,
+    entryIndicators,
+    exitIndicators,
   )
   if (!payload.name) {
     throw new Error('Strategy name is required to save')
@@ -200,6 +248,8 @@ export type StrategyBuilderSetupHandle = {
 
 type StrategyBuilderSetupProps = {
   indicators: IndicatorInfo[]
+  savedStrategies: SavedStrategy[]
+  initialStrategy?: SavedStrategy
   onSymbolChange?: (symbol: string) => void
   onRunBacktest: (payload: BuilderBacktestPayload) => void
   onSave: (payload: SaveStrategyPayload) => void
@@ -213,6 +263,8 @@ export const StrategyBuilderSetup = forwardRef<
 >(function StrategyBuilderSetup(
   {
     indicators,
+    savedStrategies,
+    initialStrategy,
     onSymbolChange,
     onRunBacktest,
     onSave,
@@ -221,7 +273,21 @@ export const StrategyBuilderSetup = forwardRef<
   },
   ref,
 ) {
-  const indicatorIds = useMemo(() => new Set(indicators.map((item) => item.id)), [indicators])
+  const builderIndicators = useMemo(
+    () => [
+      ...indicators,
+      ...uniqueSavedStrategiesByName(savedStrategies).map(savedStrategyToIndicator),
+    ],
+    [indicators, savedStrategies],
+  )
+  const staticIndicatorIds = useMemo(
+    () => new Set(indicators.map((item) => item.id)),
+    [indicators],
+  )
+  const indicatorIds = useMemo(
+    () => new Set(builderIndicators.map((item) => item.id)),
+    [builderIndicators],
+  )
 
   const [validationError, setValidationError] = useState<string | null>(null)
   const [entryOpen, setEntryOpen] = useState(true)
@@ -232,19 +298,16 @@ export const StrategyBuilderSetup = forwardRef<
   const [holdDays, setHoldDays] = useState('2')
   const [profitableCloses, setProfitableCloses] = useState('1')
   const [description, setDescription] = useState('')
-  const [entryConditions, setEntryConditions] = useState<ConditionRow[]>([
-    { id: 'c0', left: 'Close', operator: '<', right: 'SMA200', logic: 'AND' },
-    newConditionRow(),
-  ])
+  const [entryConditions, setEntryConditions] = useState<ConditionRow[]>(defaultEntryConditions)
   const [exitConditions, setExitConditions] = useState<ConditionRow[]>([])
 
-  const entryPreview = formatConditionPreview(entryConditions, indicators, indicatorIds)
-  const exitPreview = formatConditionPreview(exitConditions, indicators, indicatorIds)
+  const entryPreview = formatConditionPreview(entryConditions, builderIndicators, indicatorIds)
+  const exitPreview = formatConditionPreview(exitConditions, indicators, staticIndicatorIds)
   const draftSymbol = symbol.trim().toUpperCase() || 'SPY'
 
   const draftValid = useMemo(() => {
     try {
-      validateConditions(entryConditions, indicators, {
+      validateConditions(entryConditions, builderIndicators, {
         label: 'Entry condition',
         required: true,
       })
@@ -252,7 +315,7 @@ export const StrategyBuilderSetup = forwardRef<
     } catch {
       return false
     }
-  }, [entryConditions, indicators])
+  }, [entryConditions, builderIndicators])
 
   useEffect(() => {
     updateStrategyBuilderDraftPreview({
@@ -278,6 +341,42 @@ export const StrategyBuilderSetup = forwardRef<
     onSymbolChange?.(draftSymbol)
   }, [draftSymbol, onSymbolChange])
 
+  useEffect(() => {
+    setValidationError(null)
+    if (!initialStrategy) {
+      setName('')
+      setSymbol('SPY')
+      setDirection('long')
+      setHoldDays('2')
+      setProfitableCloses('1')
+      setDescription('')
+      setEntryConditions(defaultEntryConditions())
+      setExitConditions([])
+      setEntryOpen(true)
+      setExitOpen(false)
+      return
+    }
+
+    const entryRows = conditionRowsFromPayload(
+      initialStrategy.conditions,
+      `entry-${initialStrategy.id}`,
+    )
+    const exitRows = conditionRowsFromPayload(
+      initialStrategy.sell_conditions,
+      `exit-${initialStrategy.id}`,
+    )
+    setName(initialStrategy.name)
+    setSymbol(initialStrategy.symbol)
+    setDirection(initialStrategy.direction)
+    setHoldDays(String(initialStrategy.hold_days))
+    setProfitableCloses(String(initialStrategy.profit))
+    setDescription(initialStrategy.description ?? '')
+    setEntryConditions(entryRows.length > 0 ? entryRows : defaultEntryConditions())
+    setExitConditions(exitRows)
+    setEntryOpen(true)
+    setExitOpen(exitRows.length > 0)
+  }, [initialStrategy])
+
   useImperativeHandle(
     ref,
     () => ({
@@ -291,6 +390,7 @@ export const StrategyBuilderSetup = forwardRef<
           description,
           entryConditions,
           exitConditions,
+          builderIndicators,
           indicators,
         ),
       buildSavePayload: () =>
@@ -303,6 +403,7 @@ export const StrategyBuilderSetup = forwardRef<
           description,
           entryConditions,
           exitConditions,
+          builderIndicators,
           indicators,
         ),
       buildRefineDraft: () =>
@@ -315,6 +416,7 @@ export const StrategyBuilderSetup = forwardRef<
           description,
           entryConditions,
           exitConditions,
+          builderIndicators,
           indicators,
         ),
       addFromSweepRow: (row: Record<string, unknown>) => {
@@ -327,22 +429,22 @@ export const StrategyBuilderSetup = forwardRef<
           return `Applied ${values.holdDays}d hold · ${values.profit} profit close${values.profit === 1 ? '' : 's'}.`
         }
 
-        const mapped = sweepRowToConditionRow(row, indicators)
+        const mapped = sweepRowToConditionRow(row, builderIndicators)
         if (!mapped) return 'Could not map this sweep row to a builder condition.'
 
         const side = sweepRowSide(row)
         const target = side === 'Sell' ? 'exit' : 'entry'
-        const previewLeft = indicatorLabel(indicators, mapped.left)
+        const previewLeft = indicatorLabel(builderIndicators, mapped.left)
         const preview =
           mapped.operator === 'is true' || mapped.operator === 'is false'
             ? `${previewLeft} ${mapped.operator}`
             : `${previewLeft} ${mapped.operator} ${mapped.right}`
 
         if (target === 'exit') {
-          setExitConditions((prev) => appendConditionRow(prev, mapped, indicators))
+          setExitConditions((prev) => appendConditionRow(prev, mapped, builderIndicators))
           setExitOpen(true)
         } else {
-          setEntryConditions((prev) => appendConditionRow(prev, mapped, indicators, 1))
+          setEntryConditions((prev) => appendConditionRow(prev, mapped, builderIndicators, 1))
           setEntryOpen(true)
         }
 
@@ -358,6 +460,7 @@ export const StrategyBuilderSetup = forwardRef<
       description,
       entryConditions,
       exitConditions,
+      builderIndicators,
       indicators,
     ],
   )
@@ -375,6 +478,7 @@ export const StrategyBuilderSetup = forwardRef<
           description,
           entryConditions,
           exitConditions,
+          builderIndicators,
           indicators,
         ),
       )
@@ -396,6 +500,7 @@ export const StrategyBuilderSetup = forwardRef<
           description,
           entryConditions,
           exitConditions,
+          builderIndicators,
           indicators,
         ),
       )
@@ -482,8 +587,10 @@ export const StrategyBuilderSetup = forwardRef<
             <ConditionList
               conditions={entryConditions}
               onChange={setEntryConditions}
-              indicators={indicators}
+              indicators={builderIndicators}
               indicatorIds={indicatorIds}
+              rightIndicators={indicators}
+              rightIndicatorIds={staticIndicatorIds}
               minConditions={1}
             />
           </CollapsibleSection>
@@ -530,7 +637,7 @@ export const StrategyBuilderSetup = forwardRef<
               conditions={exitConditions}
               onChange={setExitConditions}
               indicators={indicators}
-              indicatorIds={indicatorIds}
+              indicatorIds={staticIndicatorIds}
               minConditions={0}
               emptyHint="No indicator exit rules — exits use hold days and profitable closes only."
             />
