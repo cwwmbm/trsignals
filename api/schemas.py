@@ -90,6 +90,7 @@ class BuilderBacktestRequest(BaseModel):
     conditions: list[BuilderCondition] = Field(min_items=1)
     sell_conditions: list[BuilderCondition] = Field(default_factory=list)
     confirm_symbols: list[str] = Field(default_factory=list)
+    proxy_symbol: str | None = None
 
 
 BuilderRefineMode = Literal[
@@ -123,6 +124,7 @@ class SavedStrategy(BaseModel):
     conditions: list[BuilderCondition]
     sell_conditions: list[BuilderCondition] = Field(default_factory=list)
     confirm_symbols: list[str] = Field(default_factory=list)
+    proxy_symbol: str | None = None
     legacy_signal: str | None = None
     created_at: str
     updated_at: str
@@ -138,6 +140,7 @@ class SaveStrategyRequest(BaseModel):
     conditions: list[BuilderCondition] = Field(min_items=1)
     sell_conditions: list[BuilderCondition] = Field(default_factory=list)
     confirm_symbols: list[str] = Field(default_factory=list)
+    proxy_symbol: str | None = None
 
 
 class UpdateStrategyRequest(BaseModel):

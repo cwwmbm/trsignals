@@ -385,10 +385,10 @@ def backtest_symbol_confirmation_sweep(buy_signal, primary_symbol, symbol_pool, 
     results['Profit'] = results['Profit'].astype(int)
     return results
 
-def execute_strategy (data, days, profit, is_long = True):
+def execute_strategy (data, days, profit, is_long = True, *, pnl_column=None):
     with timed("execute_strategy"):
         if days > 0:
-            results = long_strat(data, days, profit, is_long)
+            results = long_strat(data, days, profit, is_long, pnl_column=pnl_column)
         else:
             if UseProxyUnderlying:
                 results = long_og_strat_proxy(data = data, days = days, profit = profit)
@@ -625,11 +625,14 @@ def long_og_strat_proxy(data, days = 0, profit = 0, start_capital = 15000):
 
     return data
 
-def long_strat(data, days, prof_closes, is_long = True, start_capital = 15000, point_multiplier = point_multiplier):
+def long_strat(data, days, prof_closes, is_long = True, start_capital = 15000, point_multiplier = point_multiplier, *, pnl_column=None):
     signals = data
     n = len(signals)
 
-    if not UseProxyUnderlying:
+    if pnl_column:
+        split_change = (data[pnl_column] - data[pnl_column].shift(1))*Leverage / data[pnl_column].shift(1) if data[pnl_column].shift(1).any() > 0 else 0
+        signals['TrackChange'] = split_change
+    elif not UseProxyUnderlying:
         signals['TrackChange'] = signals['%Change']
     else:
         split_change = (data[ProxySymbol] - data[ProxySymbol].shift(1))*Leverage / data[ProxySymbol].shift(1) if data[ProxySymbol].shift(1).any() > 0 else 0
@@ -641,7 +644,8 @@ def long_strat(data, days, prof_closes, is_long = True, start_capital = 15000, p
 
     buy = np.asarray(signals['Buy'].values, dtype=bool)
     sell = np.asarray(signals['Sell'].values, dtype=bool)
-    close = np.asarray(signals['Close'].values, dtype=float)
+    price_col = pnl_column or 'Close'
+    close = np.asarray(signals[price_col].values, dtype=float)
     track_change = np.asarray(signals['TrackChange'].fillna(0).values, dtype=float)
 
     long_in = np.zeros(n, dtype=bool)

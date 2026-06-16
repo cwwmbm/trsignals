@@ -10,6 +10,7 @@ from api.builder_strategy import (
 from api.serializers import dataframe_records, detailed_backtest_payload
 from api.signal_registry import get_signal, resolve_signal
 from api.strategy_compiler import compile_buy_mask, compile_sell_mask, format_condition_preview
+from api.proxy_symbol import with_proxy_description
 from api.scan_service import execute_saved_strategy
 from api.indicator_catalog import list_indicators
 from api.strategy_store import (
@@ -164,7 +165,7 @@ def run_builder_backtest(request) -> dict:
         description = f"{request.name.strip()}: {description}"
 
     from api.schemas import SavedStrategy
-    from api.strategy_store import _normalize_confirm_symbols
+    from api.strategy_store import _normalize_confirm_symbols, _normalize_proxy_symbol
 
     symbol = request.symbol.strip().upper()
     confirm_symbols = _normalize_confirm_symbols(symbol, request.confirm_symbols)
@@ -179,31 +180,19 @@ def run_builder_backtest(request) -> dict:
         conditions=request.conditions,
         sell_conditions=request.sell_conditions,
         confirm_symbols=confirm_symbols,
+        proxy_symbol=_normalize_proxy_symbol(symbol, request.proxy_symbol),
         created_at="",
         updated_at="",
     )
 
-    if confirm_symbols:
-        signal = builder_signal_callable(
-            strategy,
-            strategy_resolver=get_strategy_by_id,
-            labels=labels,
-        )
-        executed, days, profit, cross_description, _ = bt.backtest_cross_symbol(
-            signal,
-            symbol,
-            confirm_symbols,
-            years=request.years,
-        )
-        return detailed_backtest_payload(
-            executed,
-            days,
-            profit,
-            cross_description or description,
-        )
-
-    executed = execute_saved_strategy(data, strategy)
-    return detailed_backtest_payload(executed, request.hold_days, request.profit, description)
+    executed = execute_saved_strategy(data, strategy, years=request.years)
+    final_description = with_proxy_description(description, strategy)
+    return detailed_backtest_payload(
+        executed,
+        strategy.hold_days,
+        strategy.profit,
+        final_description,
+    )
 
 
 def run_builder_refine(request) -> dict | list[dict]:

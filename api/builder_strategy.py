@@ -8,9 +8,10 @@ import indicators as ind
 import pandas as pd
 
 from api.indicator_catalog import list_indicators
+from api.proxy_symbol import execute_with_proxy
 from api.schemas import BuilderBacktestRequest, SavedStrategy
 from api.strategy_compiler import compile_buy_mask, compile_sell_mask, format_condition_preview
-from api.strategy_store import _normalize_confirm_symbols
+from api.strategy_store import _normalize_confirm_symbols, _normalize_proxy_symbol
 
 StrategyResolver = Callable[[str], Any | None]
 
@@ -48,6 +49,7 @@ def draft_to_saved_strategy(
         conditions=conditions,
         sell_conditions=request.sell_conditions,
         confirm_symbols=_normalize_confirm_symbols(symbol, request.confirm_symbols),
+        proxy_symbol=_normalize_proxy_symbol(symbol, request.proxy_symbol),
         created_at="",
         updated_at="",
     )
@@ -187,7 +189,7 @@ def backtest_builder_signal_combinations(
         )
         data_copy["Buy"] = buy
         data_copy["Sell"] = sell
-        data_copy = bt.execute_strategy(data_copy, days, profit, is_long)
+        data_copy = execute_with_proxy(data_copy, primary, days, profit, is_long)
         m = bt._ranking_metrics(data_copy)
 
         results = results._append(
@@ -269,7 +271,7 @@ def backtest_builder_signal_sweep(
             )
             data_copy["Buy"] = buy
             data_copy["Sell"] = sell
-            data_copy = bt.execute_strategy(data_copy, days, profit, is_long)
+            data_copy = execute_with_proxy(data_copy, primary, days, profit, is_long)
             m = bt._ranking_metrics(data_copy)
 
             results = results._append(

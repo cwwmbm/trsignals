@@ -8,6 +8,7 @@ import getdata as dt
 import indicators as ind
 
 from api.indicator_catalog import list_indicators
+from api.proxy_symbol import execute_with_proxy, with_proxy_description
 from api.strategy_compiler import compile_buy_mask, compile_sell_mask, format_condition_preview
 from api.strategy_store import get_strategy_by_id, list_strategies
 
@@ -165,7 +166,7 @@ def _legacy_scan_row(
     }
 
 
-def execute_saved_strategy(data: pd.DataFrame, strategy, *, years: int = 1) -> pd.DataFrame:
+def execute_saved_strategy(data: pd.DataFrame, strategy, *, years: int = 25) -> pd.DataFrame:
     confirm_symbols = getattr(strategy, "confirm_symbols", None) or []
     if confirm_symbols:
         from api.builder_strategy import builder_signal_callable
@@ -191,7 +192,7 @@ def execute_saved_strategy(data: pd.DataFrame, strategy, *, years: int = 1) -> p
             confirm_symbols,
             symbol_data,
         )
-        return bt.execute_strategy(frame, days, profit, is_long)
+        return execute_with_proxy(frame, strategy, days, profit, is_long, years=years)
 
     conditions = [condition.model_dump() for condition in strategy.conditions]
     buy = compile_buy_mask(data, conditions, strategy_resolver=get_strategy_by_id)
@@ -206,7 +207,14 @@ def execute_saved_strategy(data: pd.DataFrame, strategy, *, years: int = 1) -> p
     frame = data.copy()
     frame["Buy"] = buy
     frame["Sell"] = sell
-    return bt.execute_strategy(frame, strategy.hold_days, strategy.profit, is_long)
+    return execute_with_proxy(
+        frame,
+        strategy,
+        strategy.hold_days,
+        strategy.profit,
+        is_long,
+        years=years,
+    )
 
 
 def _builder_scan_row(strategy, data: pd.DataFrame) -> dict:
@@ -222,7 +230,10 @@ def _builder_scan_row(strategy, data: pd.DataFrame) -> dict:
         }
     )
     rule_preview = format_condition_preview(conditions, labels)
-    description = strategy.description.strip() or rule_preview
+    description = with_proxy_description(
+        strategy.description.strip() or rule_preview,
+        strategy,
+    )
 
     return {
         "id": f"builder:{strategy.id}",

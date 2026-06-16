@@ -2,6 +2,7 @@ import getdata as dt
 import indicators as ind
 import backtest as bt
 from stats import print_stats
+import pandas as pd
 
 
 def load_ticker_data(symbol, years=25):
@@ -12,6 +13,24 @@ def load_ticker_data(symbol, years=25):
         data = data.drop(columns=['Adj close'])
     data = dt.clean_holidays(data)
     return ind.add_indicators(data)
+
+
+def attach_proxy_column(data: pd.DataFrame, proxy_symbol: str, *, years: int = 25) -> pd.DataFrame:
+    """Merge proxy close prices into the signal frame, keyed by Date."""
+    proxy = proxy_symbol.strip().upper()
+    if not proxy:
+        return data
+    if proxy in data.columns:
+        return data
+
+    yf_symbol = dt.to_yf_symbol(proxy)
+    full_data = dt.get_bulk_data([yf_symbol], years=years)
+    proxy_close = dt._bulk_close(full_data, yf_symbol)
+    proxy_frame = pd.DataFrame({"Date": proxy_close.index, proxy: proxy_close.values})
+    proxy_frame["Date"] = pd.to_datetime(proxy_frame["Date"])
+    merged = data.merge(proxy_frame, on="Date", how="left")
+    data[proxy] = merged[proxy]
+    return data
 
 
 def run_single_symbol_backtest(buy_signal, symbol, years=25, save_csv=True):

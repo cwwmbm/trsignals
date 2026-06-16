@@ -205,19 +205,17 @@ class BuilderBacktestServiceTests(unittest.TestCase):
         with patch("api.services.load_ticker_data", return_value=data.copy()):
             with patch("api.services.compile_buy_mask"):
                 with patch("api.services.compile_sell_mask"):
-                    with patch("api.services.builder_signal_callable") as signal_fn:
-                        signal_fn.return_value = object()
-                        with patch("api.services.bt.backtest_cross_symbol") as cross:
-                            cross.return_value = (executed, 2, 1, "Cross description", True)
-                            with patch("api.services.detailed_backtest_payload") as payload:
-                                payload.return_value = {"summary": {"PnL": 1}}
-                                result = run_builder_backtest(request)
+                    with patch("api.services.execute_saved_strategy") as execute_saved:
+                        execute_saved.return_value = executed
+                        with patch("api.services.detailed_backtest_payload") as payload:
+                            payload.return_value = {"summary": {"PnL": 1}}
+                            result = run_builder_backtest(request)
 
-        cross.assert_called_once()
-        cross_args = cross.call_args[0]
-        self.assertEqual(cross_args[1], "SPY")
-        self.assertEqual(cross_args[2], ["SMH", "QQQ"])
-        payload.assert_called_once_with(executed, 2, 1, "Cross description")
+        execute_saved.assert_called_once()
+        saved_strategy = execute_saved.call_args[0][1]
+        self.assertEqual(saved_strategy.symbol, "SPY")
+        self.assertEqual(saved_strategy.confirm_symbols, ["SMH", "QQQ"])
+        payload.assert_called_once()
         self.assertEqual(result, {"summary": {"PnL": 1}})
 
 
@@ -229,9 +227,9 @@ class BuilderComboSweepTests(unittest.TestCase):
         )
         data = _sample_data()
 
-        with patch("api.builder_strategy.bt.execute_strategy") as execute_strategy:
+        with patch("api.builder_strategy.execute_with_proxy") as execute_with_proxy:
             with patch("api.builder_strategy.bt._ranking_metrics") as ranking:
-                execute_strategy.side_effect = lambda frame, *_args: frame
+                execute_with_proxy.side_effect = lambda frame, *_args, **_kwargs: frame
                 ranking.return_value = {
                     "PnL": 1000,
                     "MaxDD": 10.0,
@@ -259,9 +257,9 @@ class BuilderComboSweepTests(unittest.TestCase):
         ]
         data = _sample_data()
 
-        with patch("api.builder_strategy.bt.execute_strategy") as execute_strategy:
+        with patch("api.builder_strategy.execute_with_proxy") as execute_with_proxy:
             with patch("api.builder_strategy.bt._ranking_metrics") as ranking:
-                execute_strategy.side_effect = lambda frame, *_args: frame
+                execute_with_proxy.side_effect = lambda frame, *_args, **_kwargs: frame
                 ranking.return_value = {
                     "PnL": 1000,
                     "MaxDD": 10.0,

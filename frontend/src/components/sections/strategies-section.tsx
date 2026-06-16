@@ -146,6 +146,7 @@ function StrategyRow({
     strategy.confirm_symbols && strategy.confirm_symbols.length > 0
       ? strategy.confirm_symbols.join('+')
       : null
+  const proxyLabel = strategy.proxy_symbol ? `trade ${strategy.proxy_symbol}` : null
 
   return (
     <TableRow className="hover:bg-muted/30">
@@ -154,6 +155,7 @@ function StrategyRow({
         <div className="text-[11px] leading-snug text-muted-foreground">
           {strategy.direction === 'short' ? 'Short' : 'Long'}
           {confirmLabel ? ` · confirm ${confirmLabel}` : ''}
+          {proxyLabel ? ` · ${proxyLabel}` : ''}
         </div>
       </TableCell>
       <TableCell className={cn(compactCell, 'whitespace-normal')}>

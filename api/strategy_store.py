@@ -48,6 +48,16 @@ def _normalize_confirm_symbols(symbol: str, confirm_symbols: list[str]) -> list[
     return normalized
 
 
+def _normalize_proxy_symbol(symbol: str, proxy_symbol: str | None) -> str | None:
+    primary = symbol.strip().upper()
+    if not proxy_symbol:
+        return None
+    value = proxy_symbol.strip().upper()
+    if not value or value == primary:
+        return None
+    return value
+
+
 def _validate_saved_strategy(item: dict) -> SavedStrategy:
     if hasattr(SavedStrategy, "model_validate"):
         return SavedStrategy.model_validate(item)
@@ -85,6 +95,7 @@ def create_strategy(
         conditions=request.conditions,
         sell_conditions=request.sell_conditions,
         confirm_symbols=_normalize_confirm_symbols(symbol, request.confirm_symbols),
+        proxy_symbol=_normalize_proxy_symbol(symbol, request.proxy_symbol),
         created_at=now,
         updated_at=now,
     )

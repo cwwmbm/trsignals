@@ -109,6 +109,7 @@ function buildPayload(
   name: string,
   description: string,
   confirmSymbols: string,
+  proxySymbol: string,
   entryConditions: ConditionRow[],
   exitConditions: ConditionRow[],
   entryIndicators: IndicatorInfo[],
@@ -132,8 +133,12 @@ function buildPayload(
     required: false,
   })
 
+  const primary = symbol.trim().toUpperCase()
+  const proxy = proxySymbol.trim().toUpperCase()
+  const normalizedProxy = proxy && proxy !== primary ? proxy : undefined
+
   return {
-    symbol: symbol.trim().toUpperCase(),
+    symbol: primary,
     years: 25,
     direction: direction === 'short' ? 'short' : 'long',
     hold_days: parsedHoldDays,
@@ -143,6 +148,7 @@ function buildPayload(
     conditions: toConditionPayload(entryConditions),
     sell_conditions: toConditionPayload(exitConditions),
     confirm_symbols: csv(confirmSymbols),
+    ...(normalizedProxy ? { proxy_symbol: normalizedProxy } : {}),
   } satisfies BuilderBacktestPayload
 }
 
@@ -154,6 +160,7 @@ function buildSavePayload(
   name: string,
   description: string,
   confirmSymbols: string,
+  proxySymbol: string,
   entryConditions: ConditionRow[],
   exitConditions: ConditionRow[],
   entryIndicators: IndicatorInfo[],
@@ -167,6 +174,7 @@ function buildSavePayload(
     name,
     description,
     confirmSymbols,
+    proxySymbol,
     entryConditions,
     exitConditions,
     entryIndicators,
@@ -185,6 +193,7 @@ function buildSavePayload(
     conditions: payload.conditions,
     sell_conditions: payload.sell_conditions,
     confirm_symbols: payload.confirm_symbols,
+    ...(payload.proxy_symbol ? { proxy_symbol: payload.proxy_symbol } : {}),
   }
 }
 
@@ -298,6 +307,7 @@ export const StrategyBuilderSetup = forwardRef<
   const [holdDays, setHoldDays] = useState('2')
   const [profitableCloses, setProfitableCloses] = useState('1')
   const [confirmSymbols, setConfirmSymbols] = useState('')
+  const [proxySymbol, setProxySymbol] = useState('')
   const [description, setDescription] = useState('')
   const [entryConditions, setEntryConditions] = useState<ConditionRow[]>(defaultEntryConditions)
   const [exitConditions, setExitConditions] = useState<ConditionRow[]>([])
@@ -366,6 +376,7 @@ export const StrategyBuilderSetup = forwardRef<
     setHoldDays('2')
     setProfitableCloses('1')
     setConfirmSymbols('')
+    setProxySymbol('')
     setDescription('')
     setEntryConditions(defaultEntryConditions())
     setExitConditions([])
@@ -395,6 +406,7 @@ export const StrategyBuilderSetup = forwardRef<
     setHoldDays(String(initialStrategy.hold_days))
     setProfitableCloses(String(initialStrategy.profit))
     setConfirmSymbols((initialStrategy.confirm_symbols ?? []).join(', '))
+    setProxySymbol(initialStrategy.proxy_symbol ?? '')
     setDescription(initialStrategy.description ?? '')
     setEntryConditions(entryRows.length > 0 ? entryRows : defaultEntryConditions())
     setExitConditions(exitRows)
@@ -414,6 +426,7 @@ export const StrategyBuilderSetup = forwardRef<
           name,
           description,
           confirmSymbols,
+          proxySymbol,
           entryConditions,
           exitConditions,
           builderIndicators,
@@ -428,6 +441,7 @@ export const StrategyBuilderSetup = forwardRef<
           name,
           description,
           confirmSymbols,
+          proxySymbol,
           entryConditions,
           exitConditions,
           builderIndicators,
@@ -442,6 +456,7 @@ export const StrategyBuilderSetup = forwardRef<
           name,
           description,
           confirmSymbols,
+          proxySymbol,
           entryConditions,
           exitConditions,
           builderIndicators,
@@ -515,6 +530,7 @@ export const StrategyBuilderSetup = forwardRef<
           name,
           description,
           confirmSymbols,
+          proxySymbol,
           entryConditions,
           exitConditions,
           builderIndicators,
@@ -538,6 +554,7 @@ export const StrategyBuilderSetup = forwardRef<
           name,
           description,
           confirmSymbols,
+          proxySymbol,
           entryConditions,
           exitConditions,
           builderIndicators,
@@ -621,13 +638,22 @@ export const StrategyBuilderSetup = forwardRef<
           </Field>
         </div>
 
-        <div className="mt-2">
+        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
           <Field label="Confirm symbols" htmlFor="strat-confirm-symbols">
             <Input
               id="strat-confirm-symbols"
               placeholder="Optional, e.g. SMH, QQQ"
               value={confirmSymbols}
               onChange={(e) => setConfirmSymbols(e.target.value.toUpperCase())}
+              className="h-8 font-mono text-sm"
+            />
+          </Field>
+          <Field label="Proxy symbol" htmlFor="strat-proxy-symbol">
+            <Input
+              id="strat-proxy-symbol"
+              placeholder="Optional, e.g. SOXX"
+              value={proxySymbol}
+              onChange={(e) => setProxySymbol(e.target.value.toUpperCase())}
               className="h-8 font-mono text-sm"
             />
           </Field>
