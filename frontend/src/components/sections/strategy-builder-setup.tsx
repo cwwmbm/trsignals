@@ -5,18 +5,23 @@ import {
   useEffect,
   useImperativeHandle,
   useMemo,
+  useRef,
   useState,
 } from 'react'
-import { Loader2, Play, RotateCcw, Save } from 'lucide-react'
+import { Loader2, Play, RotateCcw, Save, Upload, X } from 'lucide-react'
 import {
   type BuilderConditionPayload,
   type BuilderBacktestPayload,
+  type CustomDatasetInfo,
   type IndicatorInfo,
   type SavedStrategy,
   type SaveStrategyPayload,
+  deleteCustomDataset,
+  uploadCustomDataset,
 } from '@/api'
 import { isFlagOperator } from '@/api'
 import { Card } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -114,12 +119,18 @@ function buildPayload(
   exitConditions: ConditionRow[],
   entryIndicators: IndicatorInfo[],
   exitIndicators: IndicatorInfo[],
+  customDatasetId?: string,
+  rthEntriesOnly = true,
+  eodExit = true,
+  backtestAllData = false,
+  holdOnBuySignal = false,
 ) {
   const parsedHoldDays = Number(holdDays)
   const parsedProfit = Number(profitableCloses)
+  const holdLabel = customDatasetId ? 'Hold bars' : 'Hold days'
   if (!symbol.trim()) throw new Error('Primary symbol is required')
   if (!Number.isFinite(parsedHoldDays) || parsedHoldDays < 1) {
-    throw new Error('Hold days must be at least 1')
+    throw new Error(`${holdLabel} must be at least 1`)
   }
   if (!Number.isFinite(parsedProfit) || parsedProfit < 0) {
     throw new Error('Profitable closes must be 0 or more')
@@ -127,10 +138,12 @@ function buildPayload(
   validateConditions(entryConditions, entryIndicators, {
     label: 'Entry condition',
     required: true,
+    rightIndicators: exitIndicators,
   })
   validateConditions(exitConditions, exitIndicators, {
     label: 'Exit condition',
     required: false,
+    rightIndicators: exitIndicators,
   })
 
   const primary = symbol.trim().toUpperCase()
@@ -147,8 +160,16 @@ function buildPayload(
     description: description.trim(),
     conditions: toConditionPayload(entryConditions),
     sell_conditions: toConditionPayload(exitConditions),
-    confirm_symbols: csv(confirmSymbols),
-    ...(normalizedProxy ? { proxy_symbol: normalizedProxy } : {}),
+    confirm_symbols: customDatasetId ? [] : csv(confirmSymbols),
+    ...(customDatasetId
+      ? {
+          custom_dataset_id: customDatasetId,
+          rth_entries_only: rthEntriesOnly,
+          eod_exit: eodExit,
+          backtest_all_data: backtestAllData,
+        }
+      : { hold_on_buy_signal: holdOnBuySignal }),
+    ...(customDatasetId || !normalizedProxy ? {} : { proxy_symbol: normalizedProxy }),
   } satisfies BuilderBacktestPayload
 }
 
@@ -165,6 +186,10 @@ function buildSavePayload(
   exitConditions: ConditionRow[],
   entryIndicators: IndicatorInfo[],
   exitIndicators: IndicatorInfo[],
+  customDatasetId?: string,
+  rthEntriesOnly = true,
+  eodExit = true,
+  backtestAllData = false,
 ): SaveStrategyPayload {
   const payload = buildPayload(
     symbol,
@@ -179,6 +204,10 @@ function buildSavePayload(
     exitConditions,
     entryIndicators,
     exitIndicators,
+    customDatasetId,
+    rthEntriesOnly,
+    eodExit,
+    backtestAllData,
   )
   if (!payload.name) {
     throw new Error('Strategy name is required to save')
@@ -192,9 +221,23 @@ function buildSavePayload(
     description: payload.description,
     conditions: payload.conditions,
     sell_conditions: payload.sell_conditions,
-    confirm_symbols: payload.confirm_symbols,
+    confirm_symbols: payload.confirm_symbols ?? [],
     ...(payload.proxy_symbol ? { proxy_symbol: payload.proxy_symbol } : {}),
+    ...(payload.rth_entries_only !== undefined
+      ? { rth_entries_only: payload.rth_entries_only }
+      : {}),
+    ...(payload.eod_exit !== undefined ? { eod_exit: payload.eod_exit } : {}),
   }
+}
+
+function withSessionEntryPreview(base: string, enabled: boolean) {
+  if (!enabled) return base
+  return base ? `${base} AND Regular hours` : 'Regular hours'
+}
+
+function withSessionExitPreview(base: string, enabled: boolean) {
+  if (!enabled) return base
+  return base ? `${base} OR Last RTH bar` : 'Last RTH bar'
 }
 
 function Field({
@@ -274,6 +317,7 @@ type StrategyBuilderSetupProps = {
   savedStrategies: SavedStrategy[]
   initialStrategy?: SavedStrategy
   onSymbolChange?: (symbol: string) => void
+  onCustomDatasetChange?: (dataset: CustomDatasetInfo | null) => void
   onRunBacktest: (payload: BuilderBacktestPayload) => void
   onSave: (payload: SaveStrategyPayload) => void
   onReset?: () => void
@@ -290,6 +334,7 @@ export const StrategyBuilderSetup = forwardRef<
     savedStrategies,
     initialStrategy,
     onSymbolChange,
+    onCustomDatasetChange,
     onRunBacktest,
     onSave,
     onReset,
@@ -311,38 +356,127 @@ export const StrategyBuilderSetup = forwardRef<
   const [description, setDescription] = useState('')
   const [entryConditions, setEntryConditions] = useState<ConditionRow[]>(defaultEntryConditions)
   const [exitConditions, setExitConditions] = useState<ConditionRow[]>([])
+  const [customDataset, setCustomDataset] = useState<CustomDatasetInfo | null>(null)
+  const [rthEntriesOnly, setRthEntriesOnly] = useState(true)
+  const [eodExit, setEodExit] = useState(true)
+  const [backtestAllData, setBacktestAllData] = useState(false)
+  const [holdOnBuySignal, setHoldOnBuySignal] = useState(false)
+  const [isUploadingCustomData, setIsUploadingCustomData] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const draftSymbol = symbol.trim().toUpperCase() || 'SPY'
+  const unavailableIndicatorIds = useMemo(
+    () => new Set(customDataset?.unavailable_indicator_ids ?? []),
+    [customDataset],
+  )
+  const customDataOnlyIndicatorIds = useMemo(
+    () => new Set(customDataset?.custom_data_only_indicator_ids ?? []),
+    [customDataset],
+  )
+  const indicatorsWithAvailability = useMemo(
+    () =>
+      indicators.map((item) => {
+        const isCustomDataOnly = item.customDataOnly ?? customDataOnlyIndicatorIds.has(item.id)
+        let available = true
+        if (customDataset) {
+          available = !unavailableIndicatorIds.has(item.id)
+          if (isCustomDataOnly) {
+            available = available && customDataset.has_vwap
+          }
+        } else if (isCustomDataOnly) {
+          available = false
+        }
+        return {
+          ...item,
+          available,
+        }
+      }),
+    [indicators, customDataset, unavailableIndicatorIds, customDataOnlyIndicatorIds],
+  )
   const builderIndicators = useMemo(
     () => [
-      ...indicators,
+      ...indicatorsWithAvailability,
       ...uniqueSavedStrategiesByName(savedStrategies, draftSymbol).map(savedStrategyToIndicator),
     ],
-    [draftSymbol, indicators, savedStrategies],
+    [draftSymbol, indicatorsWithAvailability, savedStrategies],
   )
   const staticIndicatorIds = useMemo(
-    () => new Set(indicators.map((item) => item.id)),
-    [indicators],
+    () =>
+      new Set(
+        indicatorsWithAvailability
+          .filter((item) => item.available !== false)
+          .map((item) => item.id),
+      ),
+    [indicatorsWithAvailability],
   )
   const indicatorIds = useMemo(
     () => new Set(builderIndicators.map((item) => item.id)),
     [builderIndicators],
   )
 
-  const entryPreview = formatConditionPreview(entryConditions, builderIndicators, indicatorIds)
-  const exitPreview = formatConditionPreview(exitConditions, indicators, staticIndicatorIds)
+  const entryPreview = withSessionEntryPreview(
+    formatConditionPreview(entryConditions, builderIndicators, indicatorIds),
+    Boolean(customDataset) && rthEntriesOnly,
+  )
+  const exitPreview = withSessionExitPreview(
+    formatConditionPreview(exitConditions, indicatorsWithAvailability, staticIndicatorIds),
+    Boolean(customDataset) && eodExit,
+  )
+
+  const payloadCustomDatasetId = customDataset?.id
+
+  function clearCustomDataset() {
+    if (customDataset) {
+      deleteCustomDataset(customDataset.id).catch(() => undefined)
+    }
+    setCustomDataset(null)
+    onCustomDatasetChange?.(null)
+  }
+
+  async function handleCustomDataFile(file: File) {
+    setValidationError(null)
+    setIsUploadingCustomData(true)
+    try {
+      if (customDataset) {
+        await deleteCustomDataset(customDataset.id).catch(() => undefined)
+      }
+      const dataset = await uploadCustomDataset(file)
+      setCustomDataset(dataset)
+      setSymbol(dataset.symbol)
+      setConfirmSymbols('')
+      setProxySymbol('')
+      setRthEntriesOnly(true)
+      setEodExit(true)
+      setBacktestAllData(false)
+      onCustomDatasetChange?.(dataset)
+    } catch (error) {
+      setValidationError(String(error))
+    } finally {
+      setIsUploadingCustomData(false)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }
 
   const draftValid = useMemo(() => {
     try {
       validateConditions(entryConditions, builderIndicators, {
         label: 'Entry condition',
         required: true,
+        rightIndicators: indicatorsWithAvailability,
       })
       return true
     } catch {
       return false
     }
-  }, [entryConditions, builderIndicators])
+  }, [entryConditions, builderIndicators, indicatorsWithAvailability])
+
+  const customDataBacktestLabel = customDataset
+    ? backtestAllData
+      ? `All ${customDataset.row_count.toLocaleString()} bars`
+      : `Latest 5,000 of ${customDataset.row_count.toLocaleString()} bars`
+    : null
 
   useEffect(() => {
     updateStrategyBuilderDraftPreview({
@@ -353,6 +487,8 @@ export const StrategyBuilderSetup = forwardRef<
       entryPreview,
       exitPreview,
       draftValid,
+      isCustomData: Boolean(customDataset),
+      customDataBacktestLabel,
     })
   }, [
     name,
@@ -362,6 +498,8 @@ export const StrategyBuilderSetup = forwardRef<
     entryPreview,
     exitPreview,
     draftValid,
+    customDataset,
+    customDataBacktestLabel,
   ])
 
   useEffect(() => {
@@ -369,6 +507,7 @@ export const StrategyBuilderSetup = forwardRef<
   }, [draftSymbol, onSymbolChange])
 
   function resetFormToDefaults() {
+    clearCustomDataset()
     setValidationError(null)
     setName('')
     setSymbol('SPY')
@@ -380,6 +519,10 @@ export const StrategyBuilderSetup = forwardRef<
     setDescription('')
     setEntryConditions(defaultEntryConditions())
     setExitConditions([])
+    setRthEntriesOnly(true)
+    setEodExit(true)
+    setBacktestAllData(false)
+    setHoldOnBuySignal(false)
     setEntryOpen(true)
     setExitOpen(false)
     onReset?.()
@@ -408,6 +551,8 @@ export const StrategyBuilderSetup = forwardRef<
     setConfirmSymbols((initialStrategy.confirm_symbols ?? []).join(', '))
     setProxySymbol(initialStrategy.proxy_symbol ?? '')
     setDescription(initialStrategy.description ?? '')
+    setRthEntriesOnly(initialStrategy.rth_entries_only ?? true)
+    setEodExit(initialStrategy.eod_exit ?? true)
     setEntryConditions(entryRows.length > 0 ? entryRows : defaultEntryConditions())
     setExitConditions(exitRows)
     setEntryOpen(true)
@@ -430,7 +575,12 @@ export const StrategyBuilderSetup = forwardRef<
           entryConditions,
           exitConditions,
           builderIndicators,
-          indicators,
+          indicatorsWithAvailability,
+          payloadCustomDatasetId,
+          rthEntriesOnly,
+          eodExit,
+          backtestAllData,
+          holdOnBuySignal,
         ),
       buildSavePayload: () =>
         buildSavePayload(
@@ -445,7 +595,11 @@ export const StrategyBuilderSetup = forwardRef<
           entryConditions,
           exitConditions,
           builderIndicators,
-          indicators,
+          indicatorsWithAvailability,
+          payloadCustomDatasetId,
+          rthEntriesOnly,
+          eodExit,
+          backtestAllData,
         ),
       buildRefineDraft: () =>
         buildPayload(
@@ -460,7 +614,12 @@ export const StrategyBuilderSetup = forwardRef<
           entryConditions,
           exitConditions,
           builderIndicators,
-          indicators,
+          indicatorsWithAvailability,
+          payloadCustomDatasetId,
+          rthEntriesOnly,
+          eodExit,
+          backtestAllData,
+          holdOnBuySignal,
         ),
       addFromSweepRow: (row: Record<string, unknown>) => {
         if (isHoldDaysSweepRow(row)) {
@@ -514,7 +673,12 @@ export const StrategyBuilderSetup = forwardRef<
       entryConditions,
       exitConditions,
       builderIndicators,
-      indicators,
+      indicatorsWithAvailability,
+      payloadCustomDatasetId,
+      rthEntriesOnly,
+      eodExit,
+      backtestAllData,
+      holdOnBuySignal,
     ],
   )
 
@@ -534,7 +698,12 @@ export const StrategyBuilderSetup = forwardRef<
           entryConditions,
           exitConditions,
           builderIndicators,
-          indicators,
+          indicatorsWithAvailability,
+          payloadCustomDatasetId,
+          rthEntriesOnly,
+          eodExit,
+          backtestAllData,
+          holdOnBuySignal,
         ),
       )
     } catch (error) {
@@ -558,7 +727,11 @@ export const StrategyBuilderSetup = forwardRef<
           entryConditions,
           exitConditions,
           builderIndicators,
-          indicators,
+          indicatorsWithAvailability,
+          payloadCustomDatasetId,
+          rthEntriesOnly,
+          eodExit,
+          backtestAllData,
         ),
       )
     } catch (error) {
@@ -571,7 +744,31 @@ export const StrategyBuilderSetup = forwardRef<
       <Card className="border-border/60 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-base font-semibold">Strategy builder</h2>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0]
+                if (file) handleCustomDataFile(file)
+              }}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5"
+              disabled={isUploadingCustomData}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {isUploadingCustomData ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Upload className="size-3.5" />
+              )}
+              {isUploadingCustomData ? 'Uploading…' : 'Load Custom Data'}
+            </Button>
             <Button
               size="sm"
               variant="ghost"
@@ -606,6 +803,27 @@ export const StrategyBuilderSetup = forwardRef<
             </Button>
           </div>
         </div>
+
+        {customDataset ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span className="rounded-md border border-border/60 bg-muted/30 px-2 py-1 font-mono text-[11px] text-foreground">
+              Custom: {customDataset.symbol} · {customDataset.interval_label} ·{' '}
+              {customDataset.row_count.toLocaleString()} bars ·{' '}
+              {customDataset.timezone === 'UTC'
+                ? 'timestamps UTC'
+                : `${customDataset.timezone} wall clock`}
+            </span>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 gap-1 px-2 text-[11px]"
+              onClick={clearCustomDataset}
+            >
+              <X className="size-3" />
+              Clear custom data
+            </Button>
+          </div>
+        ) : null}
 
         <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3">
           <Field label="Name" htmlFor="strat-name" className="col-span-2 sm:col-span-1">
@@ -645,6 +863,7 @@ export const StrategyBuilderSetup = forwardRef<
               placeholder="Optional, e.g. SMH, QQQ"
               value={confirmSymbols}
               onChange={(e) => setConfirmSymbols(e.target.value.toUpperCase())}
+              disabled={Boolean(customDataset)}
               className="h-8 font-mono text-sm"
             />
           </Field>
@@ -654,10 +873,70 @@ export const StrategyBuilderSetup = forwardRef<
               placeholder="Optional, e.g. SOXX"
               value={proxySymbol}
               onChange={(e) => setProxySymbol(e.target.value.toUpperCase())}
+              disabled={Boolean(customDataset)}
               className="h-8 font-mono text-sm"
             />
           </Field>
         </div>
+        {customDataset ? (
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Confirm symbols and proxy are disabled for custom intraday data.
+          </p>
+        ) : (
+          <div className="mt-3 flex items-center gap-2">
+            <Checkbox
+              id="strat-hold-on-buy-signal"
+              checked={holdOnBuySignal}
+              onCheckedChange={(checked) => setHoldOnBuySignal(checked === true)}
+            />
+            <Label htmlFor="strat-hold-on-buy-signal" className="text-xs font-normal">
+              Hold on buy signal
+            </Label>
+          </div>
+        )}
+
+        {customDataset ? (
+          <div className="mt-3 space-y-2 rounded-md border border-border/60 bg-muted/20 p-3">
+            <p className="text-[11px] font-medium text-foreground">Intraday options</p>
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="strat-backtest-all-data"
+                  checked={backtestAllData}
+                  onCheckedChange={(checked) => setBacktestAllData(checked === true)}
+                />
+                <Label htmlFor="strat-backtest-all-data" className="text-xs font-normal">
+                  Backtest on all data
+                </Label>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                {backtestAllData
+                  ? `Using all ${customDataset.row_count.toLocaleString()} bars.`
+                  : `Using latest 5,000 bars (of ${customDataset.row_count.toLocaleString()} total).`}
+              </p>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="strat-rth-entries"
+                  checked={rthEntriesOnly}
+                  onCheckedChange={(checked) => setRthEntriesOnly(checked === true)}
+                />
+                <Label htmlFor="strat-rth-entries" className="text-xs font-normal">
+                  Entries only during regular hours (9:30am–4:00pm ET)
+                </Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="strat-eod-exit"
+                  checked={eodExit}
+                  onCheckedChange={(checked) => setEodExit(checked === true)}
+                />
+                <Label htmlFor="strat-eod-exit" className="text-xs font-normal">
+                  Exit at end of regular session (no overnight holds)
+                </Label>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         <div className="mt-3 space-y-2">
           <CollapsibleSection
@@ -676,7 +955,7 @@ export const StrategyBuilderSetup = forwardRef<
               onChange={setEntryConditions}
               indicators={builderIndicators}
               indicatorIds={indicatorIds}
-              rightIndicators={indicators}
+              rightIndicators={indicatorsWithAvailability}
               rightIndicatorIds={staticIndicatorIds}
               minConditions={1}
             />
@@ -697,7 +976,10 @@ export const StrategyBuilderSetup = forwardRef<
             }
           >
             <div className="mb-2 grid grid-cols-2 gap-x-3 gap-y-2 sm:max-w-md">
-              <Field label="Hold days" htmlFor="strat-hold">
+              <Field
+                label={customDataset ? 'Hold bars' : 'Hold days'}
+                htmlFor="strat-hold"
+              >
                 <Input
                   id="strat-hold"
                   inputMode="numeric"
@@ -717,13 +999,14 @@ export const StrategyBuilderSetup = forwardRef<
               </Field>
             </div>
             <p className="mb-2 text-[11px] text-muted-foreground">
-              Optional indicator exits (OR-combined). Trades also exit after max hold days or enough
-              profitable closes.
+              {customDataset
+                ? 'Optional indicator exits (OR-combined). Hold bars count intraday bars, not calendar days.'
+                : 'Optional indicator exits (OR-combined). Trades also exit after max hold days or enough profitable closes.'}
             </p>
             <ConditionList
               conditions={exitConditions}
               onChange={setExitConditions}
-              indicators={indicators}
+              indicators={indicatorsWithAvailability}
               indicatorIds={staticIndicatorIds}
               minConditions={0}
               emptyHint="No indicator exit rules — exits use hold days and profitable closes only."

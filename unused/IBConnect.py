@@ -4,6 +4,7 @@ Legacy entry point — delegates to run_backtest.py.
 Re-exports are kept so existing imports continue to work:
     from IBConnect import symbol_confirmation_detail, print_stats
 """
+import _bootstrap  # noqa: F401
 import warn_config  # noqa: F401
 from run_backtest import main
 from stats import print_stats

@@ -2,13 +2,12 @@
 export const INDICATOR_CATEGORY_ORDER = [
   'Price',
   'Volume',
-  'Reference markets',
-  'Breadth (raw ratios)',
   'Moving averages',
   'Momentum / oscillators',
   'Volatility / risk',
   'Efficiency / flow',
   'Spreads & composites',
+  'VWAP / fair value',
   'Pattern / signal flags',
   'Breadth RSI',
 ] as const
@@ -22,15 +21,14 @@ export const INDICATOR_CATEGORY_INTROS: Partial<
   'Momentum / oscillators':
     'Oscillators and momentum: RSI, Stochastic, CCI, MACD, Hurst, ADX(14), Williams %R, ROC(20), TRIX, and 20-bar linear regression slope.',
   'Volatility / risk':
-    'ATR, realized volatility, volatility percentile vs trailing 1 year, Bollinger width and %B, and change velocity.',
+    'VIX, ATR, realized volatility, volatility percentile vs trailing 1 year, Bollinger width and %B, and change velocity.',
   Volume:
     'Share volume, OBV and OBV slope, Chaikin Money Flow (20), volume EMA diff, and VFI variants.',
   'Efficiency / flow': 'IBR, Kaufman efficiency ratio, and volume flow (VFI) indicators.',
   'Pattern / signal flags':
     'Boolean flags for Donchian/Keltner/PSAR breakouts, BB/Keltner squeeze, EMA crosses, and close-pattern signals. Use is true / is false in the builder.',
-  'Breadth (raw ratios)': 'Sector and style ratios vs SPY (RSP, QQQ, SMH, XLF, etc.).',
-  'Breadth RSI': 'RSI applied to breadth ratios — market and sector participation.',
-  'Reference markets': 'VIX, SPY, QQQ, SOXX, and other benchmark closes.',
+  'Breadth RSI':
+    'RSI applied to sector/style participation ratios — market, semis, financials, energy, and more.',
 }
 
 export function sortIndicatorCategories(categories: Iterable<string>): string[] {

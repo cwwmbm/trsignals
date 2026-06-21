@@ -49,6 +49,7 @@ export function BacktestSection() {
   const [isSell, setIsSell] = useState(false);
   const [mondayBuy, setMondayBuy] = useState(false);
   const [lowVolumeBuy, setLowVolumeBuy] = useState(false);
+  const [holdOnBuySignal, setHoldOnBuySignal] = useState(false);
   const [selectedSweepRow, setSelectedSweepRow] = useState<Record<string, unknown> | undefined>();
 
   const defaultSignal = signals.find((s) => s.name === "buy_signal7")?.name ?? signals[0]?.name ?? "";
@@ -73,6 +74,7 @@ export function BacktestSection() {
     isSell,
     mondayBuy,
     lowVolumeBuy,
+    holdOnBuySignal,
   };
 
   const showOgOptions = usesOgRuntimeOptions(formState);
@@ -219,6 +221,26 @@ export function BacktestSection() {
               </div>
             </div>
           )}
+
+          <div className="mt-5 rounded-lg border border-border/60 bg-muted/30 p-5">
+            <h3 className="text-sm font-semibold">Backtest Options</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Skip sell, hold-days, and profitable-closes exits on days where the entry signal is still
+              active.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-6">
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="hold-on-buy-signal"
+                  checked={holdOnBuySignal}
+                  onCheckedChange={(checked) => setHoldOnBuySignal(checked === true)}
+                />
+                <Label htmlFor="hold-on-buy-signal" className="font-normal">
+                  Hold on buy signal
+                </Label>
+              </div>
+            </div>
+          </div>
 
           {(mode === "symbol-confirm-sweep" || mode === "symbol-confirm-detail") && (
             <div className="mt-5 rounded-lg border border-border/60 bg-muted/30 p-5">

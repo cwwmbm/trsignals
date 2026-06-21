@@ -16,6 +16,7 @@ import {
 import {
   BUILDER_REFINE_MODES,
   isSymbolConfirmRefineMode,
+  refineModesForCustomData,
   type BuilderRefineMode,
 } from "@/lib/builder-refine-config";
 import { cn } from "@/lib/utils";
@@ -115,6 +116,7 @@ export type BuilderRefinePanelProps = {
   onIsSellChange: (value: boolean) => void;
   onRun: () => void;
   isRunning: boolean;
+  isCustomData?: boolean;
 };
 
 export function BuilderRefinePanel({
@@ -135,9 +137,11 @@ export function BuilderRefinePanel({
   onIsSellChange,
   onRun,
   isRunning,
+  isCustomData = false,
 }: BuilderRefinePanelProps) {
-  const { draftSymbol, draftValid } = useStrategyBuilderDraftPreview();
-  const selectedMode = BUILDER_REFINE_MODES.find((item) => item.id === mode)!;
+  const { draftSymbol, draftValid, customDataBacktestLabel } = useStrategyBuilderDraftPreview();
+  const modeOptions = isCustomData ? refineModesForCustomData() : BUILDER_REFINE_MODES;
+  const selectedMode = modeOptions.find((item) => item.id === mode) ?? modeOptions[0];
 
   const comboSecondaryStrategies = useMemo(
     () => savedStrategies.filter((item) => item.symbol === draftSymbol),
@@ -148,6 +152,19 @@ export function BuilderRefinePanel({
 
   return (
     <div className="flex flex-col gap-3">
+      {isCustomData ? (
+        <p className="text-xs text-muted-foreground">
+          Custom intraday data: symbol confirmation is unavailable. Indicator sweeps skip VIX,
+          breadth, and reference-market filters.
+          {customDataBacktestLabel ? (
+            <>
+              {' '}
+              Backtest and refine use <span className="font-medium text-foreground">{customDataBacktestLabel}</span>
+              (set via Intraday options above).
+            </>
+          ) : null}
+        </p>
+      ) : null}
       <DraftStrategySection />
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -155,11 +172,11 @@ export function BuilderRefinePanel({
           <Select value={mode} onValueChange={(v) => v && onModeChange(v as BuilderRefineMode)}>
             <SelectTrigger id="builder-run-mode" size="sm" className="h-8 w-full text-sm">
               <SelectValue>
-                {(value: string) => BUILDER_REFINE_MODES.find((m) => m.id === value)?.label}
+                {(value: string) => modeOptions.find((m) => m.id === value)?.label}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              {BUILDER_REFINE_MODES.map((item) => (
+              {modeOptions.map((item) => (
                 <SelectItem key={item.id} value={item.id}>
                   {item.label}
                 </SelectItem>
@@ -206,7 +223,11 @@ export function BuilderRefinePanel({
       )}
 
       {mode === "hold-days-sweep" && (
-        <Field label="Max hold days" htmlFor="builder-max-days" className="max-w-xs">
+        <Field
+          label={isCustomData ? "Max hold bars" : "Max hold days"}
+          htmlFor="builder-max-days"
+          className="max-w-xs"
+        >
           <Input
             id="builder-max-days"
             type="number"
@@ -235,10 +256,11 @@ export function BuilderRefinePanel({
               <Checkbox
                 id="builder-check-breadth"
                 checked={checkBreadth}
+                disabled={isCustomData}
                 onCheckedChange={(checked) => onCheckBreadthChange(checked === true)}
               />
               <Label htmlFor="builder-check-breadth" className="text-xs font-normal">
-                Include breadth
+                Include breadth{isCustomData ? " (unavailable)" : ""}
               </Label>
             </div>
             <div className="flex items-center gap-2">

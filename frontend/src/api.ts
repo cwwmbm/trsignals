@@ -33,6 +33,8 @@ export type IndicatorKind =
 
 export type IndicatorValueType = "continuous" | "percent" | "ratio" | "flag";
 
+export type CompareMode = "none" | "number" | "indicator" | "both";
+
 export interface IndicatorInfo {
   id: string;
   label: string;
@@ -42,14 +44,39 @@ export interface IndicatorInfo {
   description?: string;
   typicalRange?: { min: number; max: number };
   builderEligible: boolean;
+  customDataOnly?: boolean;
   aliases?: string[];
+  available?: boolean;
+  compareMode?: CompareMode;
+  compareIndicatorKinds?: IndicatorKind[];
+  defaultCompareIndicator?: string;
+  defaultCompareNumber?: string;
 }
 
 export interface DetailedResult {
   summary: Record<string, number | string | null>;
   yearly: Array<Record<string, number | string | null>>;
+  monthly: Array<Record<string, number | string | null>>;
   equity_curve: Array<{ date: string; rolling_pnl: number; drawdown: number }>;
   trades: Array<Record<string, number | string | null>>;
+  equity_curve_total_points?: number;
+  equity_curve_shown_points?: number;
+}
+
+export interface CustomDatasetInfo {
+  id: string;
+  symbol: string;
+  interval_minutes: number;
+  interval_label: string;
+  periods_per_year: number;
+  start: string;
+  end: string;
+  row_count: number;
+  unavailable_indicator_ids: string[];
+  has_vwap: boolean;
+  custom_data_only_indicator_ids: string[];
+  timezone: string;
+  is_intraday: boolean;
 }
 
 export type SweepResult = Array<Record<string, number | string | null>>;
@@ -89,6 +116,11 @@ export type BuilderBacktestPayload = {
   sell_conditions?: BuilderConditionPayload[];
   confirm_symbols?: string[];
   proxy_symbol?: string;
+  custom_dataset_id?: string;
+  rth_entries_only?: boolean;
+  eod_exit?: boolean;
+  backtest_all_data?: boolean;
+  hold_on_buy_signal?: boolean;
 };
 
 export type BuilderRefinePayload = {
@@ -114,6 +146,8 @@ export type SaveStrategyPayload = {
   sell_conditions?: BuilderConditionPayload[];
   confirm_symbols?: string[];
   proxy_symbol?: string;
+  rth_entries_only?: boolean;
+  eod_exit?: boolean;
 };
 
 export type SavedStrategy = SaveStrategyPayload & {
@@ -227,4 +261,19 @@ export async function getScan(): Promise<ScanRow[]> {
   const response = await fetch(`${API_URL}/scan`);
   if (!response.ok) throw new Error(await response.text());
   return response.json();
+}
+
+export async function uploadCustomDataset(file: File): Promise<CustomDatasetInfo> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await fetch(`${API_URL}/datasets/custom`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}
+
+export async function deleteCustomDataset(datasetId: string): Promise<{ deleted: boolean }> {
+  return deleteJson<{ deleted: boolean }>(`/datasets/custom/${datasetId}`);
 }

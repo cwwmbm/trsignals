@@ -15,7 +15,13 @@ def load_ticker_data(symbol, years=25):
     return ind.add_indicators(data)
 
 
-def attach_proxy_column(data: pd.DataFrame, proxy_symbol: str, *, years: int = 25) -> pd.DataFrame:
+def attach_proxy_column(
+    data: pd.DataFrame,
+    proxy_symbol: str,
+    *,
+    years: int = 25,
+    bulk_data: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     """Merge proxy close prices into the signal frame, keyed by Date."""
     proxy = proxy_symbol.strip().upper()
     if not proxy:
@@ -24,6 +30,18 @@ def attach_proxy_column(data: pd.DataFrame, proxy_symbol: str, *, years: int = 2
         return data
 
     yf_symbol = dt.to_yf_symbol(proxy)
+    if bulk_data is not None:
+        try:
+            proxy_close = dt._bulk_close(bulk_data, yf_symbol)
+        except (KeyError, TypeError):
+            proxy_close = None
+        if proxy_close is not None:
+            proxy_frame = pd.DataFrame({"Date": proxy_close.index, proxy: proxy_close.values})
+            proxy_frame["Date"] = pd.to_datetime(proxy_frame["Date"])
+            merged = data.merge(proxy_frame, on="Date", how="left")
+            data[proxy] = merged[proxy]
+            return data
+
     full_data = dt.get_bulk_data([yf_symbol], years=years)
     proxy_close = dt._bulk_close(full_data, yf_symbol)
     proxy_frame = pd.DataFrame({"Date": proxy_close.index, proxy: proxy_close.values})

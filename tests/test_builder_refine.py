@@ -195,8 +195,66 @@ class BuilderRefineServiceTests(unittest.TestCase):
         self.assertEqual(len(rows), 2)
         tryout.assert_called_once()
 
+    def test_indicator_sweep_uses_backtest_all_data_from_strategy(self):
+        from types import SimpleNamespace
 
-class BuilderBacktestServiceTests(unittest.TestCase):
+        request = BuilderRefineRequest(
+            mode="indicator-sweep",
+            strategy=_draft_request(
+                custom_dataset_id="dataset-1",
+                backtest_all_data=False,
+            ),
+            check_both=False,
+            check_breadth=False,
+        )
+        data = _sample_data(rows=100)
+        custom_dataset = SimpleNamespace(unavailable_indicator_ids=["Vix"], has_vwap=False)
+
+        with patch("api.custom_data.custom_dataset_store") as store:
+            store.require.return_value = custom_dataset
+            store.load_backtest_frame.return_value = data.copy()
+            with patch("api.services.indicator_tryout") as tryout:
+                tryout.return_value = pd.DataFrame(
+                    [{"Indicator": "RSI2", "Value": 20, "Sharpe": 1.1}]
+                )
+                rows = run_builder_refine(request)
+
+        store.load_backtest_frame.assert_called_once_with(
+            "dataset-1",
+            backtest_all_data=False,
+        )
+        self.assertEqual(len(rows), 1)
+        tryout.assert_called_once()
+        self.assertFalse(tryout.call_args.kwargs.get("include_vwap_sweeps"))
+
+    def test_indicator_sweep_includes_vwap_sweeps_for_custom_dataset_with_vwap(self):
+        from types import SimpleNamespace
+
+        request = BuilderRefineRequest(
+            mode="indicator-sweep",
+            strategy=_draft_request(
+                custom_dataset_id="dataset-1",
+                backtest_all_data=False,
+            ),
+            check_both=False,
+            check_breadth=False,
+        )
+        data = _sample_data(rows=100)
+        custom_dataset = SimpleNamespace(unavailable_indicator_ids=["Vix"], has_vwap=True)
+
+        with patch("api.custom_data.custom_dataset_store") as store:
+            store.require.return_value = custom_dataset
+            store.load_backtest_frame.return_value = data.copy()
+            with patch("api.services.indicator_tryout") as tryout:
+                tryout.return_value = pd.DataFrame(
+                    [{"Indicator": "Close_VWAP", "Value": 0.5, "Sharpe": 1.2}]
+                )
+                rows = run_builder_refine(request)
+
+        self.assertEqual(len(rows), 1)
+        tryout.assert_called_once()
+        self.assertTrue(tryout.call_args.kwargs.get("include_vwap_sweeps"))
+
     def test_run_builder_backtest_uses_cross_symbol_when_confirm_symbols_set(self):
         request = _draft_request(confirm_symbols=["SMH", "QQQ"])
         data = _sample_data()

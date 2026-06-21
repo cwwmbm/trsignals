@@ -47,6 +47,29 @@ class BacktestDaysTests(unittest.TestCase):
         self.assertEqual(int(row["Trades"]), expected_trades)
         self.assertEqual(_parse_dollar_pnl(row["PnL"]), expected_pnl)
 
+    def test_open_trade_pnl_uses_last_valid_close_when_final_bar_is_nan(self):
+        rows = 40
+        close = 100 + np.cumsum(np.random.default_rng(0).normal(0, 0.5, rows))
+        buy = np.zeros(rows, dtype=bool)
+        buy[rows - 2] = True
+        data = pd.DataFrame(
+            {
+                "Date": pd.date_range("2018-01-01", periods=rows, freq="B"),
+                "Close": close,
+                "%Change": np.r_[0.0, np.diff(close) / close[:-1]],
+                "Buy": buy,
+                "Sell": False,
+            }
+        )
+        data.loc[data.index[-1], "Close"] = np.nan
+        data.loc[data.index[-1], "%Change"] = np.nan
+
+        executed = bt.execute_strategy(data.copy(), days=10, profit=1, is_long=True)
+        last = executed.iloc[-1]
+
+        self.assertTrue(bool(last["HoldLong"]))
+        self.assertFalse(pd.isna(last["TradePnL"]))
+
 
 if __name__ == "__main__":
     unittest.main()

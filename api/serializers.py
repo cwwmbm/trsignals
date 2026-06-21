@@ -2,9 +2,12 @@ import math
 import re
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
-from stats import compute_aggregate_metrics, yearly_performance
+from stats import compute_aggregate_metrics, monthly_performance, yearly_performance
+
+MAX_EQUITY_CURVE_POINTS = 2000
 
 
 def _clean_number(value: Any) -> Any:
@@ -43,8 +46,22 @@ def dataframe_records(df: pd.DataFrame) -> list[dict]:
     return records
 
 
-def summary_payload(data: pd.DataFrame, days: int, profit: int, description: str) -> dict:
-    metrics = compute_aggregate_metrics(data)
+def _format_timestamp(value, *, is_intraday: bool) -> str:
+    ts = pd.to_datetime(value)
+    if is_intraday and (ts.hour != 0 or ts.minute != 0 or ts.second != 0):
+        return ts.strftime("%Y-%m-%d %H:%M")
+    return ts.strftime("%Y-%m-%d")
+
+
+def summary_payload(
+    data: pd.DataFrame,
+    days: int,
+    profit: int,
+    description: str,
+    *,
+    periods_per_year: int = 252,
+) -> dict:
+    metrics = compute_aggregate_metrics(data, periods_per_year=periods_per_year)
     return {
         "description": description,
         "days": days,
@@ -78,9 +95,38 @@ def yearly_payload(data: pd.DataFrame) -> list[dict]:
     return dataframe_records(yearly)
 
 
-def equity_curve_payload(data: pd.DataFrame) -> list[dict]:
+def monthly_payload(data: pd.DataFrame) -> list[dict]:
+    monthly = monthly_performance(data).reset_index()
+    monthly = monthly.rename(
+        columns={
+            "Date": "month",
+            "PnL%": "pnl_percent",
+            "Drawdown%": "drawdown_percent",
+            "Num_Trades": "num_trades",
+            "Positive_Trades": "positive_trades",
+        }
+    )
+    if "month" in monthly.columns:
+        monthly["month"] = monthly["month"].astype(str)
+    return dataframe_records(monthly)
+
+
+def _downsample_for_chart(df: pd.DataFrame, max_points: int) -> pd.DataFrame:
+    if len(df) <= max_points:
+        return df
+    indices = np.linspace(0, len(df) - 1, max_points, dtype=int)
+    return df.iloc[indices]
+
+
+def equity_curve_payload(
+    data: pd.DataFrame,
+    *,
+    is_intraday: bool = False,
+    max_points: int = MAX_EQUITY_CURVE_POINTS,
+) -> list[dict]:
     rows = data[["Date", "RollingPnL", "Drawdown"]].copy()
-    rows["Date"] = pd.to_datetime(rows["Date"]).dt.strftime("%Y-%m-%d")
+    rows = _downsample_for_chart(rows, max_points)
+    rows["Date"] = rows["Date"].apply(lambda value: _format_timestamp(value, is_intraday=is_intraday))
     rows = rows.rename(
         columns={
             "Date": "date",
@@ -91,7 +137,7 @@ def equity_curve_payload(data: pd.DataFrame) -> list[dict]:
     return dataframe_records(rows)
 
 
-def trade_payload(data: pd.DataFrame) -> list[dict]:
+def trade_payload(data: pd.DataFrame, *, is_intraday: bool = False) -> list[dict]:
     trades = []
     entry = None
     for _, row in data.iterrows():
@@ -100,8 +146,8 @@ def trade_payload(data: pd.DataFrame) -> list[dict]:
         if bool(row.get("LongTradeOut", False)) and entry is not None:
             trades.append(
                 {
-                    "entry_date": pd.to_datetime(entry["Date"]).strftime("%Y-%m-%d"),
-                    "exit_date": pd.to_datetime(row["Date"]).strftime("%Y-%m-%d"),
+                    "entry_date": _format_timestamp(entry["Date"], is_intraday=is_intraday),
+                    "exit_date": _format_timestamp(row["Date"], is_intraday=is_intraday),
                     "entry_price": float(entry["Close"]),
                     "exit_price": float(row["Close"]),
                     "trade_pnl": float(row["TradePnL"]),
@@ -114,7 +160,7 @@ def trade_payload(data: pd.DataFrame) -> list[dict]:
         last = data.iloc[-1]
         trades.append(
             {
-                "entry_date": pd.to_datetime(entry["Date"]).strftime("%Y-%m-%d"),
+                "entry_date": _format_timestamp(entry["Date"], is_intraday=is_intraday),
                 "exit_date": "Open",
                 "entry_price": float(entry["Close"]),
                 "exit_price": float(last["Close"]),
@@ -131,10 +177,24 @@ def detailed_backtest_payload(
     days: int,
     profit: int,
     description: str,
+    *,
+    periods_per_year: int = 252,
+    is_intraday: bool = False,
 ) -> dict:
+    total_bars = int(data.shape[0])
+    equity_curve = equity_curve_payload(data, is_intraday=is_intraday)
     return {
-        "summary": summary_payload(data, days, profit, description),
+        "summary": summary_payload(
+            data,
+            days,
+            profit,
+            description,
+            periods_per_year=periods_per_year,
+        ),
         "yearly": yearly_payload(data),
-        "equity_curve": equity_curve_payload(data),
-        "trades": trade_payload(data),
+        "monthly": monthly_payload(data),
+        "equity_curve": equity_curve,
+        "trades": trade_payload(data, is_intraday=is_intraday),
+        "equity_curve_total_points": total_bars,
+        "equity_curve_shown_points": len(equity_curve),
     }

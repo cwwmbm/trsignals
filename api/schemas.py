@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 class RuntimeOptions(BaseModel):
     monday_buy: bool | None = None
     low_volume_buy: bool | None = None
+    hold_on_buy_signal: bool | None = None
 
 
 class SingleSignalExpression(BaseModel):
@@ -91,6 +92,27 @@ class BuilderBacktestRequest(BaseModel):
     sell_conditions: list[BuilderCondition] = Field(default_factory=list)
     confirm_symbols: list[str] = Field(default_factory=list)
     proxy_symbol: str | None = None
+    custom_dataset_id: str | None = None
+    rth_entries_only: bool = True
+    eod_exit: bool = True
+    backtest_all_data: bool = False
+    hold_on_buy_signal: bool = False
+
+
+class CustomDatasetResponse(BaseModel):
+    id: str
+    symbol: str
+    interval_minutes: int
+    interval_label: str
+    periods_per_year: int
+    start: str
+    end: str
+    row_count: int
+    unavailable_indicator_ids: list[str]
+    has_vwap: bool = False
+    custom_data_only_indicator_ids: list[str] = []
+    timezone: str = "UTC"
+    is_intraday: bool = True
 
 
 BuilderRefineMode = Literal[
@@ -126,6 +148,8 @@ class SavedStrategy(BaseModel):
     confirm_symbols: list[str] = Field(default_factory=list)
     proxy_symbol: str | None = None
     legacy_signal: str | None = None
+    rth_entries_only: bool = False
+    eod_exit: bool = False
     created_at: str
     updated_at: str
 
@@ -141,6 +165,8 @@ class SaveStrategyRequest(BaseModel):
     sell_conditions: list[BuilderCondition] = Field(default_factory=list)
     confirm_symbols: list[str] = Field(default_factory=list)
     proxy_symbol: str | None = None
+    rth_entries_only: bool = False
+    eod_exit: bool = False
 
 
 class UpdateStrategyRequest(BaseModel):

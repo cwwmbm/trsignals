@@ -1,13 +1,14 @@
 'use client'
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   getIndicators,
   getSavedStrategies,
   runBuilderBacktest,
   runBuilderRefine,
   saveStrategy,
+  type CustomDatasetInfo,
   type DetailedResult,
   type SaveStrategyPayload,
   type SavedStrategy,
@@ -89,10 +90,19 @@ export function StrategyBuilderSection({
   const [refineCheckBoth, setRefineCheckBoth] = useState(false)
   const [refineIsSell, setRefineIsSell] = useState(false)
   const [paneResetVersion, setPaneResetVersion] = useState(0)
+  const [customDataset, setCustomDataset] = useState<CustomDatasetInfo | null>(null)
 
   const handleSymbolChange = useCallback((symbol: string) => {
     setRefinePrimarySymbol(symbol)
   }, [])
+
+  useEffect(() => {
+    if (!customDataset) return
+    setRefineCheckBreadth(false)
+    if (refineMode === 'symbol-confirm-sweep') {
+      setRefineMode('indicator-sweep')
+    }
+  }, [customDataset, refineMode])
 
   const handleReset = useCallback(() => {
     setBuilderResult(undefined)
@@ -102,6 +112,7 @@ export function StrategyBuilderSection({
     setValidationError(null)
     setSaveMessage(null)
     setAddMessage(null)
+    setCustomDataset(null)
     setPaneResetVersion((version) => version + 1)
     mutation.reset()
     refineMutation.reset()
@@ -188,6 +199,7 @@ export function StrategyBuilderSection({
         savedStrategies={savedStrategies}
         initialStrategy={initialStrategy}
         onSymbolChange={handleSymbolChange}
+        onCustomDatasetChange={setCustomDataset}
         onRunBacktest={handleRunBacktest}
         onSave={handleSave}
         onReset={handleReset}
@@ -247,6 +259,7 @@ export function StrategyBuilderSection({
           onIsSellChange: setRefineIsSell,
           onRun: handleRefineRun,
           isRunning: refineMutation.isPending,
+          isCustomData: Boolean(customDataset),
         }}
       />
     </div>

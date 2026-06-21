@@ -100,6 +100,20 @@ VFI_SWEEPS = [
     ('VFI20', 'VFI20', 'both', -8, 8, 2),
 ]
 
+VWAP_SWEEPS = [
+    ('Close_VWAP', 'Close_VWAP', 'both', -2, 2, 0.25),
+    ('VWAPCrossUp', 'VWAPCrossUp', 'both', 0, 0, 1),
+    ('VWAPCrossDown', 'VWAPCrossDown', 'both', 0, 0, 1),
+    ('VWAPSlope8', 'VWAPSlope8', 'both', -2, 2, 0.5),
+    ('VWAPSlope20', 'VWAPSlope20', 'both', -2, 2, 0.5),
+    ('VWAPPercentB', 'VWAPPercentB', 'both', 0, 1, 0.1),
+    ('VWAPWidth', 'VWAPWidth', 'both', 0, 0.1, 0.01),
+    ('CloseAboveVWAPUpper1', 'CloseAboveVWAPUpper1', 'both', 0, 0, 1),
+    ('CloseBelowVWAPLower1', 'CloseBelowVWAPLower1', 'both', 0, 0, 1),
+    ('CloseAboveVWAPUpper2', 'CloseAboveVWAPUpper2', 'both', 0, 0, 1),
+    ('CloseBelowVWAPLower2', 'CloseBelowVWAPLower2', 'both', 0, 0, 1),
+]
+
 VFI_EXCLUDED_TICKERS = {'NQ', 'ES', 'GC', 'SI', 'HG', 'RTY', 'YM', 'CL', 'SOXX', 'FXI'}
 
 
@@ -128,24 +142,51 @@ def _collect_sweeps(running_rows, data, days, profit, is_long, is_sell, og, spec
     return running_rows
 
 
-def indicator_tryout(data, days, profit, is_long, is_sell=False, check_breadth=True, check_both=True, verbose=True, timing=False):
+def indicator_tryout(data, days, profit, is_long, is_sell=False, check_breadth=True, check_both=True, verbose=True, timing=False, exclude_columns=None, include_vwap_sweeps=False):
     """Grid-search indicator filters layered on the current buy/sell signal."""
+    exclude_columns = set(exclude_columns or [])
     total_started = perf_counter()
     previous_timing = bt.TIMING_ENABLED
     bt.set_timing_enabled(timing)
     running_rows = []
     og = days == 0
 
+    def _filter_specs(specs):
+        if not exclude_columns:
+            return specs
+        return [
+            spec
+            for spec in specs
+            if spec[0] not in exclude_columns and spec[1] not in exclude_columns
+        ]
+
     try:
         if check_breadth:
-            running_rows = _collect_sweeps(running_rows, data, days, profit, is_long, is_sell, og, BREADTH_SWEEPS, verbose, timing)
+            running_rows = _collect_sweeps(
+                running_rows, data, days, profit, is_long, is_sell, og,
+                _filter_specs(BREADTH_SWEEPS), verbose, timing,
+            )
             if data['Date'].dt.year.iloc[0] >= 2003:
-                running_rows = _collect_sweeps(running_rows, data, days, profit, is_long, is_sell, og, POST_2003_BREADTH_SWEEPS, verbose, timing)
+                running_rows = _collect_sweeps(
+                    running_rows, data, days, profit, is_long, is_sell, og,
+                    _filter_specs(POST_2003_BREADTH_SWEEPS), verbose, timing,
+                )
 
         if check_both or not check_breadth:
-            running_rows = _collect_sweeps(running_rows, data, days, profit, is_long, is_sell, og, PRICE_SWEEPS, verbose, timing)
+            running_rows = _collect_sweeps(
+                running_rows, data, days, profit, is_long, is_sell, og,
+                _filter_specs(PRICE_SWEEPS), verbose, timing,
+            )
             if ticker not in VFI_EXCLUDED_TICKERS:
-                running_rows = _collect_sweeps(running_rows, data, days, profit, is_long, is_sell, og, VFI_SWEEPS, verbose, timing)
+                running_rows = _collect_sweeps(
+                    running_rows, data, days, profit, is_long, is_sell, og,
+                    _filter_specs(VFI_SWEEPS), verbose, timing,
+                )
+            if include_vwap_sweeps and 'VWAP' in data.columns and data['VWAP'].notna().any():
+                running_rows = _collect_sweeps(
+                    running_rows, data, days, profit, is_long, is_sell, og,
+                    _filter_specs(VWAP_SWEEPS), verbose, timing,
+                )
     finally:
         bt.set_timing_enabled(previous_timing)
 

@@ -41,8 +41,8 @@ export function IndicatorGlossary() {
       <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
         {indicators.length} builder indicators, loaded from the API. Recent additions include
         Donchian breakouts, ADX, Williams %R, ROC, TRIX, OBV/CMF, Bollinger width/%B, volatility
-        percentile, Keltner channels, and TTM-style BB/Keltner squeeze flags. Session VWAP is not
-        available on daily data.
+        percentile, Keltner channels, and TTM-style BB/Keltner squeeze flags. Session VWAP
+        indicators are available on custom intraday datasets that include a VWAP column.
       </p>
       {categories.map((category) => {
         const items = groups.get(category) ?? []

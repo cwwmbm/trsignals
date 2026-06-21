@@ -1,3 +1,4 @@
+import _bootstrap  # noqa: F401
 import pandas as pd
 import getdata as dt
 import indicators as ind

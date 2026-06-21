@@ -53,11 +53,19 @@ function IndicatorSelectInner({
         {[...groups.entries()].map(([category, items]) => (
           <SelectGroup key={category}>
             <SelectLabel>{category}</SelectLabel>
-            {items.map((item) => (
-              <SelectItem key={item.id} value={item.id} className={cn(compact && "text-xs")}>
-                {item.label}
-              </SelectItem>
-            ))}
+            {items.map((item) => {
+              const unavailable = item.available === false;
+              return (
+                <SelectItem
+                  key={item.id}
+                  value={item.id}
+                  disabled={unavailable}
+                  className={cn(compact && "text-xs", unavailable && "text-muted-foreground")}
+                >
+                  {unavailable ? `${item.label} (unavailable)` : item.label}
+                </SelectItem>
+              );
+            })}
           </SelectGroup>
         ))}
       </SelectContent>

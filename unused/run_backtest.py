@@ -3,6 +3,7 @@ Backtest entry point. Configure RUN_MODE and settings below, then:
 
     python run_backtest.py
 """
+import _bootstrap  # noqa: F401
 import warn_config  # noqa: F401 — suppress third-party FutureWarnings
 import time
 import indicators as ind

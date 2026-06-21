@@ -17,6 +17,7 @@ IndicatorKind = Literal[
 ]
 
 ValueType = Literal["continuous", "percent", "ratio", "flag"]
+CompareMode = Literal["none", "number", "indicator", "both"]
 
 
 class TypicalRange(TypedDict):
@@ -33,7 +34,12 @@ class IndicatorDef(TypedDict, total=False):
     description: str
     typicalRange: TypicalRange
     builderEligible: bool
+    customDataOnly: bool
     aliases: list[str]
+    compareMode: CompareMode
+    compareIndicatorKinds: list[IndicatorKind]
+    defaultCompareIndicator: str
+    defaultCompareNumber: str
 
 
 def _entry(
@@ -46,6 +52,7 @@ def _entry(
     description: str = "",
     typical_range: TypicalRange | None = None,
     builder_eligible: bool = True,
+    custom_data_only: bool = False,
     aliases: list[str] | None = None,
 ) -> IndicatorDef:
     item: IndicatorDef = {
@@ -56,6 +63,8 @@ def _entry(
         "valueType": value_type,
         "builderEligible": builder_eligible,
     }
+    if custom_data_only:
+        item["customDataOnly"] = True
     if description:
         item["description"] = description
     if typical_range is not None:
@@ -95,11 +104,68 @@ _SWEEP = {
     "OBVSlope20": {"min": -5, "max": 5},
     "VolatilityPercentile": {"min": 0, "max": 100},
     "TRIX": {"min": -0.5, "max": 0.5},
+    "Close_VWAP": {"min": -2, "max": 2},
+    "VWAPSlope8": {"min": -2, "max": 2},
+    "VWAPSlope20": {"min": -2, "max": 2},
+    "VWAPPercentB": {"min": 0, "max": 1},
+    "VWAPWidth": {"min": 0, "max": 0.1},
 }
 
 
 def _range(indicator_id: str) -> TypicalRange | None:
     return _SWEEP.get(indicator_id)
+
+
+PRICE_LIKE_IDS = frozenset(
+    {"CloseLag1", "CloseLag2", "CloseLag3", "LowLag1", "LowMin2Lag1"},
+)
+
+_DEFAULT_COMPARE_INDICATOR: dict[str, str] = {
+    "Close": "SMA200",
+    "Open": "SMA20",
+    "High": "SMA20",
+    "Low": "SMA20",
+    "CloseLag1": "SMA20",
+    "CloseLag2": "SMA20",
+    "CloseLag3": "SMA20",
+    "LowLag1": "SMA20",
+    "LowMin2Lag1": "SMA20",
+}
+
+_DEFAULT_COMPARE_NUMBER: dict[str, str] = {
+    "RSI2": "20",
+    "RSI5": "35",
+    "RSI14": "50",
+    "CCI": "0",
+    "Vix": "20",
+    "BBPercentB": "0.5",
+    "VWAPPercentB": "0.5",
+    "Stoch": "20",
+    "ValueCharts": "0",
+    "MACDHist": "0",
+    "TRIX": "0",
+    "ROC20": "0",
+    "CMF20": "0",
+    "ChangeVelocity": "0",
+    "LinRegSlope20": "0",
+    "OBVSlope20": "0",
+    "Close_EMA8": "0",
+    "Close_SMA20": "0",
+    "Close_SMA50": "0",
+    "Close_SMA200": "0",
+    "Close_VWAP": "0",
+    "EMA20_EMA100": "0",
+    "SMA20_SMA50": "0",
+    "SMA50_SMA200": "0",
+    "ATR20_ATR50": "0",
+    "%Change": "0",
+    "VolumeEMADiff": "0",
+}
+
+_PRICE_TREND_COMPARE_KINDS: list[IndicatorKind] = ["price", "trend"]
+_VWAP_COMPARE_KINDS: list[IndicatorKind] = ["price", "trend", "volume", "volatility"]
+
+_CATALOG_BY_ID: dict[str, IndicatorDef] = {}
 
 
 _BREADTH_RSI_SOURCES: dict[str, str] = {
@@ -166,25 +232,6 @@ INDICATOR_CATALOG: list[IndicatorDef] = [
         typical_range=_range("CMF20"),
         description="20-period Chaikin Money Flow — volume-weighted close position within the bar's range. Ranges roughly −1 to +1.",
     ),
-    # Reference markets
-    _entry("Vix", "VIX", "Reference markets", "reference", "continuous", typical_range=_range("Vix"), aliases=["VIX"], description="CBOE Volatility Index closing level — a measure of expected market volatility."),
-    _entry("Spy", "SPY", "Reference markets", "reference", "continuous", aliases=["SPY"], description="SPY ETF closing price as a broad U.S. equity market reference."),
-    _entry("Qqq", "QQQ", "Reference markets", "reference", "continuous", aliases=["QQQ"], description="QQQ ETF closing price as a large-cap growth / Nasdaq proxy."),
-    _entry("Soxx", "SOXX", "Reference markets", "reference", "continuous", aliases=["SOXX"], description="SOXX ETF closing price as a semiconductor sector reference."),
-    _entry("Iwm", "IWM", "Reference markets", "reference", "continuous", aliases=["IWM"], description="IWM ETF closing price as a small-cap U.S. equity reference."),
-    _entry("Uvxy", "UVXY", "Reference markets", "reference", "continuous", aliases=["UVXY"], description="UVXY ETF closing price — a leveraged short-term VIX futures product."),
-    _entry("Sqqq", "SQQQ", "Reference markets", "reference", "continuous", aliases=["SQQQ"], description="SQQQ ETF closing price — an inverse Nasdaq-100 product."),
-    # Breadth (raw ratios)
-    _entry("Breadth", "RSP/SPY breadth", "Breadth (raw ratios)", "breadth", "ratio", description="RSP close divided by SPY close. Measures equal-weight vs cap-weight market participation."),
-    _entry("Riskbreadth", "QQQ/SPY risk breadth", "Breadth (raw ratios)", "breadth", "ratio", aliases=["RiskBreadth"], description="QQQ close divided by SPY close. Tracks growth/risk-on leadership relative to the broad market."),
-    _entry("Semisbreadth", "SMH/SPY semis breadth", "Breadth (raw ratios)", "breadth", "ratio", aliases=["SemisBreadth"], description="SMH close divided by SPY close. Measures semiconductor sector strength vs the broad market."),
-    _entry("Financialsbreadth", "XLF/SPY financials breadth", "Breadth (raw ratios)", "breadth", "ratio", aliases=["FinancialsBreadth"], description="XLF close divided by SPY close. Tracks financial sector participation."),
-    _entry("Energybreadth", "XLE/SPY energy breadth", "Breadth (raw ratios)", "breadth", "ratio", aliases=["EnergyBreadth"], description="XLE close divided by SPY close. Tracks energy sector participation."),
-    _entry("Utilitiesbreadth", "XLU/SPY utilities breadth", "Breadth (raw ratios)", "breadth", "ratio", aliases=["UtilitiesBreadth"], description="XLU close divided by SPY close. Tracks utilities sector participation."),
-    _entry("Industrialsbreadth", "XLI/SPY industrials breadth", "Breadth (raw ratios)", "breadth", "ratio", aliases=["IndustrialsBreadth"], description="XLI close divided by SPY close. Tracks industrials sector participation."),
-    _entry("Goldbreadth", "GLD/SPY gold breadth", "Breadth (raw ratios)", "breadth", "ratio", aliases=["GoldBreadth"], description="GLD close divided by SPY close. Measures gold vs equity relative strength."),
-    _entry("Bondbreadth", "TLT/SPY bond breadth", "Breadth (raw ratios)", "breadth", "ratio", aliases=["BondBreadth"], description="TLT close divided by SPY close. Measures long-duration bonds vs equities."),
-    _entry("Iwmbreadth", "IWM/SPY breadth", "Breadth (raw ratios)", "breadth", "ratio", aliases=["IWMBreadth"], description="IWM close divided by SPY close. Tracks small-cap vs large-cap participation."),
     # Moving averages
     _entry("SMA10", "SMA(10)", "Moving averages", "trend", "continuous", description="10-day simple moving average of close."),
     _entry("SMA20", "SMA(20)", "Moving averages", "trend", "continuous", description="20-day simple moving average of close."),
@@ -229,6 +276,7 @@ INDICATOR_CATALOG: list[IndicatorDef] = [
         description="20-bar linear regression slope of close, normalized as percent of price per bar.",
     ),
     # Volatility / risk
+    _entry("Vix", "VIX", "Volatility / risk", "volatility", "continuous", typical_range=_range("Vix"), aliases=["VIX"], description="CBOE Volatility Index closing level — a measure of expected market volatility."),
     _entry("%Change", "% change", "Volatility / risk", "volatility", "percent", typical_range=_range("%Change"), description="Leveraged daily percent change in close (leverage factor from config)."),
     _entry("ATR20", "ATR(20)", "Volatility / risk", "volatility", "continuous", description="20-day Average True Range — average daily price range in price units."),
     _entry("ATR50", "ATR(50)", "Volatility / risk", "volatility", "continuous", description="50-day Average True Range — average daily price range in price units."),
@@ -339,6 +387,24 @@ INDICATOR_CATALOG: list[IndicatorDef] = [
         "flag",
         description="Flag (1) when close < 20-day Keltner lower band; equivalent to Close < KCLower20.",
     ),
+    # VWAP / fair value (custom intraday datasets only)
+    _entry("VWAP", "Session VWAP", "VWAP / fair value", "volume", "continuous", custom_data_only=True, description="Session volume-weighted average price from custom intraday data."),
+    _entry("Close_VWAP", "Close vs VWAP %", "VWAP / fair value", "composite", "percent", custom_data_only=True, typical_range=_range("Close_VWAP"), description="Percent distance of close from session VWAP: (close − VWAP) / close × 100."),
+    _entry("VWAPCrossUp", "VWAP cross up", "VWAP / fair value", "pattern", "flag", custom_data_only=True, description="Flag (1) when close crosses above session VWAP from below; otherwise −1."),
+    _entry("VWAPCrossDown", "VWAP cross down", "VWAP / fair value", "pattern", "flag", custom_data_only=True, description="Flag (1) when close crosses below session VWAP from above; otherwise −1."),
+    _entry("VWAPSlope8", "VWAP slope (8)", "VWAP / fair value", "trend", "continuous", custom_data_only=True, typical_range=_range("VWAPSlope8"), description="8-bar linear-regression slope of session VWAP, expressed as percent of VWAP per bar."),
+    _entry("VWAPSlope20", "VWAP slope (20)", "VWAP / fair value", "trend", "continuous", custom_data_only=True, typical_range=_range("VWAPSlope20"), description="20-bar linear-regression slope of session VWAP, expressed as percent of VWAP per bar."),
+    _entry("VWAPStd", "VWAP std dev", "VWAP / fair value", "volatility", "continuous", custom_data_only=True, description="Per-session volume-weighted standard deviation around VWAP."),
+    _entry("VWAPUpper1", "VWAP +1σ", "VWAP / fair value", "volatility", "continuous", custom_data_only=True, description="Session VWAP plus one volume-weighted standard deviation."),
+    _entry("VWAPLower1", "VWAP −1σ", "VWAP / fair value", "volatility", "continuous", custom_data_only=True, description="Session VWAP minus one volume-weighted standard deviation."),
+    _entry("VWAPUpper2", "VWAP +2σ", "VWAP / fair value", "volatility", "continuous", custom_data_only=True, description="Session VWAP plus two volume-weighted standard deviations."),
+    _entry("VWAPLower2", "VWAP −2σ", "VWAP / fair value", "volatility", "continuous", custom_data_only=True, description="Session VWAP minus two volume-weighted standard deviations."),
+    _entry("VWAPPercentB", "VWAP %B", "VWAP / fair value", "volatility", "continuous", custom_data_only=True, typical_range=_range("VWAPPercentB"), description="Position of close within VWAP ±2σ bands: 0 = lower band, 1 = upper band, 0.5 = VWAP."),
+    _entry("VWAPWidth", "VWAP band width", "VWAP / fair value", "volatility", "continuous", custom_data_only=True, typical_range=_range("VWAPWidth"), description="Width of VWAP ±2σ bands relative to VWAP."),
+    _entry("CloseAboveVWAPUpper1", "Close above VWAP +1σ", "VWAP / fair value", "pattern", "flag", custom_data_only=True, description="Flag (1) when close is above VWAP +1σ; otherwise −1."),
+    _entry("CloseBelowVWAPLower1", "Close below VWAP −1σ", "VWAP / fair value", "pattern", "flag", custom_data_only=True, description="Flag (1) when close is below VWAP −1σ; otherwise −1."),
+    _entry("CloseAboveVWAPUpper2", "Close above VWAP +2σ", "VWAP / fair value", "pattern", "flag", custom_data_only=True, description="Flag (1) when close is above VWAP +2σ; otherwise −1."),
+    _entry("CloseBelowVWAPLower2", "Close below VWAP −2σ", "VWAP / fair value", "pattern", "flag", custom_data_only=True, description="Flag (1) when close is below VWAP −2σ; otherwise −1."),
     # Breadth RSI
     _breadth_rsi(2, "", "market"),
     _breadth_rsi(5, "", "market"),
@@ -369,20 +435,173 @@ INDICATOR_CATALOG: list[IndicatorDef] = [
     _entry("AdjustedChange", "Adjusted change", "Internal", "volatility", "percent", builder_eligible=False),
 ]
 
+for _item in INDICATOR_CATALOG:
+    _CATALOG_BY_ID[_item["id"]] = _item
+
 _CATEGORY_ORDER = [
     "Price",
     "Volume",
-    "Reference markets",
-    "Breadth (raw ratios)",
     "Moving averages",
     "Momentum / oscillators",
     "Volatility / risk",
     "Efficiency / flow",
     "Spreads & composites",
+    "VWAP / fair value",
     "Pattern / signal flags",
     "Breadth RSI",
     "Internal",
 ]
+
+
+def get_indicator_def(indicator_id: str) -> IndicatorDef | None:
+    item = _CATALOG_BY_ID.get(indicator_id)
+    if item is None:
+        return None
+    return enrich_indicator(item)
+
+
+def resolve_compare_mode(item: IndicatorDef) -> CompareMode:
+    explicit = item.get("compareMode")
+    if explicit:
+        return explicit
+
+    value_type = item.get("valueType", "continuous")
+    if value_type == "flag":
+        return "none"
+    if value_type in {"percent", "ratio"}:
+        return "number"
+
+    indicator_id = item["id"]
+    if indicator_id in PRICE_LIKE_IDS or indicator_id == "VWAP":
+        return "both"
+
+    kind = item.get("kind", "momentum")
+    if kind in {"price", "trend"}:
+        return "both"
+
+    return "number"
+
+
+def resolve_compare_indicator_kinds(item: IndicatorDef) -> list[IndicatorKind]:
+    explicit = item.get("compareIndicatorKinds")
+    if explicit:
+        return list(explicit)
+
+    if item.get("category") == "VWAP / fair value":
+        return list(_VWAP_COMPARE_KINDS)
+
+    return list(_PRICE_TREND_COMPARE_KINDS)
+
+
+def _format_default_number(value: float) -> str:
+    if value == int(value):
+        return str(int(value))
+    text = f"{value:.4f}".rstrip("0").rstrip(".")
+    return text or "0"
+
+
+def resolve_compare_defaults(item: IndicatorDef) -> tuple[str | None, str | None]:
+    default_indicator = item.get("defaultCompareIndicator") or _DEFAULT_COMPARE_INDICATOR.get(item["id"])
+    default_number = item.get("defaultCompareNumber") or _DEFAULT_COMPARE_NUMBER.get(item["id"])
+
+    compare_mode = resolve_compare_mode(item)
+    if compare_mode == "none":
+        return None, None
+
+    if default_number is None and compare_mode in {"number", "both"}:
+        value_type = item.get("valueType", "continuous")
+        if value_type == "ratio" or item.get("kind") == "breadth":
+            default_number = "1.0"
+        elif value_type == "percent" or item.get("kind") == "composite":
+            default_number = "0"
+        else:
+            typical_range = item.get("typicalRange")
+            if typical_range:
+                midpoint = (typical_range["min"] + typical_range["max"]) / 2
+                default_number = _format_default_number(midpoint)
+
+    if default_indicator is None and compare_mode in {"indicator", "both"}:
+        kind = item.get("kind", "momentum")
+        if kind in {"price", "trend"} or item["id"] in PRICE_LIKE_IDS:
+            default_indicator = "Close" if kind == "trend" else "SMA20"
+
+    return default_indicator, default_number
+
+
+def enrich_indicator(item: IndicatorDef) -> IndicatorDef:
+    enriched: IndicatorDef = dict(item)
+    compare_mode = resolve_compare_mode(item)
+    enriched["compareMode"] = compare_mode
+    if compare_mode in {"indicator", "both"}:
+        enriched["compareIndicatorKinds"] = resolve_compare_indicator_kinds(item)
+    default_indicator, default_number = resolve_compare_defaults(item)
+    if default_indicator:
+        enriched["defaultCompareIndicator"] = default_indicator
+    if default_number:
+        enriched["defaultCompareNumber"] = default_number
+    return enriched
+
+
+def is_compare_indicator_allowed(left_id: str, right_id: str) -> bool:
+    left_item = get_indicator_def(left_id)
+    right_item = get_indicator_def(right_id)
+    if left_item is None or right_item is None:
+        return False
+
+    compare_mode = left_item.get("compareMode", resolve_compare_mode(left_item))
+    if compare_mode not in {"indicator", "both"}:
+        return False
+    if right_item.get("valueType") == "flag":
+        return False
+    if not right_item.get("builderEligible", True):
+        return False
+
+    if right_id in PRICE_LIKE_IDS:
+        if left_id in PRICE_LIKE_IDS or left_item.get("kind") in {"price", "trend"}:
+            return True
+
+    allowed_kinds = left_item.get("compareIndicatorKinds") or resolve_compare_indicator_kinds(left_item)
+    return right_item.get("kind", "momentum") in allowed_kinds
+
+
+def validate_compare_target(left_id: str, right_value: str) -> None:
+    left_item = get_indicator_def(left_id)
+    if left_item is None:
+        return
+
+    compare_mode = left_item.get("compareMode", resolve_compare_mode(left_item))
+    label = left_item.get("label", left_id)
+    is_indicator_id = right_value in _CATALOG_BY_ID
+
+    if compare_mode == "number":
+        if is_indicator_id:
+            raise ValueError(f"{label} must be compared to a numeric threshold, not another indicator")
+        try:
+            float(right_value)
+        except ValueError as exc:
+            raise ValueError(f"{label} must be compared to a numeric threshold") from exc
+        return
+
+    if compare_mode == "indicator":
+        if not is_indicator_id:
+            raise ValueError(f"{label} must be compared to another indicator, not a numeric value")
+        if not is_compare_indicator_allowed(left_id, right_value):
+            right_label = _CATALOG_BY_ID.get(right_value, {}).get("label", right_value)
+            raise ValueError(f"{label} cannot be compared to {right_label}")
+        return
+
+    if compare_mode == "both":
+        if is_indicator_id:
+            if not is_compare_indicator_allowed(left_id, right_value):
+                right_label = _CATALOG_BY_ID.get(right_value, {}).get("label", right_value)
+                raise ValueError(f"{label} cannot be compared to {right_label}")
+        else:
+            try:
+                float(right_value)
+            except ValueError as exc:
+                raise ValueError(
+                    f"{label} must be compared to another indicator or a numeric threshold"
+                ) from exc
 
 
 def list_indicators(*, builder_only: bool = False) -> list[IndicatorDef]:
@@ -391,10 +610,18 @@ def list_indicators(*, builder_only: bool = False) -> list[IndicatorDef]:
         items = [item for item in items if item.get("builderEligible", True)]
     order = {category: index for index, category in enumerate(_CATEGORY_ORDER)}
     return sorted(
-        items,
+        (enrich_indicator(item) for item in items),
         key=lambda item: (order.get(item["category"], 999), item["label"].lower()),
     )
 
 
 def builder_eligible_ids() -> list[str]:
     return [item["id"] for item in INDICATOR_CATALOG if item.get("builderEligible", True)]
+
+
+def custom_data_only_indicator_ids() -> list[str]:
+    return sorted(
+        item["id"]
+        for item in INDICATOR_CATALOG
+        if item.get("customDataOnly", False) and item.get("builderEligible", True)
+    )

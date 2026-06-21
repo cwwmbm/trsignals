@@ -19,8 +19,8 @@ source venv/bin/activate          # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 pip install streamlit               # for signal_check.py only
 
-# Edit the config block in run_backtest.py, then:
-python run_backtest.py
+# Edit the config block in unused/run_backtest.py, then:
+python unused/run_backtest.py
 ```
 
 ### Web interface
@@ -48,7 +48,8 @@ Open the Vite URL (usually `http://localhost:5173`). The frontend talks to the b
 TradingStrategy/
 ├── api/                 ← FastAPI backend for the web UI
 ├── frontend/            ← React/Vite frontend
-├── run_backtest.py       ← main entry point — configure RUN_MODE here
+├── tests/               ← unittest suite
+├── unused/              ← standalone / legacy scripts (not used by web stack)
 ├── config.py             ← strategy parameters (ticker, RSI, leverage, etc.)
 ├── getdata.py            ← Yahoo Finance fetch, breadth, holiday filtering
 ├── indicators.py         ← indicators + 24+ buy signal definitions
@@ -58,9 +59,6 @@ TradingStrategy/
 ├── indicator_sweep.py    ← grid-search indicator filters on a signal
 ├── signal_check.py       ← Streamlit daily signal dashboard
 ├── quote.py              ← quick indicator snapshot
-├── IBConnect.py          ← legacy shim (delegates to run_backtest.py)
-├── test_data.py          ← all signals × one symbol
-├── test_indicator.py     ← one signal × many symbols
 ├── warn_config.py        ← suppresses third-party FutureWarnings
 ├── requirements.txt
 └── CSV/                  ← backtest output (gitignored)
@@ -102,17 +100,17 @@ Strategy parameters live in [`config.py`](config.py):
 | `ExcludeBestReturnYear` | True | Drop best positive year from aggregate metrics |
 | `api_key` | `""` | Pushbullet key (commented out in signal_check.py) |
 
-Backtest run settings live in the **config block at the top of [`run_backtest.py`](run_backtest.py)**.
+Backtest run settings live in the **config block at the top of [`unused/run_backtest.py`](unused/run_backtest.py)**.
 
-## Backtesting (`run_backtest.py`)
+## Backtesting (`unused/run_backtest.py`)
 
 Edit the config block, set `RUN_MODE`, and run:
 
 ```bash
-python run_backtest.py
+python unused/run_backtest.py
 ```
 
-`python IBConnect.py` also works (legacy alias).
+`python unused/IBConnect.py` also works (legacy alias).
 
 ### Run modes
 
@@ -325,7 +323,7 @@ Prints today's close, RSI, EMA, Stochastic, breadth, and volume for `config.tick
 ### Compare all signals on one symbol
 
 ```bash
-python test_data.py
+python unused/test_data.py
 ```
 
 Edit `yfticker` in the file to change the symbol.
@@ -333,10 +331,16 @@ Edit `yfticker` in the file to change the symbol.
 ### One signal across many symbols
 
 ```bash
-python test_indicator.py
+python unused/test_indicator.py
 ```
 
 Change `buy_signal = ind.buy_signal11` at the top.
+
+## Running tests
+
+```bash
+python -m unittest discover -s tests -v
+```
 
 ## Signals
 
@@ -415,7 +419,7 @@ Legacy Interactive Brokers code is commented out and unused.
 
 ## Tips
 
-- **Start with `run_backtest.py`** — all backtest modes are configured in one place.
+- **Start with `unused/run_backtest.py`** — all backtest modes are configured in one place.
 - **Sweep then detail** — use `symbol_confirm_sweep` or `signal_combo_sweep` first, then drill in with `single` or `symbol_confirm_detail`.
 - **`SIGNAL` vs `SIGNAL_A`/`SIGNAL_B`** — `single` and confirm modes use `SIGNAL`; combo sweep uses `SIGNAL_A` and `SIGNAL_B`.
 - **Leverage** is applied in `long_strat` and `%Change` — adjust `Leverage` in `config.py`.

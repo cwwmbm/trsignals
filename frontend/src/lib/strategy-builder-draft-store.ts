@@ -8,6 +8,8 @@ export type StrategyBuilderDraftPreview = {
   entryPreview: string;
   exitPreview: string;
   draftValid: boolean;
+  isCustomData: boolean;
+  customDataBacktestLabel: string | null;
 };
 
 const defaultPreview: StrategyBuilderDraftPreview = {
@@ -18,6 +20,8 @@ const defaultPreview: StrategyBuilderDraftPreview = {
   entryPreview: "",
   exitPreview: "",
   draftValid: false,
+  isCustomData: false,
+  customDataBacktestLabel: null,
 };
 
 let preview: StrategyBuilderDraftPreview = { ...defaultPreview };

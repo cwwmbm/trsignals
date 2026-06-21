@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import {
   ChartContainer,
@@ -24,9 +24,35 @@ function formatCurrency(value: number) {
 
 export type EquityPoint = { date: string; rolling_pnl: number };
 
-export function EquityCurve({ data }: { data: EquityPoint[] }) {
+const MAX_CHART_POINTS = 2000;
+
+function downsampleChartPoints<T>(points: T[], maxPoints: number): T[] {
+  if (points.length <= maxPoints) return points;
+  const lastIndex = points.length - 1;
+  return Array.from({ length: maxPoints }, (_, index) => {
+    const sourceIndex = Math.round((index / (maxPoints - 1)) * lastIndex);
+    return points[sourceIndex];
+  });
+}
+
+export function EquityCurve({
+  data,
+  totalPoints,
+}: {
+  data: EquityPoint[];
+  totalPoints?: number;
+}) {
   const [logScale, setLogScale] = useState(false);
-  const chartData = data.map((point) => ({ date: point.date, equity: point.rolling_pnl }));
+  const chartData = useMemo(
+    () =>
+      downsampleChartPoints(
+        data.map((point) => ({ date: point.date, equity: point.rolling_pnl })),
+        MAX_CHART_POINTS,
+      ),
+    [data],
+  );
+  const shownTotal = totalPoints ?? data.length;
+  const isDownsampled = shownTotal > chartData.length;
 
   return (
     <div className="flex flex-col gap-4">
@@ -35,6 +61,9 @@ export function EquityCurve({ data }: { data: EquityPoint[] }) {
           <h3 className="text-sm font-semibold">Equity Curve</h3>
           <p className="text-xs text-muted-foreground">
             Compounded account value over the test window
+            {isDownsampled
+              ? ` (chart shows ${chartData.length.toLocaleString()} of ${shownTotal.toLocaleString()} bars)`
+              : null}
           </p>
         </div>
         <div className="flex items-center gap-2">

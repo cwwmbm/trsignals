@@ -10,6 +10,7 @@ import pandas as pd
 from api.indicator_catalog import list_indicators
 from api.proxy_symbol import execute_with_proxy
 from api.schemas import BuilderBacktestRequest, SavedStrategy
+from api.session_masks import last_rth_bar_mask, regular_trading_hours_mask
 from api.strategy_compiler import compile_buy_mask, compile_sell_mask, format_condition_preview
 from api.strategy_store import _normalize_confirm_symbols, _normalize_proxy_symbol
 
@@ -38,6 +39,7 @@ def draft_to_saved_strategy(
         description = f"{request.name.strip()}: {description}"
 
     symbol = request.symbol.strip().upper()
+    intraday_session = bool(request.custom_dataset_id)
     return SavedStrategy(
         id="draft",
         name=request.name.strip() or "Untitled draft",
@@ -50,6 +52,8 @@ def draft_to_saved_strategy(
         sell_conditions=request.sell_conditions,
         confirm_symbols=_normalize_confirm_symbols(symbol, request.confirm_symbols),
         proxy_symbol=_normalize_proxy_symbol(symbol, request.proxy_symbol),
+        rth_entries_only=request.rth_entries_only if intraday_session else False,
+        eod_exit=request.eod_exit if intraday_session else False,
         created_at="",
         updated_at="",
     )
@@ -83,6 +87,16 @@ def _compile_strategy_masks(
         if sell_conditions
         else False
     )
+    if getattr(strategy, "rth_entries_only", False):
+        source_timezone = data.attrs.get("timezone")
+        buy = buy & regular_trading_hours_mask(
+            data["Date"],
+            source_timezone=source_timezone,
+        )
+    if getattr(strategy, "eod_exit", False):
+        source_timezone = data.attrs.get("timezone")
+        eod = last_rth_bar_mask(data["Date"], source_timezone=source_timezone)
+        sell = eod if sell is False else sell | eod
     return buy, sell
 
 

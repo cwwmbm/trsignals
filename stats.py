@@ -37,17 +37,17 @@ def exclude_best_return_year(data, best_year=None):
     return data[data['Date'].dt.year != best_year].copy()
 
 
-def cagr_decimal(data, returns=None, best_year=None):
+def cagr_decimal(data, returns=None, best_year=None, periods_per_year=252):
     """CAGR as a decimal, optionally excluding the best-return year."""
     if not ExcludeBestReturnYear:
         first, last = data.iloc[0], data.iloc[-1]
-        return (last['RollingPnL'] / first['RollingPnL']) ** (1 / (data.shape[0] / 252)) - 1
+        return (last['RollingPnL'] / first['RollingPnL']) ** (1 / (data.shape[0] / periods_per_year)) - 1
 
     returns = yearly_returns(data) if returns is None else returns
     best_year = best_return_year_to_exclude(data, returns) if best_year is None else best_year
     if best_year is None or len(returns) <= 1:
         first, last = data.iloc[0], data.iloc[-1]
-        return (last['RollingPnL'] / first['RollingPnL']) ** (1 / (data.shape[0] / 252)) - 1
+        return (last['RollingPnL'] / first['RollingPnL']) ** (1 / (data.shape[0] / periods_per_year)) - 1
 
     remaining = [r for y, r in returns.items() if y != best_year]
     cumulative = 1.0
@@ -56,23 +56,25 @@ def cagr_decimal(data, returns=None, best_year=None):
     return cumulative ** (1 / len(remaining)) - 1
 
 
-def cagr_percent(data, returns=None, best_year=None):
+def cagr_percent(data, returns=None, best_year=None, periods_per_year=252):
     """CAGR formatted like ind.cagr() — percentage number, e.g. 46.12."""
-    return round(cagr_decimal(data, returns, best_year) * 100, 2)
+    return round(cagr_decimal(data, returns, best_year, periods_per_year) * 100, 2)
 
 
-def compute_aggregate_metrics(data):
+def compute_aggregate_metrics(data, periods_per_year=252):
     """
     Aggregate backtest metrics for ranking/comparison.
-    Excludes the single best-return year when ExcludeBestReturnYear is True.
+    Excludes the single best-return year from CAGR, Sharpe, Sortino, and max drawdown
+    when ExcludeBestReturnYear is True.
+    Trade statistics always reflect the full backtest run.
     Total PnL always reflects the full run.
     """
     returns = yearly_returns(data) if ExcludeBestReturnYear else None
     excluded_year = best_return_year_to_exclude(data, returns) if ExcludeBestReturnYear else None
     metrics_data = exclude_best_return_year(data, excluded_year)
-    cagr = cagr_decimal(data, returns, excluded_year)
+    cagr = cagr_decimal(data, returns, excluded_year, periods_per_year)
 
-    trade_out = metrics_data[metrics_data['LongTradeOut']]
+    trade_out = data[data['LongTradeOut']]
     trades = trade_out.shape[0]
     positive = (trade_out['TradePnL'] > 0).sum()
     pct_positive = (positive / trades * 100) if trades else 0
@@ -94,8 +96,8 @@ def compute_aggregate_metrics(data):
         'kelly': kelly,
         'cagr_decimal': cagr,
         'cagr_percent': round(cagr * 100, 2),
-        'sharpe': ind.sharpes_ratio(metrics_data),
-        'sortino': ind.sortino_ratio(metrics_data),
+        'sharpe': ind.sharpes_ratio(metrics_data, periods_per_year=periods_per_year),
+        'sortino': ind.sortino_ratio(metrics_data, periods_per_year=periods_per_year),
     }
 
 
@@ -112,6 +114,22 @@ def yearly_performance(data):
         })
 
     return data.groupby(data['Date'].dt.year).apply(_year_stats)
+
+
+def monthly_performance(data):
+    def _month_stats(group):
+        first_day = group.iloc[0]
+        last_day = group.iloc[-1]
+        pnl_percent = ((last_day['RollingPnL'] - first_day['RollingPnL']) / first_day['RollingPnL']) * 100
+        return pd.Series({
+            'PnL%': f'{pnl_percent:.2f}%',
+            'Drawdown%': f'{group["Drawdown"].max() * 100:.2f}%',
+            'Num_Trades': group['LongTradeOut'].sum(),
+            'Positive_Trades': group[(group['TradePnL'] > 0) & group['LongTradeOut']].shape[0],
+        })
+
+    periods = data['Date'].dt.to_period('M')
+    return data.groupby(periods).apply(_month_stats)
 
 
 def print_stats(data, days=0, profit=0, description='Original Strategy'):

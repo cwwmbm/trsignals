@@ -11,6 +11,7 @@ import os
 
 
 TIMING_ENABLED = os.getenv("BACKTEST_TIMING", "").lower() in {"1", "true", "yes"}
+HoldOnBuySignal = False
 
 
 def set_timing_enabled(enabled):
@@ -272,13 +273,12 @@ def backtest_signal_combinations(signal_a, signal_b, data, symbol=ticker):
 
     return results
 
-def load_symbol_dataset(symbols, years=25):
-    """Load enriched, indicator-ready data for each symbol."""
-    context_symbols = [s for s in dt.MARKET_CONTEXT_SYMBOLS if s not in symbols]
-    all_symbols = list(dict.fromkeys(list(symbols) + context_symbols))
-    symbol_to_yf = {symbol: dt.to_yf_symbol(symbol) for symbol in all_symbols}
-    yf_symbols = list(symbol_to_yf.values())
-    full_data = dt.get_bulk_data(yf_symbols, years=years)
+def build_symbol_dataset(full_data, symbols, symbol_to_yf=None):
+    """Build enriched, indicator-ready data from an existing bulk download."""
+    if symbol_to_yf is None:
+        context_symbols = [s for s in dt.MARKET_CONTEXT_SYMBOLS if s not in symbols]
+        all_symbols = list(dict.fromkeys(list(symbols) + context_symbols))
+        symbol_to_yf = {symbol: dt.to_yf_symbol(symbol) for symbol in all_symbols}
     market_context = dt.extract_market_context(full_data, symbol_to_yf)
 
     dataset = {}
@@ -286,6 +286,16 @@ def load_symbol_dataset(symbols, years=25):
         data = dt.symbol_frame_from_bulk(full_data, symbol_to_yf[symbol], market_context)
         dataset[symbol] = ind.add_indicators(data)
     return dataset
+
+
+def load_symbol_dataset(symbols, years=25):
+    """Load enriched, indicator-ready data for each symbol."""
+    context_symbols = [s for s in dt.MARKET_CONTEXT_SYMBOLS if s not in symbols]
+    all_symbols = list(dict.fromkeys(list(symbols) + context_symbols))
+    symbol_to_yf = {symbol: dt.to_yf_symbol(symbol) for symbol in all_symbols}
+    yf_symbols = list(symbol_to_yf.values())
+    full_data = dt.get_bulk_data(yf_symbols, years=years)
+    return build_symbol_dataset(full_data, symbols, symbol_to_yf)
 
 def _buy_series_by_date(data, buy):
     return pd.Series(buy.values, index=pd.to_datetime(data['Date']))
@@ -455,11 +465,14 @@ def og_strat(data, days = 0, profit = 0, external_count = 0, start_capital = 150
             data['TradeEntry'].at[i] = data['Close'].at[i] if (((data['LongTradeIn'].at[i] or data['OneDayBuy'].at[i])) and data['TradeEntry'].shift(1).at[i] == 0) else data['TradeEntry'].shift(1).at[i] if data['HoldLong'].at[i] else 0
             data['TradePnL'].at[i] = data['TradePnL'].shift(1).at[i] + data['%Change'].at[i] if data['HoldLong'].at[i] else 0
             #(data['Close'].at[i] - data['TradeEntry'].at[i]) / data['TradeEntry'].at[i] if data['HoldLong'].at[i] else 0
-            data['LongTradeOut'].at[i] = (data['Sell'].at[i] and data['HoldLong'].at[i]) or (                           #If sell signal and hold long
-                                        data['OneDayBuy'].shift(1).at[i] and not data['HoldLong'].shift(1).at[i] and not data['Buy'].shift(1).at[i]) or ( #Or if one day buy and not hold long on previous day (and not buy signal today)
-                                        data['TradePnL'].at[i] < -stop_loss)                                            #Or if hit stoploss 
-            if (days > 0):
-                data['LongTradeOut'].at[i] = data['LongTradeOut'].at[i] or (data['DaysInTrade'].at[i] >= days) or (data['ProfitableCloses'].at[i] >= profit)
+            if HoldOnBuySignal and data['Buy'].at[i] and data['HoldLong'].at[i]:
+                data['LongTradeOut'].at[i] = False
+            else:
+                data['LongTradeOut'].at[i] = (data['Sell'].at[i] and data['HoldLong'].at[i]) or (                           #If sell signal and hold long
+                                            data['OneDayBuy'].shift(1).at[i] and not data['HoldLong'].shift(1).at[i] and not data['Buy'].shift(1).at[i]) or ( #Or if one day buy and not hold long on previous day (and not buy signal today)
+                                            data['TradePnL'].at[i] < -stop_loss)                                            #Or if hit stoploss 
+                if (days > 0):
+                    data['LongTradeOut'].at[i] = data['LongTradeOut'].at[i] or (data['DaysInTrade'].at[i] >= days) or (data['ProfitableCloses'].at[i] >= profit)
             #data['TradeEntry'].at[i] = data['Close'].at[i] if (data['LongTradeIn'].at[i] or data['OneDayBuy'].at[i]) else data['TradeEntry'].shift(1).at[i] if data['HoldLong'].at[i] else 0
 
 
@@ -596,11 +609,14 @@ def long_og_strat_proxy(data, days = 0, profit = 0, start_capital = 15000):
             data['TradeEntry'].at[i] = data['Close'].at[i] if (((data['LongTradeIn'].at[i] or data['OneDayBuy'].at[i])) and data['TradeEntry'].shift(1).at[i] == 0) else data['TradeEntry'].shift(1).at[i] if data['HoldLong'].at[i] else 0
             data['TradePnL'].at[i] = data['TradePnL'].shift(1).at[i] + data['TrackChange'].at[i] if data['HoldLong'].at[i] else 0
             #(data['Close'].at[i] - data['TradeEntry'].at[i]) / data['TradeEntry'].at[i] if data['HoldLong'].at[i] else 0
-            data['LongTradeOut'].at[i] = (data['Sell'].at[i] and data['HoldLong'].at[i]) or (                           #If sell signal and hold long
-                                        data['OneDayBuy'].shift(1).at[i] and not data['HoldLong'].shift(1).at[i] and not data['Buy'].shift(1).at[i]) or ( #Or if one day buy and not hold long on previous day (and not buy signal today)
-                                        data['TradePnL'].at[i] < -stop_loss)                                            #Or if hit stoploss 
-            if (days > 0):
-                data['LongTradeOut'].at[i] = data['LongTradeOut'].at[i] or (data['DaysInTrade'].at[i] >= days) or (data['ProfitableCloses'].at[i] >= profit)
+            if HoldOnBuySignal and data['Buy'].at[i] and data['HoldLong'].at[i]:
+                data['LongTradeOut'].at[i] = False
+            else:
+                data['LongTradeOut'].at[i] = (data['Sell'].at[i] and data['HoldLong'].at[i]) or (                           #If sell signal and hold long
+                                            data['OneDayBuy'].shift(1).at[i] and not data['HoldLong'].shift(1).at[i] and not data['Buy'].shift(1).at[i]) or ( #Or if one day buy and not hold long on previous day (and not buy signal today)
+                                            data['TradePnL'].at[i] < -stop_loss)                                            #Or if hit stoploss 
+                if (days > 0):
+                    data['LongTradeOut'].at[i] = data['LongTradeOut'].at[i] or (data['DaysInTrade'].at[i] >= days) or (data['ProfitableCloses'].at[i] >= profit)
             #data['TradeEntry'].at[i] = data['Close'].at[i] if (data['LongTradeIn'].at[i] or data['OneDayBuy'].at[i]) else data['TradeEntry'].shift(1).at[i] if data['HoldLong'].at[i] else 0
 
 
@@ -657,6 +673,16 @@ def long_strat(data, days, prof_closes, is_long = True, start_capital = 15000, p
     trade_pnl = np.zeros(n, dtype=float)
     trade_entry = np.zeros(n, dtype=float)
 
+    def mark_price(i: int) -> float:
+        price = close[i]
+        if price and not np.isnan(price):
+            return price
+        if i <= 0:
+            return price
+        prior = close[:i]
+        valid = prior[~np.isnan(prior) & (prior != 0)]
+        return valid[-1] if valid.size else np.nan
+
     for i in range(n):
         if i > 0:
             hold_long[i] = (hold_long[i - 1] and not long_out[i - 1]) or long_in[i - 1]
@@ -670,21 +696,29 @@ def long_strat(data, days, prof_closes, is_long = True, start_capital = 15000, p
             else:
                 profitable_closes[i] = profitable_closes[i - 1] + 1 if close[i] < close[i - 1] else profitable_closes[i - 1]
 
-        long_out[i] = (sell[i] and hold_long[i]) or (days_in_trade[i] >= days) or (profitable_closes[i] >= prof_closes)
+        if HoldOnBuySignal and buy[i] and hold_long[i]:
+            long_out[i] = False
+        else:
+            long_out[i] = (sell[i] and hold_long[i]) or (days_in_trade[i] >= days) or (profitable_closes[i] >= prof_closes)
         if long_in[i]:
-            trade_entry[i] = close[i]
+            trade_entry[i] = mark_price(i)
         elif hold_long[i]:
             trade_entry[i] = trade_entry[i - 1] if i > 0 else 0
 
-        trade_pnl[i] = (close[i] - trade_entry[i]) / trade_entry[i] if hold_long[i] and trade_entry[i] else 0
+        price = mark_price(i)
+        entry = trade_entry[i]
+        trade_pnl[i] = (price - entry) / entry if hold_long[i] and entry and not np.isnan(price) else 0
 
         if i == 0:
             rolling_pnl[i] = start_capital
         elif hold_long[i]:
+            change = track_change[i]
+            if np.isnan(change):
+                change = 0.0
             if is_long:
-                rolling_pnl[i] = (1 + track_change[i]) * rolling_pnl[i - 1]
+                rolling_pnl[i] = (1 + change) * rolling_pnl[i - 1]
             else:
-                rolling_pnl[i] = (1 - track_change[i]) * rolling_pnl[i - 1]
+                rolling_pnl[i] = (1 - change) * rolling_pnl[i - 1]
         else:
             rolling_pnl[i] = rolling_pnl[i - 1]
 

@@ -5,7 +5,7 @@ from typing import Any
 
 import pandas as pd
 
-from api.indicator_catalog import builder_eligible_ids
+from api.indicator_catalog import builder_eligible_ids, validate_compare_target
 
 
 VALID_OPERATORS = {"<", "<=", ">", ">=", "=", "crosses above", "crosses below", "is true", "is false"}
@@ -137,6 +137,7 @@ def compile_condition_mask(
             if operator in FLAG_OPERATORS:
                 part = left_series == (1 if operator == "is true" else -1)
             else:
+                validate_compare_target(left_id, right_value)
                 right_operand = _resolve_operand(data, right_value)
                 part = _compare(left_series, operator, right_operand)
         part = part.fillna(False)

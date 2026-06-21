@@ -38,3 +38,7 @@ export const BUILDER_REFINE_MODES: BuilderRefineModeOption[] = [
 export function isSymbolConfirmRefineMode(mode: BuilderRefineMode) {
   return mode === "symbol-confirm-sweep";
 }
+
+export function refineModesForCustomData(): BuilderRefineModeOption[] {
+  return BUILDER_REFINE_MODES.filter((item) => item.id !== "symbol-confirm-sweep");
+}

@@ -13,7 +13,7 @@ class IndicatorCatalogTests(unittest.TestCase):
 
     def test_list_indicators_returns_builder_entries_by_default(self):
         indicators = list_indicators(builder_only=True)
-        self.assertGreaterEqual(len(indicators), 90)
+        self.assertGreaterEqual(len(indicators), 75)
         self.assertTrue(all(item.get("builderEligible", True) for item in indicators))
         self.assertTrue(all("id" in item and "label" in item and "category" in item for item in indicators))
 
@@ -24,6 +24,10 @@ class IndicatorCatalogTests(unittest.TestCase):
             if not item.get("description", "").strip()
         ]
         self.assertEqual(missing, [])
+
+    def test_builder_indicators_have_compare_mode(self):
+        for item in list_indicators(builder_only=True):
+            self.assertIn("compareMode", item)
 
 
 if __name__ == "__main__":

@@ -160,6 +160,20 @@ class StrategyCompilerTests(unittest.TestCase):
         )
         self.assertEqual(mask.tolist(), [False, True, False, True])
 
+    def test_rejects_oscillator_vs_price_indicator(self):
+        with self.assertRaisesRegex(ValueError, "numeric threshold"):
+            compile_buy_mask(
+                self.data,
+                [{"left": "RSI2", "operator": "<=", "right": "Close", "logic": "AND"}],
+            )
+
+    def test_accepts_close_vs_sma(self):
+        mask = compile_buy_mask(
+            self.data,
+            [{"left": "Close", "operator": "<", "right": "SMA200", "logic": "AND"}],
+        )
+        self.assertEqual(mask.tolist(), [True, True, False, False])
+
 
 if __name__ == "__main__":
     unittest.main()

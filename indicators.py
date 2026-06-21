@@ -307,6 +307,8 @@ def kaufman_efficiency_ratio(data, period=10, column_close='Close'):
     return data
 
 def hurst_exponent(data):
+    if len(data) > 20000:
+        return pd.Series(np.nan, index=data.index)
     H = lambda x: compute_Hc(x)[0]
     window = 100
     hurst = data['Close'].rolling(window).apply(H)
@@ -374,11 +376,126 @@ def _adx14(high: pd.Series, low: pd.Series, close: pd.Series, window: int = 14) 
         return ta.trend.ADXIndicator(high, low, close, window=window).adx()
 
 
-def add_indicators(data):
+VWAP_INDICATOR_COLUMN_IDS = [
+    "VWAP",
+    "Close_VWAP",
+    "VWAPCrossUp",
+    "VWAPCrossDown",
+    "VWAPSlope8",
+    "VWAPSlope20",
+    "VWAPStd",
+    "VWAPUpper1",
+    "VWAPLower1",
+    "VWAPUpper2",
+    "VWAPLower2",
+    "VWAPPercentB",
+    "VWAPWidth",
+    "CloseAboveVWAPUpper1",
+    "CloseBelowVWAPLower1",
+    "CloseAboveVWAPUpper2",
+    "CloseBelowVWAPLower2",
+]
+
+
+def _session_keys(dates: pd.Series, source_timezone: str | None) -> pd.Series:
+    from api.session_masks import _to_eastern_timestamps
+
+    eastern = _to_eastern_timestamps(dates, source_timezone)
+    return eastern.dt.date
+
+
+def _compute_session_vwap(data: pd.DataFrame, source_timezone: str | None) -> pd.Series:
+    typical = (data["High"] + data["Low"] + data["Close"]) / 3
+    volume = data["Volume"].fillna(0)
+    sessions = _session_keys(data["Date"], source_timezone)
+    cum_pv = (typical * volume).groupby(sessions, group_keys=False).cumsum()
+    cum_vol = volume.groupby(sessions, group_keys=False).cumsum()
+    return cum_pv / cum_vol.replace(0, np.nan)
+
+
+def _volume_weighted_session_std(
+    data: pd.DataFrame,
+    vwap: pd.Series,
+    source_timezone: str | None,
+) -> pd.Series:
+    typical = (data["High"] + data["Low"] + data["Close"]) / 3
+    volume = data["Volume"].fillna(0)
+    sessions = _session_keys(data["Date"], source_timezone)
+    weighted_sq = (volume * (typical - vwap) ** 2).groupby(sessions, group_keys=False).cumsum()
+    cum_vol = volume.groupby(sessions, group_keys=False).cumsum()
+    variance = weighted_sq / cum_vol.replace(0, np.nan)
+    return np.sqrt(variance)
+
+
+def stub_vwap_columns(data: pd.DataFrame) -> pd.DataFrame:
+    for column_id in VWAP_INDICATOR_COLUMN_IDS:
+        data[column_id] = np.nan
+    return data
+
+
+def add_vwap_indicators(data: pd.DataFrame, *, source_timezone: str | None = None) -> pd.DataFrame:
+    close = data["Close"]
+
+    if "VWAP" in data.columns and data["VWAP"].notna().any():
+        vwap = data["VWAP"].astype(float)
+    elif "Vwap" in data.columns and data["Vwap"].notna().any():
+        vwap = data["Vwap"].astype(float)
+        data["VWAP"] = vwap
+    elif source_timezone is not None:
+        vwap = _compute_session_vwap(data, source_timezone)
+        data["VWAP"] = vwap
+    else:
+        return stub_vwap_columns(data)
+
+    if vwap.isna().all():
+        return stub_vwap_columns(data)
+
+    data["Close_VWAP"] = (close - vwap) / close * 100
+    data["VWAPCrossUp"] = np.where(
+        (close > vwap) & (close.shift(1) < vwap.shift(1)),
+        1,
+        -1,
+    )
+    data["VWAPCrossDown"] = np.where(
+        (close < vwap) & (close.shift(1) > vwap.shift(1)),
+        1,
+        -1,
+    )
+    data["VWAPSlope8"] = rolling_linreg_slope_pct(vwap, 8)
+    data["VWAPSlope20"] = rolling_linreg_slope_pct(vwap, 20)
+
+    vwap_std = _volume_weighted_session_std(data, vwap, source_timezone)
+    data["VWAPStd"] = vwap_std
+    data["VWAPUpper1"] = vwap + vwap_std
+    data["VWAPLower1"] = vwap - vwap_std
+    data["VWAPUpper2"] = vwap + 2 * vwap_std
+    data["VWAPLower2"] = vwap - 2 * vwap_std
+
+    band_width = data["VWAPUpper2"] - data["VWAPLower2"]
+    min_band = vwap.abs() * 1e-4
+    valid_band = band_width > min_band
+    data["VWAPPercentB"] = np.where(
+        valid_band,
+        (close - data["VWAPLower2"]) / band_width,
+        np.nan,
+    )
+    data["VWAPWidth"] = np.where(vwap != 0, band_width / vwap, np.nan)
+
+    data["CloseAboveVWAPUpper1"] = np.where(close > data["VWAPUpper1"], 1, -1)
+    data["CloseBelowVWAPLower1"] = np.where(close < data["VWAPLower1"], 1, -1)
+    data["CloseAboveVWAPUpper2"] = np.where(close > data["VWAPUpper2"], 1, -1)
+    data["CloseBelowVWAPLower2"] = np.where(close < data["VWAPLower2"], 1, -1)
+    return data
+
+
+def add_indicators(data, periods_per_year=252, source_timezone=None):
     data['%Change'] = Leverage*data['Close'].pct_change()
     data['SPYBull'] = data['Spybull']
     data['Hurst'] = hurst_exponent(data)
-    data['IBR'] = data.apply(internal_bar_ratio, axis=1)
+    high = data['High']
+    low = data['Low']
+    close = data['Close']
+    data['IBR'] = np.where(high == low, 1, (close - low) / (high - low))
     data['IBR2'] = data['IBR'].rolling(window=2).mean()
     data['IBR3'] = data['IBR'].rolling(window=3).mean()
     cci = get_cci(data, 20)
@@ -430,8 +547,8 @@ def add_indicators(data):
     data['EMA100'] = ta.trend.ema_indicator(data['Close'], window=100)
     data['VolumeEMADiff'] = (data['Volume'] - ta.trend.ema_indicator(data['Volume'], window=8)) / ta.trend.ema_indicator(data['Volume'], window=8)
     data['AdjustedChange'] = data['Close']/data['Close'].shift(1) - 1
-    data['Volatility'] = data['AdjustedChange'].rolling(VolatilityPeriod).std() * math.sqrt(252)
-    data['VolatilityPercentile'] = rolling_percentile_rank(data['Volatility'], 252)
+    data['Volatility'] = data['AdjustedChange'].rolling(VolatilityPeriod).std() * math.sqrt(periods_per_year)
+    data['VolatilityPercentile'] = rolling_percentile_rank(data['Volatility'], periods_per_year)
     data = kaufman_efficiency_ratio(data)
     data['Stoch'] = ta.momentum.stoch(data['High'], data['Low'], data['Close'], window=14, smooth_window=3)
     data['StochSlow'] = data['Stoch'].rolling(window=3).mean()
@@ -524,7 +641,8 @@ def add_indicators(data):
         index=data.index,
     )
     data = data.drop(columns=['StochSlow', 'Spybull'])
-    return pd.concat([data, tail], axis=1)
+    data = pd.concat([data, tail], axis=1)
+    return add_vwap_indicators(data, source_timezone=source_timezone)
 
 def buy_signal1 (data, symbol = ticker):
     allowed_symbols = ['XBI']

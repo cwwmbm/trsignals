@@ -65,6 +65,7 @@ export type BacktestRefinePanelProps = {
   onIsSellChange: (value: boolean) => void;
   onMondayBuyChange: (value: boolean) => void;
   onLowVolumeBuyChange: (value: boolean) => void;
+  onHoldOnBuySignalChange: (value: boolean) => void;
   onRun: () => void;
   isRunning: boolean;
 };
@@ -87,6 +88,7 @@ export function BacktestRefinePanel({
   onIsSellChange,
   onMondayBuyChange,
   onLowVolumeBuyChange,
+  onHoldOnBuySignalChange,
   onRun,
   isRunning,
 }: BacktestRefinePanelProps) {
@@ -282,6 +284,24 @@ export function BacktestRefinePanel({
           </div>
         </Section>
       )}
+
+      <Section title="Backtest options">
+        <p className="mb-2 text-[11px] text-muted-foreground">
+          Skip sell, hold-days, and profitable-closes exits while entry conditions remain true.
+        </p>
+        <div className="flex flex-wrap gap-4">
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="refine-hold-on-buy-signal"
+              checked={formState.holdOnBuySignal}
+              onCheckedChange={(checked) => onHoldOnBuySignalChange(checked === true)}
+            />
+            <Label htmlFor="refine-hold-on-buy-signal" className="text-xs font-normal">
+              Hold on buy signal
+            </Label>
+          </div>
+        </div>
+      </Section>
 
       <div>
         <Button

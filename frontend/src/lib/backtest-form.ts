@@ -29,6 +29,7 @@ export type BacktestFormState = {
   isSell: boolean;
   mondayBuy: boolean;
   lowVolumeBuy: boolean;
+  holdOnBuySignal: boolean;
 };
 
 export function signalExpression(state: Pick<BacktestFormState, "signalKind" | "signal" | "signalA" | "signalB" | "comboMode">): SignalExpression {
@@ -49,9 +50,14 @@ export function usesOgRuntimeOptions(state: BacktestFormState) {
 }
 
 export function runtimeOptionsPayload(state: BacktestFormState) {
-  return usesOgRuntimeOptions(state)
-    ? { runtime_options: { monday_buy: state.mondayBuy, low_volume_buy: state.lowVolumeBuy } }
-    : {};
+  const runtime_options: Record<string, boolean> = {
+    hold_on_buy_signal: state.holdOnBuySignal,
+  };
+  if (usesOgRuntimeOptions(state)) {
+    runtime_options.monday_buy = state.mondayBuy;
+    runtime_options.low_volume_buy = state.lowVolumeBuy;
+  }
+  return { runtime_options };
 }
 
 export function buildPayload(state: BacktestFormState): Record<string, unknown> {

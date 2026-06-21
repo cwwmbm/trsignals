@@ -16,6 +16,7 @@ export const DetailResults = memo(function DetailResults({
 }) {
   const latestTrades = [...result.trades].reverse().slice(0, 100);
   const latestYears = [...result.yearly].reverse();
+  const latestMonths = [...(result.monthly ?? [])].reverse();
   const description = String(result.summary.description ?? "");
 
   const content = (
@@ -45,10 +46,14 @@ export const DetailResults = memo(function DetailResults({
         </p>
       ) : null}
 
-      <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-2">
+      <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-3">
         <div className="flex flex-col gap-1">
           <h3 className="text-xs font-medium text-muted-foreground">Yearly breakdown</h3>
           <ResultsTable compact visibleRows={30} rows={latestYears} rowClassName={negativeYearRowClass} sortable={false} />
+        </div>
+        <div className="flex flex-col gap-1">
+          <h3 className="text-xs font-medium text-muted-foreground">Monthly breakdown</h3>
+          <ResultsTable compact visibleRows={30} rows={latestMonths} rowClassName={negativeYearRowClass} sortable={false} />
         </div>
         <div className="flex flex-col gap-1">
           <h3 className="text-xs font-medium text-muted-foreground">Trades</h3>
@@ -57,7 +62,10 @@ export const DetailResults = memo(function DetailResults({
       </div>
 
       <div className="mt-3 rounded-md border border-border/60 bg-muted/20 p-3">
-        <EquityCurve data={result.equity_curve} />
+        <EquityCurve
+          data={result.equity_curve}
+          totalPoints={result.equity_curve_total_points}
+        />
       </div>
     </>
   );

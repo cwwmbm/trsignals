@@ -10,3 +10,4 @@ ta
 pandas_market_calendars
 fastapi
 uvicorn
+python-multipart

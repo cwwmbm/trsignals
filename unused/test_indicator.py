@@ -1,3 +1,4 @@
+import _bootstrap  # noqa: F401
 import pandas as pd
 #import nest_asyncio
 

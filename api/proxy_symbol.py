@@ -44,8 +44,9 @@ def execute_with_proxy(
     is_long: bool,
     *,
     years: int = 25,
+    bulk_data: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     pnl_col = proxy_column(strategy)
     if pnl_col:
-        frame = attach_proxy_column(frame, pnl_col, years=years)
+        frame = attach_proxy_column(frame, pnl_col, years=years, bulk_data=bulk_data)
     return bt.execute_strategy(frame, days, profit, is_long, pnl_column=pnl_col)
