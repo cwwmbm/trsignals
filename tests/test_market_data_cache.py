@@ -101,6 +101,25 @@ class MarketDataCacheTests(unittest.TestCase):
         meta_path.write_text(json.dumps(meta))
         self.assertIsNone(load("SPY", 25, PROFILE_SINGLE))
 
+    def test_indicator_cache_version_mismatch_is_ignored(self):
+        frame = _sample_frame()
+        save("SPY", 25, PROFILE_SINGLE, frame)
+        meta_path = cache._meta_path(cache._cache_path("SPY", 25, PROFILE_SINGLE))
+        meta = json.loads(meta_path.read_text())
+        meta["indicator_cache_version"] = -1
+        meta_path.write_text(json.dumps(meta))
+        self.assertIsNone(load("SPY", 25, PROFILE_SINGLE))
+        self.assertFalse(cache._cache_path("SPY", 25, PROFILE_SINGLE).exists())
+
+    def test_missing_indicator_cache_version_is_ignored(self):
+        frame = _sample_frame()
+        save("SPY", 25, PROFILE_SINGLE, frame)
+        meta_path = cache._meta_path(cache._cache_path("SPY", 25, PROFILE_SINGLE))
+        meta = json.loads(meta_path.read_text())
+        del meta["indicator_cache_version"]
+        meta_path.write_text(json.dumps(meta))
+        self.assertIsNone(load("SPY", 25, PROFILE_SINGLE))
+
     def test_load_close_column_checks_both_profiles(self):
         frame = _sample_frame("QQQ")
         save("QQQ", 25, PROFILE_BULK, frame)

@@ -7,6 +7,7 @@ import pandas as pd
 
 from api.portfolio_service import (
     StrategySignals,
+    build_portfolio_overlay_frame,
     simulate_portfolio,
     simulate_portfolio_overlay,
 )
@@ -262,6 +263,62 @@ class PortfolioOverlayTests(unittest.TestCase):
 
 
 class PortfolioSimulationTests(unittest.TestCase):
+    @patch("api.portfolio_service.simulate_portfolio_overlay")
+    @patch("api.portfolio_service._load_strategy_signals")
+    @patch("api.portfolio_service._load_portfolio_market_data")
+    @patch("api.portfolio_service._resolve_portfolio_strategies")
+    def test_build_portfolio_overlay_frame(
+        self,
+        mock_resolve,
+        mock_load_market_data,
+        mock_load_signals,
+        mock_overlay,
+    ):
+        dates = pd.to_datetime(["2024-01-01", "2024-01-02"])
+        strategy = _strategy("a", "Strategy A", "AAA")
+        mock_resolve.return_value = [strategy]
+        mock_load_market_data.return_value = (
+            pd.DataFrame(),
+            {"AAA": pd.DataFrame({"Date": dates, "Close": [100, 101]})},
+            {"AAA": pd.Series([0.01, 0.0], index=dates)},
+            {"AAA": pd.Series([100.0, 101.0], index=dates)},
+        )
+        mock_load_signals.return_value = StrategySignals(
+            strategy_id="a",
+            name="Strategy A",
+            symbol="AAA",
+            dates=dates,
+            long_trade_in=np.array([True, False]),
+            hold_long=np.array([True, False]),
+            long_trade_out=np.array([False, True]),
+        )
+        mock_overlay.return_value = pd.DataFrame(
+            {
+                "Date": dates,
+                "LongTradeIn": [True, False],
+                "HoldLong": [True, False],
+                "LongTradeOut": [False, True],
+                "TradePnL": [0.0, 0.05],
+            }
+        )
+        request = SimpleNamespace(
+            strategy_ids=["a"],
+            overlap_mode="first_signal_only",
+            proxy_symbol=None,
+        )
+        frame, strategies, description, max_hold, max_profit = build_portfolio_overlay_frame(
+            request,
+            years=1,
+            use_cache=False,
+        )
+        self.assertFalse(frame.empty)
+        self.assertEqual(len(strategies), 1)
+        self.assertIn("Portfolio", description)
+        self.assertEqual(max_hold, 2)
+        self.assertEqual(max_profit, 1)
+        mock_load_market_data.assert_called_once()
+        self.assertFalse(mock_load_market_data.call_args.kwargs["use_cache"])
+
     @patch("api.portfolio_service._load_portfolio_market_data")
     @patch("api.portfolio_service.get_strategy_by_id")
     def test_rejects_short_strategy(self, mock_get_strategy, mock_load_market_data):

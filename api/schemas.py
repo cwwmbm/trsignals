@@ -191,10 +191,41 @@ class PortfolioSimulateRequest(BaseModel):
     years: int = Field(default=25, ge=1, le=100)
 
 
+class SavedPortfolio(BaseModel):
+    id: str
+    name: str
+    description: str = ""
+    strategy_ids: list[str]
+    overlap_mode: PortfolioOverlapMode = "first_signal_only"
+    proxy_symbol: str | None = None
+    scan_lane: ScanLane = "testing"
+    scan_sort_order: int = 0
+    created_at: str
+    updated_at: str
+
+
+class SavePortfolioRequest(BaseModel):
+    name: str = Field(min_length=1)
+    description: str = ""
+    strategy_ids: list[str] = Field(min_items=1)
+    overlap_mode: PortfolioOverlapMode = "first_signal_only"
+    proxy_symbol: str | None = None
+
+
+class UpdatePortfolioRequest(BaseModel):
+    description: str | None = None
+    scan_lane: ScanLane | None = None
+    scan_sort_order: int | None = None
+    strategy_ids: list[str] | None = None
+    overlap_mode: PortfolioOverlapMode | None = None
+    proxy_symbol: str | None = None
+
+
 class ScanRowResponse(BaseModel):
     id: str
-    source: Literal["legacy", "builder"]
+    source: Literal["legacy", "builder", "portfolio"]
     strategy_id: str | None = None
+    portfolio_id: str | None = None
     symbol: str
     signal: str
     buy_signal: bool

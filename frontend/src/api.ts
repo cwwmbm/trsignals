@@ -170,8 +170,9 @@ export type UpdateStrategyPayload = {
 
 export type ScanRow = {
   id: string;
-  source: "legacy" | "builder";
+  source: "legacy" | "builder" | "portfolio";
   strategy_id: string | null;
+  portfolio_id?: string | null;
   symbol: string;
   signal: string;
   buy_signal: boolean;
@@ -185,6 +186,31 @@ export type ScanRow = {
 };
 
 export type PortfolioOverlapMode = "first_signal_only" | "hold_until_all_exit";
+
+export type SavePortfolioPayload = {
+  name: string;
+  description?: string;
+  strategy_ids: string[];
+  overlap_mode: PortfolioOverlapMode;
+  proxy_symbol?: string;
+};
+
+export type SavedPortfolio = SavePortfolioPayload & {
+  id: string;
+  scan_lane?: ScanLane;
+  scan_sort_order?: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type UpdatePortfolioPayload = {
+  description?: string;
+  scan_lane?: ScanLane;
+  scan_sort_order?: number;
+  strategy_ids?: string[];
+  overlap_mode?: PortfolioOverlapMode;
+  proxy_symbol?: string | null;
+};
 
 export type PortfolioSimulatePayload = {
   strategy_ids: string[];
@@ -260,6 +286,27 @@ export function runPortfolioSimulation(
   payload: PortfolioSimulatePayload,
 ): Promise<DetailedResult> {
   return postJson<DetailedResult>("/portfolios/simulate", payload);
+}
+
+export function savePortfolio(payload: SavePortfolioPayload): Promise<SavedPortfolio> {
+  return postJson<SavedPortfolio>("/portfolios", payload);
+}
+
+export function updatePortfolio(
+  id: string,
+  payload: UpdatePortfolioPayload,
+): Promise<SavedPortfolio> {
+  return patchJson<SavedPortfolio>(`/portfolios/${id}`, payload);
+}
+
+export function deletePortfolio(id: string): Promise<{ deleted: boolean }> {
+  return deleteJson<{ deleted: boolean }>(`/portfolios/${id}`);
+}
+
+export async function getSavedPortfolios(): Promise<SavedPortfolio[]> {
+  const response = await fetch(`${API_URL}/portfolios`);
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
 }
 
 export function saveStrategy(payload: SaveStrategyPayload): Promise<SavedStrategy> {

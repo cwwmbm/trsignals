@@ -5,7 +5,7 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 
-from api.scan_service import compute_kelly, run_scan, _legacy_scan_row, _scan_sort_key, _scan_trade_pnl_pct, SCAN_SYMBOL_ORDER, SIGNAL_ORDER
+from api.scan_service import compute_kelly, run_scan, _legacy_scan_row, _portfolio_scan_row, _scan_sort_key, _scan_trade_pnl_pct, SCAN_SYMBOL_ORDER, SIGNAL_ORDER
 
 
 def _sample_executed(*, trade_out: bool, trade_pnl: float, hold_long: bool = False) -> pd.DataFrame:
@@ -184,6 +184,86 @@ class ScanServiceTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["symbol"], "JEPQ")
         self.assertEqual(rows[0]["signal"], "JEPQ Test")
+
+    def test_portfolio_scan_row_uses_overlay_last_bar(self):
+        portfolio = SimpleNamespace(
+            id="p1",
+            name="My Portfolio",
+            strategy_ids=["a", "b"],
+            overlap_mode="first_signal_only",
+            proxy_symbol=None,
+        )
+        frame = pd.DataFrame(
+            {
+                "LongTradeIn": [False, True],
+                "HoldLong": [False, True],
+                "LongTradeOut": [False, False],
+                "TradePnL": [0.0, 0.04],
+            }
+        )
+
+        with patch("api.portfolio_service.build_portfolio_overlay_frame") as build_overlay:
+            build_overlay.return_value = (
+                frame,
+                [
+                    SimpleNamespace(symbol="SPY", hold_days=3, profit=2),
+                    SimpleNamespace(symbol="SOXX", hold_days=5, profit=1),
+                ],
+                "Portfolio (2 strategies, first signal only): A, B",
+                5,
+                2,
+            )
+            row = _portfolio_scan_row(portfolio)
+
+        self.assertIsNotNone(row)
+        assert row is not None
+        self.assertEqual(row["source"], "portfolio")
+        self.assertEqual(row["portfolio_id"], "p1")
+        self.assertIsNone(row["strategy_id"])
+        self.assertEqual(row["symbol"], "SOXX+SPY")
+        self.assertEqual(row["signal"], "My Portfolio")
+        self.assertTrue(row["buy_signal"])
+        self.assertTrue(row["hold_long"])
+        self.assertFalse(row["sell_signal"])
+        self.assertEqual(row["days"], 5)
+        self.assertEqual(row["profit"], 2)
+        self.assertEqual(row["trade_pnl"], 4.0)
+
+    def test_run_scan_includes_portfolio_rows(self):
+        data = pd.DataFrame({"Close": np.linspace(100, 105, 30)})
+        portfolio = SimpleNamespace(
+            id="p1",
+            name="Combo",
+            strategy_ids=["s1"],
+            overlap_mode="first_signal_only",
+            proxy_symbol=None,
+        )
+
+        with patch("api.scan_service.LEGACY_BUY_SIGNALS", []):
+            with patch("api.scan_service.list_strategies", return_value=[]):
+                with patch("api.scan_service.list_portfolios", return_value=[portfolio]):
+                    with patch("api.scan_service._portfolio_scan_row") as portfolio_row:
+                        portfolio_row.return_value = {
+                            "id": "portfolio:p1",
+                            "source": "portfolio",
+                            "strategy_id": None,
+                            "portfolio_id": "p1",
+                            "symbol": "SPY",
+                            "signal": "Combo",
+                            "buy_signal": False,
+                            "hold_long": False,
+                            "sell_signal": False,
+                            "days": 2,
+                            "profit": 1,
+                            "trade_pnl": 0.0,
+                            "kelly": None,
+                            "description": "Portfolio",
+                        }
+                        rows = run_scan(symbol_frames={"SPY": data})
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["source"], "portfolio")
+        portfolio_row.assert_called_once_with(portfolio)
 
 if __name__ == "__main__":
     unittest.main()

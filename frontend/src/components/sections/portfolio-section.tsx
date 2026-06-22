@@ -1,10 +1,16 @@
 'use client'
 
-import { useMutation, useQuery } from '@tanstack/react-query'
-import { Loader2, Play, Search } from 'lucide-react'
-import { useMemo, useState } from 'react'
-import type { DetailedResult, PortfolioOverlapMode, SavedStrategy } from '@/api'
-import { getSavedStrategies, runPortfolioSimulation } from '@/api'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Loader2, Play, Save, Search, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import type { DetailedResult, PortfolioOverlapMode, SavedPortfolio, SavedStrategy } from '@/api'
+import {
+  deletePortfolio,
+  getSavedPortfolios,
+  getSavedStrategies,
+  runPortfolioSimulation,
+  savePortfolio,
+} from '@/api'
 import { DetailResults } from '@/components/backtest/detail-results'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -26,6 +32,13 @@ import { cn } from '@/lib/utils'
 const compactHead = 'h-7 px-1.5 py-0 text-[11px] font-medium'
 const compactCell = 'px-1.5 py-0.5 align-top'
 
+export type PortfolioInitialState = {
+  strategyIds: string[]
+  overlapMode?: PortfolioOverlapMode
+  proxySymbol?: string
+  years?: string
+}
+
 function sortStrategies(strategies: SavedStrategy[]) {
   return [...strategies].sort((a, b) => {
     const symbolOrder = compareSymbols(a.symbol, b.symbol)
@@ -34,10 +47,30 @@ function sortStrategies(strategies: SavedStrategy[]) {
   })
 }
 
-export function PortfolioSection() {
+function applyPortfolioSelection(
+  portfolio: Pick<SavedPortfolio, 'strategy_ids' | 'overlap_mode' | 'proxy_symbol'>,
+  setSelectedIds: (value: Set<string>) => void,
+  setOverlapMode: (value: PortfolioOverlapMode) => void,
+  setProxySymbol: (value: string) => void,
+) {
+  setSelectedIds(new Set(portfolio.strategy_ids))
+  setOverlapMode(portfolio.overlap_mode)
+  setProxySymbol(portfolio.proxy_symbol?.trim() ?? '')
+}
+
+export function PortfolioSection({
+  initialState,
+}: {
+  initialState?: PortfolioInitialState
+}) {
+  const queryClient = useQueryClient()
   const { data: strategies = [], isLoading, error } = useQuery({
     queryKey: ['strategies'],
     queryFn: getSavedStrategies,
+  })
+  const { data: savedPortfolios = [], isLoading: portfoliosLoading } = useQuery({
+    queryKey: ['portfolios'],
+    queryFn: getSavedPortfolios,
   })
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
@@ -45,10 +78,36 @@ export function PortfolioSection() {
   const [overlapMode, setOverlapMode] = useState<PortfolioOverlapMode>('first_signal_only')
   const [proxySymbol, setProxySymbol] = useState('')
   const [years, setYears] = useState('25')
+  const [portfolioName, setPortfolioName] = useState('')
+  const [portfolioDescription, setPortfolioDescription] = useState('')
 
   const mutation = useMutation({
     mutationFn: runPortfolioSimulation,
   })
+
+  const saveMutation = useMutation({
+    mutationFn: savePortfolio,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['portfolios'] })
+      setPortfolioName('')
+      setPortfolioDescription('')
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: deletePortfolio,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['portfolios'] })
+    },
+  })
+
+  useEffect(() => {
+    if (!initialState) return
+    setSelectedIds(new Set(initialState.strategyIds))
+    if (initialState.overlapMode) setOverlapMode(initialState.overlapMode)
+    setProxySymbol(initialState.proxySymbol?.trim() ?? '')
+    if (initialState.years) setYears(initialState.years)
+  }, [initialState])
 
   const sortedStrategies = useMemo(() => sortStrategies(strategies), [strategies])
 
@@ -74,6 +133,11 @@ export function PortfolioSection() {
   )
 
   const canSimulate = selectedInOrder.length > 0 && !selectedShort && !mutation.isPending
+  const canSave =
+    selectedInOrder.length > 0 &&
+    !selectedShort &&
+    portfolioName.trim().length > 0 &&
+    !saveMutation.isPending
 
   const toggleStrategy = (strategy: SavedStrategy, checked: boolean) => {
     if (strategy.direction === 'short') return
@@ -93,6 +157,20 @@ export function PortfolioSection() {
       ...(proxySymbol.trim() ? { proxy_symbol: proxySymbol.trim().toUpperCase() } : {}),
       years: Number.isFinite(parsedYears) ? parsedYears : 25,
     })
+  }
+
+  const handleSave = () => {
+    saveMutation.mutate({
+      name: portfolioName.trim(),
+      description: portfolioDescription.trim(),
+      strategy_ids: selectedInOrder,
+      overlap_mode: overlapMode,
+      ...(proxySymbol.trim() ? { proxy_symbol: proxySymbol.trim().toUpperCase() } : {}),
+    })
+  }
+
+  const handleLoadPortfolio = (portfolio: SavedPortfolio) => {
+    applyPortfolioSelection(portfolio, setSelectedIds, setOverlapMode, setProxySymbol)
   }
 
   const result = mutation.data
@@ -240,6 +318,49 @@ export function PortfolioSection() {
           </div>
         </div>
 
+        <div className="mt-4 space-y-3 border-t border-border/60 pt-4">
+          <h3 className="text-xs font-semibold">Save portfolio</h3>
+          <div className="grid gap-3 sm:grid-cols-2 sm:max-w-2xl">
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="portfolio-name" className="text-xs text-muted-foreground">
+                Name
+              </Label>
+              <Input
+                id="portfolio-name"
+                value={portfolioName}
+                onChange={(e) => setPortfolioName(e.target.value)}
+                placeholder="Required"
+                className="h-8 text-sm"
+              />
+            </div>
+            <div className="flex flex-col gap-1 sm:col-span-2">
+              <Label htmlFor="portfolio-description" className="text-xs text-muted-foreground">
+                Description
+              </Label>
+              <Input
+                id="portfolio-description"
+                value={portfolioDescription}
+                onChange={(e) => setPortfolioDescription(e.target.value)}
+                placeholder="Optional"
+                className="h-8 text-sm"
+              />
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button disabled={!canSave} onClick={handleSave} variant="outline" className="gap-2">
+              {saveMutation.isPending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Save className="size-4" />
+              )}
+              Save portfolio
+            </Button>
+            {saveMutation.error ? (
+              <span className="text-xs text-destructive">{String(saveMutation.error)}</span>
+            ) : null}
+          </div>
+        </div>
+
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <Button disabled={!canSimulate} onClick={handleSimulate} className="gap-2">
             {mutation.isPending ? (
@@ -265,6 +386,81 @@ export function PortfolioSection() {
             </pre>
           </Card>
         ) : null}
+      </Card>
+
+      <Card className="p-4">
+        <h2 className="text-sm font-semibold">Saved portfolios</h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Load a saved combination into the form above. Saved portfolios also appear on Scan.
+        </p>
+        {portfoliosLoading ? (
+          <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" />
+            Loading portfolios…
+          </div>
+        ) : savedPortfolios.length === 0 ? (
+          <p className="mt-4 text-sm text-muted-foreground">No saved portfolios yet.</p>
+        ) : (
+          <div className="mt-3 overflow-x-auto rounded-md border border-border/60">
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className={compactHead}>Name</TableHead>
+                  <TableHead className={compactHead}>Strategies</TableHead>
+                  <TableHead className={compactHead}>Overlap</TableHead>
+                  <TableHead className={compactHead}>Proxy</TableHead>
+                  <TableHead className={cn(compactHead, 'w-28 text-right')}>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {savedPortfolios.map((portfolio) => (
+                  <TableRow key={portfolio.id}>
+                    <TableCell className={cn(compactCell, 'text-xs font-medium')}>
+                      {portfolio.name}
+                      {portfolio.description?.trim() ? (
+                        <p className="mt-0.5 text-[10px] font-normal text-muted-foreground">
+                          {portfolio.description}
+                        </p>
+                      ) : null}
+                    </TableCell>
+                    <TableCell className={cn(compactCell, 'text-xs text-muted-foreground')}>
+                      {portfolio.strategy_ids.length}
+                    </TableCell>
+                    <TableCell className={cn(compactCell, 'text-xs text-muted-foreground')}>
+                      {portfolio.overlap_mode === 'first_signal_only'
+                        ? 'First signal'
+                        : 'Hold until all exit'}
+                    </TableCell>
+                    <TableCell className={cn(compactCell, 'font-mono text-xs')}>
+                      {portfolio.proxy_symbol ?? '—'}
+                    </TableCell>
+                    <TableCell className={compactCell}>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-[11px]"
+                          onClick={() => handleLoadPortfolio(portfolio)}
+                        >
+                          Load
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-[11px] text-destructive hover:text-destructive"
+                          disabled={deleteMutation.isPending}
+                          onClick={() => deleteMutation.mutate(portfolio.id)}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
       </Card>
 
       {result ? <DetailResults result={result} /> : null}

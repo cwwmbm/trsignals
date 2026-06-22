@@ -16,11 +16,14 @@ from api.schemas import (
     SymbolConfirmDetailRequest,
     SymbolConfirmSweepRequest,
     PortfolioSimulateRequest,
+    SavePortfolioRequest,
+    UpdatePortfolioRequest,
     UpdateStrategyRequest,
 )
 from api.services import (
     delete_custom_dataset,
     delete_saved_strategy,
+    delete_saved_portfolio,
     get_custom_dataset_metadata,
     run_builder_backtest,
     run_builder_refine,
@@ -33,8 +36,11 @@ from api.services import (
     run_symbol_confirm_detail,
     run_symbol_confirm_sweep,
     list_saved_strategies,
+    list_saved_portfolios,
     save_strategy,
+    save_portfolio,
     update_saved_strategy,
+    update_saved_portfolio,
     upload_custom_dataset,
 )
 from api.indicator_catalog import list_indicators
@@ -203,3 +209,29 @@ def scan() -> list[dict]:
 @app.post("/portfolios/simulate")
 def portfolio_simulate(request: PortfolioSimulateRequest) -> dict:
     return _handle_errors(run_portfolio_simulation, request)
+
+
+@app.get("/portfolios")
+def get_saved_portfolios() -> list[dict]:
+    return list_saved_portfolios()
+
+
+@app.post("/portfolios")
+def create_saved_portfolio(request: SavePortfolioRequest) -> dict:
+    return _handle_errors(save_portfolio, request)
+
+
+@app.patch("/portfolios/{portfolio_id}")
+def update_portfolio_meta(portfolio_id: str, request: UpdatePortfolioRequest) -> dict:
+    try:
+        return update_saved_portfolio(portfolio_id, request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.delete("/portfolios/{portfolio_id}")
+def remove_saved_portfolio(portfolio_id: str) -> dict:
+    try:
+        return delete_saved_portfolio(portfolio_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -56,7 +56,11 @@ def _meta_compatible(meta_path: Path) -> bool:
     cached_version = meta.get("pandas_version")
     if cached_version is None:
         return False
-    return cached_version == pd.__version__
+    if cached_version != pd.__version__:
+        return False
+    from indicators import INDICATOR_CACHE_VERSION
+
+    return meta.get("indicator_cache_version") == INDICATOR_CACHE_VERSION
 
 
 def _invalidate_cache(cache_path: Path) -> None:
@@ -89,6 +93,8 @@ def load(symbol: str, years: int, profile: str) -> pd.DataFrame | None:
 
 
 def save(symbol: str, years: int, profile: str, frame: pd.DataFrame) -> None:
+    from indicators import INDICATOR_CACHE_VERSION
+
     cache_path = _cache_path(symbol, years, profile)
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = cache_path.with_suffix(".tmp.pkl")
@@ -101,6 +107,7 @@ def save(symbol: str, years: int, profile: str, frame: pd.DataFrame) -> None:
         "years": years,
         "profile": profile,
         "pandas_version": pd.__version__,
+        "indicator_cache_version": INDICATOR_CACHE_VERSION,
         "cached_date": _eastern_today().isoformat(),
         "row_count": int(frame.shape[0]),
         "last_date": pd.to_datetime(frame["Date"]).iloc[-1].isoformat()

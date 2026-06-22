@@ -11,6 +11,7 @@ from api.indicator_catalog import list_indicators
 from api.proxy_symbol import execute_with_proxy, with_proxy_description
 from api.strategy_compiler import compile_buy_mask, compile_sell_mask, format_condition_preview
 from api.strategy_store import get_strategy_by_id, list_strategies
+from api.portfolio_store import list_portfolios
 
 
 def _condition_dict(condition) -> dict:
@@ -362,6 +363,40 @@ def _builder_scan_row(
     }
 
 
+def _portfolio_scan_row(portfolio) -> dict | None:
+    from api.portfolio_service import build_portfolio_overlay_frame
+
+    try:
+        frame, strategies, description, max_hold, max_profit = build_portfolio_overlay_frame(
+            portfolio,
+            years=1,
+            use_cache=False,
+        )
+    except ValueError:
+        return None
+
+    if frame.empty:
+        return None
+
+    symbols = sorted({strategy.symbol.strip().upper() for strategy in strategies})
+    return {
+        "id": f"portfolio:{portfolio.id}",
+        "source": "portfolio",
+        "strategy_id": None,
+        "portfolio_id": portfolio.id,
+        "symbol": "+".join(symbols),
+        "signal": portfolio.name,
+        "buy_signal": bool(frame["LongTradeIn"].iloc[-1]),
+        "hold_long": bool(frame["HoldLong"].iloc[-1]),
+        "sell_signal": bool(frame["LongTradeOut"].iloc[-1]),
+        "days": int(max_hold),
+        "profit": int(max_profit),
+        "trade_pnl": _scan_trade_pnl_pct(frame, is_long=True),
+        "kelly": compute_kelly(frame),
+        "description": description,
+    }
+
+
 def _scan_sort_key(row: dict) -> tuple[int, int, str]:
     symbol = row["symbol"]
     signal = row["signal"]
@@ -431,6 +466,11 @@ def run_scan(
                 symbol_data=symbol_dataset,
             )
         )
+
+    for portfolio in list_portfolios():
+        row = _portfolio_scan_row(portfolio)
+        if row is not None:
+            rows.append(row)
 
     rows.sort(key=_scan_sort_key)
     return rows

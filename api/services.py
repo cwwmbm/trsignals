@@ -21,6 +21,12 @@ from api.strategy_store import (
     list_strategies,
     update_strategy,
 )
+from api.portfolio_store import (
+    create_portfolio,
+    delete_portfolio,
+    list_portfolios,
+    update_portfolio,
+)
 from api.scan_service import run_scan
 
 
@@ -400,6 +406,29 @@ def run_portfolio_simulation(request) -> dict:
     from api.portfolio_service import simulate_portfolio
 
     return simulate_portfolio(request)
+
+
+def save_portfolio(request) -> dict:
+    saved = create_portfolio(request)
+    return _model_dump(saved)
+
+
+def update_saved_portfolio(portfolio_id: str, request) -> dict:
+    updated = update_portfolio(portfolio_id, request)
+    if updated is None:
+        raise ValueError(f"Unknown portfolio: {portfolio_id}")
+    return _model_dump(updated)
+
+
+def delete_saved_portfolio(portfolio_id: str) -> dict:
+    deleted = delete_portfolio(portfolio_id)
+    if not deleted:
+        raise ValueError(f"Unknown portfolio: {portfolio_id}")
+    return {"deleted": True}
+
+
+def list_saved_portfolios() -> list[dict]:
+    return [_model_dump(portfolio) for portfolio in list_portfolios()]
 
 
 def upload_custom_dataset(content: bytes, filename: str | None = None) -> dict:

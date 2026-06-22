@@ -21,7 +21,7 @@ import { ScanSection } from '@/components/sections/scan-section'
 import { StrategiesSection } from '@/components/sections/strategies-section'
 import { StrategyBuilderSection } from '@/components/sections/strategy-builder-section'
 import { HelpSection } from '@/components/sections/help-section'
-import { PortfolioSection } from '@/components/sections/portfolio-section'
+import { PortfolioSection, type PortfolioInitialState } from '@/components/sections/portfolio-section'
 
 type SectionId = 'backtest' | 'strategies' | 'builder' | 'scan' | 'portfolio' | 'help'
 
@@ -50,10 +50,14 @@ export function AppShell() {
   const [active, setActive] = useState<SectionId>('backtest')
   const [mobileOpen, setMobileOpen] = useState(false)
   const [builderInitialStrategy, setBuilderInitialStrategy] = useState<SavedStrategy | undefined>()
+  const [portfolioInitial, setPortfolioInitial] = useState<PortfolioInitialState | undefined>()
 
   const goTo = (id: SectionId) => {
     if (id === 'builder') {
       setBuilderInitialStrategy(undefined)
+    }
+    if (id === 'portfolio') {
+      setPortfolioInitial(undefined)
     }
     setActive(id)
     setMobileOpen(false)
@@ -181,9 +185,13 @@ export function AppShell() {
                 setBuilderInitialStrategy(strategy)
                 setActive('builder')
               }}
+              onOpenPortfolio={(state) => {
+                setPortfolioInitial(state)
+                setActive('portfolio')
+              }}
             />
           )}
-          {active === 'portfolio' && <PortfolioSection />}
+          {active === 'portfolio' && <PortfolioSection initialState={portfolioInitial} />}
           {active === 'help' && <HelpSection />}
         </main>
       </div>

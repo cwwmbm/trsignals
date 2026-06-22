@@ -31,14 +31,19 @@ import {
   X,
 } from 'lucide-react'
 import {
+  getSavedPortfolios,
   getSavedStrategies,
   getScan,
+  updatePortfolio,
   updateStrategy,
+  type SavedPortfolio,
   type SavedStrategy,
   type ScanLane,
   type ScanRow,
+  type UpdatePortfolioPayload,
   type UpdateStrategyPayload,
 } from '@/api'
+import type { PortfolioInitialState } from '@/components/sections/portfolio-section'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -126,11 +131,31 @@ function resolveScanLane(strategy: SavedStrategy | undefined): ScanLane {
   return strategy?.scan_lane ?? 'testing'
 }
 
-function sortBuilderRows(rows: ScanRow[], strategyById: Map<string, SavedStrategy>): ScanRow[] {
+function resolvePortfolioScanLane(portfolio: SavedPortfolio | undefined): ScanLane {
+  return portfolio?.scan_lane ?? 'testing'
+}
+
+function rowSortOrder(
+  row: ScanRow,
+  strategyById: Map<string, SavedStrategy>,
+  portfolioById: Map<string, SavedPortfolio>,
+): number {
+  if (row.source === 'portfolio' && row.portfolio_id) {
+    return portfolioById.get(row.portfolio_id)?.scan_sort_order ?? 0
+  }
+  if (row.strategy_id) {
+    return strategyById.get(row.strategy_id)?.scan_sort_order ?? 0
+  }
+  return 0
+}
+
+function sortLaneRows(
+  rows: ScanRow[],
+  strategyById: Map<string, SavedStrategy>,
+  portfolioById: Map<string, SavedPortfolio>,
+): ScanRow[] {
   return [...rows].sort((a, b) => {
-    const strategyA = a.strategy_id ? strategyById.get(a.strategy_id) : undefined
-    const strategyB = b.strategy_id ? strategyById.get(b.strategy_id) : undefined
-    const orderDiff = (strategyA?.scan_sort_order ?? 0) - (strategyB?.scan_sort_order ?? 0)
+    const orderDiff = rowSortOrder(a, strategyById, portfolioById) - rowSortOrder(b, strategyById, portfolioById)
     if (orderDiff !== 0) return orderDiff
     const symbolDiff = compareSymbols(a.symbol, b.symbol)
     if (symbolDiff !== 0) return symbolDiff
@@ -141,6 +166,7 @@ function sortBuilderRows(rows: ScanRow[], strategyById: Map<string, SavedStrateg
 function groupScanRows(
   rows: ScanRow[],
   strategyById: Map<string, SavedStrategy>,
+  portfolioById: Map<string, SavedPortfolio>,
 ): { lanes: LaneRows; legacy: ScanRow[] } {
   const lanes: LaneRows = {
     active: [],
@@ -154,13 +180,17 @@ function groupScanRows(
       legacy.push(row)
       continue
     }
+    if (row.source === 'portfolio') {
+      const portfolio = row.portfolio_id ? portfolioById.get(row.portfolio_id) : undefined
+      lanes[resolvePortfolioScanLane(portfolio)].push(row)
+      continue
+    }
     const strategy = row.strategy_id ? strategyById.get(row.strategy_id) : undefined
-    const lane = resolveScanLane(strategy)
-    lanes[lane].push(row)
+    lanes[resolveScanLane(strategy)].push(row)
   }
 
   for (const lane of SCAN_LANES) {
-    lanes[lane] = sortBuilderRows(lanes[lane], strategyById)
+    lanes[lane] = sortLaneRows(lanes[lane], strategyById, portfolioById)
   }
 
   return { lanes, legacy: sortLegacyRows(legacy) }
@@ -209,16 +239,22 @@ function ScanTableHeader({ draggable }: { draggable?: boolean }) {
 function ScanTableRowContent({
   row: r,
   strategy,
+  portfolio,
   onBacktestStrategy,
+  onOpenPortfolio,
   onLaneChange,
+  onPortfolioLaneChange,
   lanePending,
   draggable = false,
   dragHandleProps,
 }: {
   row: ScanRow
   strategy?: SavedStrategy
+  portfolio?: SavedPortfolio
   onBacktestStrategy?: (strategy: SavedStrategy) => void
+  onOpenPortfolio?: (state: PortfolioInitialState) => void
   onLaneChange?: (strategy: SavedStrategy, lane: ScanLane) => void
+  onPortfolioLaneChange?: (portfolio: SavedPortfolio, lane: ScanLane) => void
   lanePending?: boolean
   draggable?: boolean
   dragHandleProps?: {
@@ -227,7 +263,7 @@ function ScanTableRowContent({
     attributes: ReturnType<typeof useSortable>['attributes']
   }
 }) {
-  const currentLane = resolveScanLane(strategy)
+  const currentLane = portfolio ? resolvePortfolioScanLane(portfolio) : resolveScanLane(strategy)
 
   return (
     <>
@@ -277,13 +313,14 @@ function ScanTableRowContent({
         {r.description}
       </TableCell>
       <TableCell className={compactCell}>
-        {strategy ? (
+        {strategy || portfolio ? (
           <div className="flex items-center justify-end gap-1">
             <Select
               value={currentLane}
               onValueChange={(value) => {
                 if (!value || value === currentLane) return
-                onLaneChange?.(strategy, value as ScanLane)
+                if (portfolio) onPortfolioLaneChange?.(portfolio, value as ScanLane)
+                else if (strategy) onLaneChange?.(strategy, value as ScanLane)
               }}
               disabled={lanePending}
             >
@@ -300,15 +337,34 @@ function ScanTableRowContent({
                 ))}
               </SelectContent>
             </Select>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 gap-1 px-1.5 text-[11px]"
-              onClick={() => onBacktestStrategy?.(strategy)}
-            >
-              Backtest
-              <ArrowUpRight className="size-3" />
-            </Button>
+            {strategy ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 gap-1 px-1.5 text-[11px]"
+                onClick={() => onBacktestStrategy?.(strategy)}
+              >
+                Backtest
+                <ArrowUpRight className="size-3" />
+              </Button>
+            ) : null}
+            {portfolio ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 gap-1 px-1.5 text-[11px]"
+                onClick={() =>
+                  onOpenPortfolio?.({
+                    strategyIds: portfolio.strategy_ids,
+                    overlapMode: portfolio.overlap_mode,
+                    ...(portfolio.proxy_symbol ? { proxySymbol: portfolio.proxy_symbol } : {}),
+                  })
+                }
+              >
+                Portfolio
+                <ArrowUpRight className="size-3" />
+              </Button>
+            ) : null}
           </div>
         ) : null}
       </TableCell>
@@ -319,14 +375,20 @@ function ScanTableRowContent({
 function SortableScanTableRow({
   row,
   strategy,
+  portfolio,
   onBacktestStrategy,
+  onOpenPortfolio,
   onLaneChange,
+  onPortfolioLaneChange,
   lanePending,
 }: {
   row: ScanRow
   strategy?: SavedStrategy
+  portfolio?: SavedPortfolio
   onBacktestStrategy?: (strategy: SavedStrategy) => void
+  onOpenPortfolio?: (state: PortfolioInitialState) => void
   onLaneChange?: (strategy: SavedStrategy, lane: ScanLane) => void
+  onPortfolioLaneChange?: (portfolio: SavedPortfolio, lane: ScanLane) => void
   lanePending?: boolean
 }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
@@ -348,8 +410,11 @@ function SortableScanTableRow({
       <ScanTableRowContent
         row={row}
         strategy={strategy}
+        portfolio={portfolio}
         onBacktestStrategy={onBacktestStrategy}
+        onOpenPortfolio={onOpenPortfolio}
         onLaneChange={onLaneChange}
+        onPortfolioLaneChange={onPortfolioLaneChange}
         lanePending={lanePending}
         draggable
         dragHandleProps={{ setActivatorNodeRef, listeners, attributes }}
@@ -382,8 +447,11 @@ function ScanLaneSection({
   expanded,
   onToggle,
   strategyById,
+  portfolioById,
   onBacktestStrategy,
+  onOpenPortfolio,
   onLaneChange,
+  onPortfolioLaneChange,
   lanePending,
 }: {
   lane: ScanLane
@@ -391,8 +459,11 @@ function ScanLaneSection({
   expanded: boolean
   onToggle: () => void
   strategyById: Map<string, SavedStrategy>
+  portfolioById: Map<string, SavedPortfolio>
   onBacktestStrategy?: (strategy: SavedStrategy) => void
+  onOpenPortfolio?: (state: PortfolioInitialState) => void
   onLaneChange?: (strategy: SavedStrategy, lane: ScanLane) => void
+  onPortfolioLaneChange?: (portfolio: SavedPortfolio, lane: ScanLane) => void
   lanePending?: boolean
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: laneContainerId(lane) })
@@ -427,8 +498,11 @@ function ScanLaneSection({
                     key={row.id}
                     row={row}
                     strategy={row.strategy_id ? strategyById.get(row.strategy_id) : undefined}
+                    portfolio={row.portfolio_id ? portfolioById.get(row.portfolio_id) : undefined}
                     onBacktestStrategy={onBacktestStrategy}
+                    onOpenPortfolio={onOpenPortfolio}
                     onLaneChange={onLaneChange}
+                    onPortfolioLaneChange={onPortfolioLaneChange}
                     lanePending={lanePending}
                   />
                 ))}
@@ -493,14 +567,14 @@ function LegacyScanSection({
   )
 }
 
-function buildLaneUpdates(
+function buildStrategyLaneUpdates(
   lane: ScanLane,
   rows: ScanRow[],
   strategyById: Map<string, SavedStrategy>,
 ): { id: string; payload: UpdateStrategyPayload }[] {
   const updates: { id: string; payload: UpdateStrategyPayload }[] = []
   rows.forEach((row, index) => {
-    if (!row.strategy_id) return
+    if (row.source !== 'builder' || !row.strategy_id) return
     const strategy = strategyById.get(row.strategy_id)
     if (!strategy) return
     const currentLane = resolveScanLane(strategy)
@@ -514,10 +588,33 @@ function buildLaneUpdates(
   return updates
 }
 
+function buildPortfolioLaneUpdates(
+  lane: ScanLane,
+  rows: ScanRow[],
+  portfolioById: Map<string, SavedPortfolio>,
+): { id: string; payload: UpdatePortfolioPayload }[] {
+  const updates: { id: string; payload: UpdatePortfolioPayload }[] = []
+  rows.forEach((row, index) => {
+    if (row.source !== 'portfolio' || !row.portfolio_id) return
+    const portfolio = portfolioById.get(row.portfolio_id)
+    if (!portfolio) return
+    const currentLane = resolvePortfolioScanLane(portfolio)
+    const currentOrder = portfolio.scan_sort_order ?? 0
+    if (currentLane === lane && currentOrder === index) return
+    updates.push({
+      id: portfolio.id,
+      payload: { scan_lane: lane, scan_sort_order: index },
+    })
+  })
+  return updates
+}
+
 export function ScanSection({
   onBacktestStrategy,
+  onOpenPortfolio,
 }: {
   onBacktestStrategy?: (strategy: SavedStrategy) => void
+  onOpenPortfolio?: (state: PortfolioInitialState) => void
 }) {
   const queryClient = useQueryClient()
   const [query, setQuery] = useState('')
@@ -551,10 +648,18 @@ export function ScanSection({
     queryKey: ['strategies'],
     queryFn: getSavedStrategies,
   })
+  const { data: savedPortfolios = [] } = useQuery({
+    queryKey: ['portfolios'],
+    queryFn: getSavedPortfolios,
+  })
 
   const strategyById = useMemo(
     () => new Map(savedStrategies.map((strategy) => [strategy.id, strategy])),
     [savedStrategies],
+  )
+  const portfolioById = useMemo(
+    () => new Map(savedPortfolios.map((portfolio) => [portfolio.id, portfolio])),
+    [savedPortfolios],
   )
 
   const filtered = useMemo(() => {
@@ -571,8 +676,8 @@ export function ScanSection({
   }, [rows, query, symbolFilter])
 
   const grouped = useMemo(
-    () => groupScanRows(filtered, strategyById),
-    [filtered, strategyById],
+    () => groupScanRows(filtered, strategyById, portfolioById),
+    [filtered, strategyById, portfolioById],
   )
 
   useEffect(() => {
@@ -595,23 +700,44 @@ export function ScanSection({
     },
   })
 
+  const portfolioLaneMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: UpdatePortfolioPayload }) =>
+      updatePortfolio(id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['portfolios'] })
+    },
+  })
+
   const persistLaneLayout = useCallback(
     async (nextLanes: LaneRows, touched: Set<ScanLane>) => {
-      const updates = [...touched].flatMap((lane) =>
-        buildLaneUpdates(lane, nextLanes[lane], strategyById),
+      const strategyUpdates = [...touched].flatMap((lane) =>
+        buildStrategyLaneUpdates(lane, nextLanes[lane], strategyById),
       )
-      const uniqueUpdates = new Map<string, UpdateStrategyPayload>()
-      for (const update of updates) {
-        uniqueUpdates.set(update.id, {
-          ...uniqueUpdates.get(update.id),
+      const portfolioUpdates = [...touched].flatMap((lane) =>
+        buildPortfolioLaneUpdates(lane, nextLanes[lane], portfolioById),
+      )
+      const uniqueStrategyUpdates = new Map<string, UpdateStrategyPayload>()
+      for (const update of strategyUpdates) {
+        uniqueStrategyUpdates.set(update.id, {
+          ...uniqueStrategyUpdates.get(update.id),
           ...update.payload,
         })
       }
-      for (const [id, payload] of uniqueUpdates.entries()) {
+      const uniquePortfolioUpdates = new Map<string, UpdatePortfolioPayload>()
+      for (const update of portfolioUpdates) {
+        uniquePortfolioUpdates.set(update.id, {
+          ...uniquePortfolioUpdates.get(update.id),
+          ...update.payload,
+        })
+      }
+      for (const [id, payload] of uniqueStrategyUpdates.entries()) {
         await laneMutation.mutateAsync({ id, payload })
       }
+      for (const [id, payload] of uniquePortfolioUpdates.entries()) {
+        await portfolioLaneMutation.mutateAsync({ id, payload })
+      }
     },
-    [laneMutation, strategyById],
+    [laneMutation, portfolioLaneMutation, strategyById, portfolioById],
   )
 
   const handleLaneChange = useCallback(
@@ -650,6 +776,46 @@ export function ScanSection({
       }
     },
     [grouped.lanes, laneMutation, laneRows],
+  )
+
+  const handlePortfolioLaneChange = useCallback(
+    async (portfolio: SavedPortfolio, lane: ScanLane) => {
+      const currentLane = resolvePortfolioScanLane(portfolio)
+      if (currentLane === lane) return
+
+      const nextLanes: LaneRows = {
+        active: [...laneRows.active],
+        testing: [...laneRows.testing],
+        archived: [...laneRows.archived],
+      }
+      for (const sourceLane of SCAN_LANES) {
+        nextLanes[sourceLane] = nextLanes[sourceLane].filter(
+          (row) => row.portfolio_id !== portfolio.id,
+        )
+      }
+      const movedRow =
+        laneRows[currentLane].find((row) => row.portfolio_id === portfolio.id) ??
+        laneRows.testing.find((row) => row.portfolio_id === portfolio.id) ??
+        laneRows.active.find((row) => row.portfolio_id === portfolio.id) ??
+        laneRows.archived.find((row) => row.portfolio_id === portfolio.id)
+      if (movedRow) {
+        nextLanes[lane] = [...nextLanes[lane], movedRow]
+      }
+      setLaneRows(nextLanes)
+      setExpandedSections((prev) => new Set(prev).add(lane))
+      try {
+        await portfolioLaneMutation.mutateAsync({
+          id: portfolio.id,
+          payload: {
+            scan_lane: lane,
+            scan_sort_order: nextLanes[lane].length - 1,
+          },
+        })
+      } catch {
+        setLaneRows(grouped.lanes)
+      }
+    },
+    [grouped.lanes, laneRows, portfolioLaneMutation],
   )
 
   const handleDragEnd = useCallback(
@@ -785,9 +951,12 @@ export function ScanSection({
                 expanded={expandedSections.has(lane)}
                 onToggle={() => toggleSection(lane)}
                 strategyById={strategyById}
+                portfolioById={portfolioById}
                 onBacktestStrategy={onBacktestStrategy}
+                onOpenPortfolio={onOpenPortfolio}
                 onLaneChange={handleLaneChange}
-                lanePending={laneMutation.isPending}
+                onPortfolioLaneChange={handlePortfolioLaneChange}
+                lanePending={laneMutation.isPending || portfolioLaneMutation.isPending}
               />
             ))}
             <LegacyScanSection

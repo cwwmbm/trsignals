@@ -73,6 +73,7 @@ PRICE_SWEEPS = [
     ('HigherCloses3', 'HigherCloses3', 'both', 0, 0, 1),
     ('LowerCloses2', 'LowerCloses2', 'both', 0, 0, 1),
     ('LowerCloses3', 'LowerCloses3', 'both', 0, 0, 1),
+    ('DownMonday', 'DownMonday', 'both', 0, 0, 1),
     ('ADX14', 'ADX14', 'both', 10, 50, 5),
     ('WilliamsR14', 'WilliamsR14', 'both', -90, -10, 10),
     ('ROC20', 'ROC20', 'both', -10, 10, 2),

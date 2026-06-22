@@ -9,6 +9,9 @@ from config import *
 from numpy import cumsum, log, polyfit, sqrt, std, subtract
 from hurst import compute_Hc
 
+# Bump when computed indicator columns change so disk cache entries are rebuilt.
+INDICATOR_CACHE_VERSION = 1
+
 #Calculate Sharpe Ratio
 def sharpes_ratio(data, risk_free_rate=0, periods_per_year=252):
     """
@@ -488,6 +491,17 @@ def add_vwap_indicators(data: pd.DataFrame, *, source_timezone: str | None = Non
     return data
 
 
+def down_monday_flag(dates: pd.Series, close: pd.Series) -> np.ndarray:
+    """Flag (1) on calendar Mondays when close is below the prior Friday close."""
+    parsed = pd.Series(pd.to_datetime(dates), index=close.index)
+    dow = parsed.dt.dayofweek
+    is_monday = dow == 0
+    friday_close = close.where(dow == 4)
+    last_friday_close = friday_close.ffill()
+    down = is_monday & (close < last_friday_close) & last_friday_close.notna()
+    return np.where(down, 1, -1)
+
+
 def add_indicators(data, periods_per_year=252, source_timezone=None):
     data['%Change'] = Leverage*data['Close'].pct_change()
     data['SPYBull'] = data['Spybull']
@@ -636,6 +650,7 @@ def add_indicators(data, periods_per_year=252, source_timezone=None):
             'CloseAbovePSAR': np.where(close > data['PSAR'], 1, -1),
             'CloseAboveKCUpper20': np.where(close > data['KCUpper20'], 1, -1),
             'CloseBelowKCLower20': np.where(close < data['KCLower20'], 1, -1),
+            'DownMonday': down_monday_flag(data['Date'], close),
             'Sell': False,
         },
         index=data.index,

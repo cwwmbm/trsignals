@@ -321,6 +321,7 @@ def _load_strategy_signals(
     years: int,
     bulk_data: pd.DataFrame | None,
     symbol_dataset: dict[str, pd.DataFrame],
+    use_cache: bool = True,
 ) -> StrategySignals:
     symbol = strategy.symbol.strip().upper()
     if symbol not in symbol_dataset:
@@ -332,6 +333,7 @@ def _load_strategy_signals(
         years=years,
         bulk_data=bulk_data,
         symbol_data=symbol_dataset,
+        use_cache=use_cache,
     )
     dates = pd.to_datetime(executed["Date"])
     return StrategySignals(
@@ -345,8 +347,7 @@ def _load_strategy_signals(
     )
 
 
-def simulate_portfolio(request) -> dict:
-    strategy_ids = list(request.strategy_ids)
+def _resolve_portfolio_strategies(strategy_ids: list[str]) -> list:
     if not strategy_ids:
         raise ValueError("At least one strategy is required")
 
@@ -360,15 +361,25 @@ def simulate_portfolio(request) -> dict:
                 f"Short strategies are not supported in portfolio simulation: {strategy.name}"
             )
         strategies.append(strategy)
+    return strategies
 
-    overlap_mode = request.overlap_mode
-    years = request.years
-    global_proxy = _normalize_proxy(request.proxy_symbol)
+
+def build_portfolio_overlay_frame(
+    portfolio,
+    *,
+    years: int = 1,
+    use_cache: bool = True,
+) -> tuple[pd.DataFrame, list, str, int, int]:
+    strategy_ids = list(portfolio.strategy_ids)
+    strategies = _resolve_portfolio_strategies(strategy_ids)
+    overlap_mode = portfolio.overlap_mode
+    global_proxy = _normalize_proxy(getattr(portfolio, "proxy_symbol", None))
 
     symbols = _collect_symbols(strategies, global_proxy)
     bulk_data, symbol_dataset, track_changes, close_series = _load_portfolio_market_data(
         symbols,
         years=years,
+        use_cache=use_cache,
     )
 
     signals_by_id: dict[str, StrategySignals] = {}
@@ -378,6 +389,7 @@ def simulate_portfolio(request) -> dict:
             years=years,
             bulk_data=bulk_data,
             symbol_dataset=symbol_dataset,
+            use_cache=use_cache,
         )
 
     frame = simulate_portfolio_overlay(
@@ -398,11 +410,23 @@ def simulate_portfolio(request) -> dict:
     names = ", ".join(strategy.name for strategy in strategies)
     proxy_note = f", proxy {global_proxy}" if global_proxy else ""
     description = f"Portfolio ({len(strategies)} strategies, {mode_label}{proxy_note}): {names}"
-
     max_hold = max(strategy.hold_days for strategy in strategies)
     max_profit = max(strategy.profit for strategy in strategies)
+    return frame, strategies, description, max_hold, max_profit
+
+
+def simulate_portfolio(request) -> dict:
+    strategy_ids = list(request.strategy_ids)
+    if not strategy_ids:
+        raise ValueError("At least one strategy is required")
+
+    frame, strategies, description, max_hold, max_profit = build_portfolio_overlay_frame(
+        request,
+        years=request.years,
+        use_cache=True,
+    )
     mixed_pnl_symbols = len(
-        {_strategy_pnl_symbol(strategy, global_proxy) for strategy in strategies}
+        {_strategy_pnl_symbol(strategy, _normalize_proxy(getattr(request, "proxy_symbol", None))) for strategy in strategies}
     ) > 1
     return detailed_backtest_payload(
         frame,
