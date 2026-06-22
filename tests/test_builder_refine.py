@@ -173,6 +173,39 @@ class BuilderRefineServiceTests(unittest.TestCase):
         combo.assert_called_once()
         self.assertEqual([item.id for item in captured_secondaries], [secondary_a.id, secondary_b.id])
 
+    def test_hold_days_refine_uses_prepared_frame_with_confirm_and_proxy(self):
+        request = BuilderRefineRequest(
+            mode="hold-days-sweep",
+            strategy=_draft_request(
+                confirm_symbols=["SMH", "QQQ"],
+                proxy_symbol="SOXX",
+                hold_on_buy_signal=True,
+            ),
+            max_days=3,
+        )
+        prepared = _sample_data()
+        prepared["Buy"] = True
+        prepared["Sell"] = False
+
+        with patch(
+            "api.services.prepare_builder_refine_frame",
+            return_value=(prepared, 2, 1, True, "SOXX"),
+        ) as prepare:
+            with patch("api.services.bt.backtest_days") as backtest_days:
+                backtest_days.return_value = pd.DataFrame(
+                    [{"Days": 2, "Prf": 1, "Sharpe": 1.0}]
+                )
+                rows = run_builder_refine(request)
+
+        prepare.assert_called_once()
+        backtest_days.assert_called_once_with(
+            prepared,
+            3,
+            True,
+            pnl_column="SOXX",
+        )
+        self.assertEqual(len(rows), 1)
+
     def test_indicator_sweep_returns_rows(self):
         request = BuilderRefineRequest(
             mode="indicator-sweep",
@@ -285,9 +318,9 @@ class BuilderComboSweepTests(unittest.TestCase):
         )
         data = _sample_data()
 
-        with patch("api.builder_strategy.execute_with_proxy") as execute_with_proxy:
+        with patch("api.builder_strategy.bt.execute_strategy") as execute_strategy:
             with patch("api.builder_strategy.bt._ranking_metrics") as ranking:
-                execute_with_proxy.side_effect = lambda frame, *_args, **_kwargs: frame
+                execute_strategy.side_effect = lambda frame, *_args, **_kwargs: frame
                 ranking.return_value = {
                     "PnL": 1000,
                     "MaxDD": 10.0,
@@ -315,9 +348,9 @@ class BuilderComboSweepTests(unittest.TestCase):
         ]
         data = _sample_data()
 
-        with patch("api.builder_strategy.execute_with_proxy") as execute_with_proxy:
+        with patch("api.builder_strategy.bt.execute_strategy") as execute_strategy:
             with patch("api.builder_strategy.bt._ranking_metrics") as ranking:
-                execute_with_proxy.side_effect = lambda frame, *_args, **_kwargs: frame
+                execute_strategy.side_effect = lambda frame, *_args, **_kwargs: frame
                 ranking.return_value = {
                     "PnL": 1000,
                     "MaxDD": 10.0,

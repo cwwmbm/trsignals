@@ -15,6 +15,7 @@ from api.schemas import (
     SingleBacktestRequest,
     SymbolConfirmDetailRequest,
     SymbolConfirmSweepRequest,
+    PortfolioSimulateRequest,
     UpdateStrategyRequest,
 )
 from api.services import (
@@ -26,6 +27,7 @@ from api.services import (
     run_hold_days_sweep,
     run_indicator_sweep,
     run_live_scan,
+    run_portfolio_simulation,
     run_signal_combo_sweep,
     run_single_backtest,
     run_symbol_confirm_detail,
@@ -196,3 +198,8 @@ def scan() -> list[dict]:
         return run_live_scan()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/portfolios/simulate")
+def portfolio_simulate(request: PortfolioSimulateRequest) -> dict:
+    return _handle_errors(run_portfolio_simulation, request)

@@ -244,68 +244,74 @@ def execute_saved_strategy(
     years: int = 25,
     bulk_data: pd.DataFrame | None = None,
     symbol_data: dict | None = None,
+    use_cache: bool = True,
 ) -> pd.DataFrame:
-    confirm_symbols = getattr(strategy, "confirm_symbols", None) or []
-    if confirm_symbols:
-        from api.builder_strategy import builder_signal_callable
+    original_hold_on_buy = bt.HoldOnBuySignal
+    bt.HoldOnBuySignal = bool(getattr(strategy, "hold_on_buy_signal", False))
+    try:
+        confirm_symbols = getattr(strategy, "confirm_symbols", None) or []
+        if confirm_symbols:
+            from api.builder_strategy import builder_signal_callable
 
-        labels = {item["id"]: item["label"] for item in list_indicators(builder_only=True)}
-        labels.update(
-            {
-                f"strategy:{saved.id}": saved.name
-                for saved in list_strategies()
-            }
-        )
-        signal = builder_signal_callable(
+            labels = {item["id"]: item["label"] for item in list_indicators(builder_only=True)}
+            labels.update(
+                {
+                    f"strategy:{saved.id}": saved.name
+                    for saved in list_strategies()
+                }
+            )
+            signal = builder_signal_callable(
+                strategy,
+                strategy_resolver=get_strategy_by_id,
+                labels=labels,
+            )
+            primary_symbol = strategy.symbol.strip().upper()
+            needed = list(dict.fromkeys([primary_symbol, *confirm_symbols]))
+            if symbol_data is None:
+                if bulk_data is not None:
+                    symbol_data = bt.build_symbol_dataset(bulk_data, needed)
+                else:
+                    symbol_data = bt.load_symbol_dataset(needed, years=years, use_cache=use_cache)
+            frame, days, profit, _, _, is_long, _ = bt.apply_cross_symbol_signal(
+                signal,
+                primary_symbol,
+                confirm_symbols,
+                symbol_data,
+            )
+            return execute_with_proxy(
+                frame,
+                strategy,
+                days,
+                profit,
+                is_long,
+                years=years,
+                bulk_data=bulk_data,
+            )
+
+        conditions = [_condition_dict(condition) for condition in strategy.conditions]
+        from api.builder_strategy import _compile_strategy_masks
+
+        buy, sell = _compile_strategy_masks(
+            data,
             strategy,
             strategy_resolver=get_strategy_by_id,
-            labels=labels,
         )
-        primary_symbol = strategy.symbol.strip().upper()
-        needed = list(dict.fromkeys([primary_symbol, *confirm_symbols]))
-        if symbol_data is None:
-            if bulk_data is not None:
-                symbol_data = bt.build_symbol_dataset(bulk_data, needed)
-            else:
-                symbol_data = bt.load_symbol_dataset(needed, years=years)
-        frame, days, profit, _, _, is_long, _ = bt.apply_cross_symbol_signal(
-            signal,
-            primary_symbol,
-            confirm_symbols,
-            symbol_data,
-        )
+        is_long = strategy.direction == "long"
+
+        frame = data.copy()
+        frame["Buy"] = buy
+        frame["Sell"] = sell
         return execute_with_proxy(
             frame,
             strategy,
-            days,
-            profit,
+            strategy.hold_days,
+            strategy.profit,
             is_long,
             years=years,
             bulk_data=bulk_data,
         )
-
-    conditions = [_condition_dict(condition) for condition in strategy.conditions]
-    from api.builder_strategy import _compile_strategy_masks
-
-    buy, sell = _compile_strategy_masks(
-        data,
-        strategy,
-        strategy_resolver=get_strategy_by_id,
-    )
-    is_long = strategy.direction == "long"
-
-    frame = data.copy()
-    frame["Buy"] = buy
-    frame["Sell"] = sell
-    return execute_with_proxy(
-        frame,
-        strategy,
-        strategy.hold_days,
-        strategy.profit,
-        is_long,
-        years=years,
-        bulk_data=bulk_data,
-    )
+    finally:
+        bt.HoldOnBuySignal = original_hold_on_buy
 
 
 def _builder_scan_row(
@@ -322,6 +328,7 @@ def _builder_scan_row(
         years=1,
         bulk_data=bulk_data,
         symbol_data=symbol_data,
+        use_cache=False,
     )
     is_long = strategy.direction == "long"
 

@@ -4,15 +4,26 @@ import backtest as bt
 from stats import print_stats
 import pandas as pd
 
+from api.market_data_cache import PROFILE_SINGLE, load as load_cached_frame, save as save_cached_frame
 
-def load_ticker_data(symbol, years=25):
-    yfticker = dt.to_yf_symbol(symbol)
+
+def load_ticker_data(symbol, years=25, *, use_cache=True):
+    normalized = symbol.strip().upper()
+    if use_cache:
+        cached = load_cached_frame(normalized, years, PROFILE_SINGLE)
+        if cached is not None:
+            return cached
+
+    yfticker = dt.to_yf_symbol(normalized)
     data = dt.get_data_yf(yfticker, years=years, Local=False)
     data = dt.normalize_dataframe(data)
     if 'Adj close' in data.columns:
         data = data.drop(columns=['Adj close'])
     data = dt.clean_holidays(data)
-    return ind.add_indicators(data)
+    prepared = ind.add_indicators(data)
+    if use_cache:
+        save_cached_frame(normalized, years, PROFILE_SINGLE, prepared)
+    return prepared
 
 
 def attach_proxy_column(
@@ -21,6 +32,7 @@ def attach_proxy_column(
     *,
     years: int = 25,
     bulk_data: pd.DataFrame | None = None,
+    use_cache: bool = True,
 ) -> pd.DataFrame:
     """Merge proxy close prices into the signal frame, keyed by Date."""
     proxy = proxy_symbol.strip().upper()
@@ -29,6 +41,20 @@ def attach_proxy_column(
     if proxy in data.columns:
         return data
 
+    def _merge_proxy_close(proxy_close: pd.Series) -> pd.DataFrame:
+        proxy_frame = pd.DataFrame({"Date": proxy_close.index, proxy: proxy_close.values})
+        proxy_frame["Date"] = pd.to_datetime(proxy_frame["Date"])
+        merged = data.merge(proxy_frame, on="Date", how="left")
+        data[proxy] = merged[proxy]
+        return data
+
+    if use_cache:
+        from api.market_data_cache import load_close_column
+
+        cached_close = load_close_column(proxy, years)
+        if cached_close is not None:
+            return _merge_proxy_close(cached_close)
+
     yf_symbol = dt.to_yf_symbol(proxy)
     if bulk_data is not None:
         try:
@@ -36,19 +62,11 @@ def attach_proxy_column(
         except (KeyError, TypeError):
             proxy_close = None
         if proxy_close is not None:
-            proxy_frame = pd.DataFrame({"Date": proxy_close.index, proxy: proxy_close.values})
-            proxy_frame["Date"] = pd.to_datetime(proxy_frame["Date"])
-            merged = data.merge(proxy_frame, on="Date", how="left")
-            data[proxy] = merged[proxy]
-            return data
+            return _merge_proxy_close(proxy_close)
 
     full_data = dt.get_bulk_data([yf_symbol], years=years)
     proxy_close = dt._bulk_close(full_data, yf_symbol)
-    proxy_frame = pd.DataFrame({"Date": proxy_close.index, proxy: proxy_close.values})
-    proxy_frame["Date"] = pd.to_datetime(proxy_frame["Date"])
-    merged = data.merge(proxy_frame, on="Date", how="left")
-    data[proxy] = merged[proxy]
-    return data
+    return _merge_proxy_close(proxy_close)
 
 
 def run_single_symbol_backtest(buy_signal, symbol, years=25, save_csv=True):

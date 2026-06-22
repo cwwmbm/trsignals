@@ -6,11 +6,12 @@ from api.builder_strategy import (
     backtest_builder_signal_sweep,
     builder_signal_callable,
     draft_to_saved_strategy,
+    prepare_builder_refine_frame,
 )
+from api.proxy_symbol import proxy_column, with_proxy_description
 from api.serializers import dataframe_records, detailed_backtest_payload
 from api.signal_registry import get_signal, resolve_signal
 from api.strategy_compiler import compile_buy_mask, compile_sell_mask, format_condition_preview
-from api.proxy_symbol import with_proxy_description
 from api.scan_service import execute_saved_strategy
 from api.indicator_catalog import list_indicators
 from api.strategy_store import (
@@ -235,6 +236,7 @@ def run_builder_backtest(request) -> dict:
         sell_conditions=request.sell_conditions,
         confirm_symbols=confirm_symbols,
         proxy_symbol=_normalize_proxy_symbol(symbol, request.proxy_symbol),
+        hold_on_buy_signal=request.hold_on_buy_signal,
         **session_flags,
         created_at="",
         updated_at="",
@@ -279,6 +281,8 @@ def run_builder_refine(request) -> dict | list[dict]:
         raise ValueError("Symbol confirmation sweep is not supported with custom intraday data")
 
     def _run():
+        pnl_col = proxy_column(primary)
+
         if request.mode == "signal-combo-sweep":
             secondary_strategies = [
                 strategy
@@ -294,11 +298,14 @@ def run_builder_refine(request) -> dict | list[dict]:
                 symbol,
                 strategy_resolver=get_strategy_by_id,
                 labels=labels,
+                years=years,
             )
             return dataframe_records(results)
 
-        signal = builder_signal_callable(
+        refine_frame, days, profit, is_long, pnl_col = prepare_builder_refine_frame(
             primary,
+            years=years,
+            data=data,
             strategy_resolver=get_strategy_by_id,
             labels=labels,
         )
@@ -306,25 +313,38 @@ def run_builder_refine(request) -> dict | list[dict]:
         if request.mode == "symbol-confirm-sweep":
             primary_symbol = (request.primary_symbol or symbol).strip().upper()
             symbol_pool = request.symbol_pool or [primary_symbol, "SMH", "QQQ"]
+            if primary.confirm_symbols:
+                symbol_pool = list(
+                    dict.fromkeys([*symbol_pool, primary_symbol, *primary.confirm_symbols])
+                )
+            signal = builder_signal_callable(
+                primary,
+                strategy_resolver=get_strategy_by_id,
+                labels=labels,
+            )
             results = bt.backtest_symbol_confirmation_sweep(
                 signal,
                 primary_symbol,
                 symbol_pool,
                 years=years,
+                pnl_column=pnl_col,
             )
             return dataframe_records(results)
 
         if request.mode == "hold-days-sweep":
-            data["Buy"], data["Sell"], _, _, _, _, is_long, _ = signal(data, symbol)
-            results = bt.backtest_days(data, request.max_days, is_long)
+            results = bt.backtest_days(
+                refine_frame,
+                request.max_days,
+                is_long,
+                pnl_column=pnl_col,
+            )
             return dataframe_records(results)
 
         if request.mode == "indicator-sweep":
-            data["Buy"], data["Sell"], days, profit, _, _, is_long, _ = signal(data, symbol)
             check_breadth = request.check_breadth if custom_dataset is None else False
             exclude_columns = set(custom_dataset.unavailable_indicator_ids) if custom_dataset else None
             results = indicator_tryout(
-                data,
+                refine_frame,
                 days,
                 profit,
                 is_long,
@@ -334,6 +354,7 @@ def run_builder_refine(request) -> dict | list[dict]:
                 verbose=False,
                 exclude_columns=exclude_columns,
                 include_vwap_sweeps=custom_dataset is not None and custom_dataset.has_vwap,
+                pnl_column=pnl_col,
             )
             return dataframe_records(results)
 
@@ -373,6 +394,12 @@ def list_saved_strategies() -> list[dict]:
 
 def run_live_scan() -> list[dict]:
     return run_scan()
+
+
+def run_portfolio_simulation(request) -> dict:
+    from api.portfolio_service import simulate_portfolio
+
+    return simulate_portfolio(request)
 
 
 def upload_custom_dataset(content: bytes, filename: str | None = None) -> dict:

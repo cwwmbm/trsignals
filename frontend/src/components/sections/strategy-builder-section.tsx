@@ -97,6 +97,15 @@ export function StrategyBuilderSection({
   }, [])
 
   useEffect(() => {
+    if (!initialStrategy) return
+    const symbols = [
+      initialStrategy.symbol,
+      ...(initialStrategy.confirm_symbols ?? []),
+    ]
+    setRefineSymbolPool(symbols.join(', '))
+  }, [initialStrategy])
+
+  useEffect(() => {
     if (!customDataset) return
     setRefineCheckBreadth(false)
     if (refineMode === 'symbol-confirm-sweep') {

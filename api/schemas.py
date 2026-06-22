@@ -2,6 +2,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+ScanLane = Literal["active", "testing", "archived"]
+
 
 class RuntimeOptions(BaseModel):
     monday_buy: bool | None = None
@@ -148,8 +150,11 @@ class SavedStrategy(BaseModel):
     confirm_symbols: list[str] = Field(default_factory=list)
     proxy_symbol: str | None = None
     legacy_signal: str | None = None
+    hold_on_buy_signal: bool = False
     rth_entries_only: bool = False
     eod_exit: bool = False
+    scan_lane: ScanLane = "testing"
+    scan_sort_order: int = 0
     created_at: str
     updated_at: str
 
@@ -165,12 +170,25 @@ class SaveStrategyRequest(BaseModel):
     sell_conditions: list[BuilderCondition] = Field(default_factory=list)
     confirm_symbols: list[str] = Field(default_factory=list)
     proxy_symbol: str | None = None
+    hold_on_buy_signal: bool = False
     rth_entries_only: bool = False
     eod_exit: bool = False
 
 
 class UpdateStrategyRequest(BaseModel):
-    description: str = ""
+    description: str | None = None
+    scan_lane: ScanLane | None = None
+    scan_sort_order: int | None = None
+
+
+PortfolioOverlapMode = Literal["first_signal_only", "hold_until_all_exit"]
+
+
+class PortfolioSimulateRequest(BaseModel):
+    strategy_ids: list[str] = Field(min_items=1)
+    overlap_mode: PortfolioOverlapMode = "first_signal_only"
+    proxy_symbol: str | None = None
+    years: int = Field(default=25, ge=1, le=100)
 
 
 class ScanRowResponse(BaseModel):

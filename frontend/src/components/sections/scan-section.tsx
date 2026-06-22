@@ -1,9 +1,44 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { ArrowUpRight, Check, Loader2, RefreshCw, Search, X } from 'lucide-react'
-import { getSavedStrategies, getScan, type SavedStrategy, type ScanRow } from '@/api'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import {
+  ArrowUpRight,
+  Check,
+  ChevronDown,
+  GripVertical,
+  Loader2,
+  RefreshCw,
+  Search,
+  X,
+} from 'lucide-react'
+import {
+  getSavedStrategies,
+  getScan,
+  updateStrategy,
+  type SavedStrategy,
+  type ScanLane,
+  type ScanRow,
+  type UpdateStrategyPayload,
+} from '@/api'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -52,10 +87,30 @@ const SIGNAL_ORDER = [
   'og_new_buy_signal',
 ] as const
 
+const SCAN_LANES: ScanLane[] = ['active', 'testing', 'archived']
+
+const LANE_LABELS: Record<ScanLane, string> = {
+  active: 'Active',
+  testing: 'Testing',
+  archived: 'Archived',
+}
+
 const compactHead = 'h-7 px-1.5 py-0 text-[11px] font-medium'
 const compactCell = 'px-1.5 py-0.5'
 
-function sortScanRows(rows: ScanRow[]): ScanRow[] {
+type LaneRows = Record<ScanLane, ScanRow[]>
+
+function laneContainerId(lane: ScanLane) {
+  return `lane-${lane}`
+}
+
+function parseLaneContainerId(id: string): ScanLane | null {
+  if (!id.startsWith('lane-')) return null
+  const lane = id.slice(5) as ScanLane
+  return SCAN_LANES.includes(lane) ? lane : null
+}
+
+function sortLegacyRows(rows: ScanRow[]): ScanRow[] {
   const signalRank = new Map(SIGNAL_ORDER.map((signal, index) => [signal, index]))
   return [...rows].sort((a, b) => {
     const symbolDiff = compareSymbols(a.symbol, b.symbol)
@@ -67,8 +122,59 @@ function sortScanRows(rows: ScanRow[]): ScanRow[] {
   })
 }
 
-function sortSymbolsForFilter(symbols: string[]): string[] {
-  return sortSymbols(symbols)
+function resolveScanLane(strategy: SavedStrategy | undefined): ScanLane {
+  return strategy?.scan_lane ?? 'testing'
+}
+
+function sortBuilderRows(rows: ScanRow[], strategyById: Map<string, SavedStrategy>): ScanRow[] {
+  return [...rows].sort((a, b) => {
+    const strategyA = a.strategy_id ? strategyById.get(a.strategy_id) : undefined
+    const strategyB = b.strategy_id ? strategyById.get(b.strategy_id) : undefined
+    const orderDiff = (strategyA?.scan_sort_order ?? 0) - (strategyB?.scan_sort_order ?? 0)
+    if (orderDiff !== 0) return orderDiff
+    const symbolDiff = compareSymbols(a.symbol, b.symbol)
+    if (symbolDiff !== 0) return symbolDiff
+    return a.signal.localeCompare(b.signal)
+  })
+}
+
+function groupScanRows(
+  rows: ScanRow[],
+  strategyById: Map<string, SavedStrategy>,
+): { lanes: LaneRows; legacy: ScanRow[] } {
+  const lanes: LaneRows = {
+    active: [],
+    testing: [],
+    archived: [],
+  }
+  const legacy: ScanRow[] = []
+
+  for (const row of rows) {
+    if (row.source === 'legacy') {
+      legacy.push(row)
+      continue
+    }
+    const strategy = row.strategy_id ? strategyById.get(row.strategy_id) : undefined
+    const lane = resolveScanLane(strategy)
+    lanes[lane].push(row)
+  }
+
+  for (const lane of SCAN_LANES) {
+    lanes[lane] = sortBuilderRows(lanes[lane], strategyById)
+  }
+
+  return { lanes, legacy: sortLegacyRows(legacy) }
+}
+
+function findLaneForRow(laneRows: LaneRows, rowId: string): ScanLane | null {
+  for (const lane of SCAN_LANES) {
+    if (laneRows[lane].some((row) => row.id === rowId)) return lane
+  }
+  return null
+}
+
+function countActiveSignals(rows: ScanRow[]) {
+  return rows.filter((row) => row.buy_signal || row.hold_long).length
 }
 
 function BoolCell({ value }: { value: boolean }) {
@@ -79,12 +185,333 @@ function BoolCell({ value }: { value: boolean }) {
   )
 }
 
-function resolveScanRowStrategy(
-  row: ScanRow,
-  savedStrategies: SavedStrategy[],
-): SavedStrategy | undefined {
-  if (row.source !== 'builder' || !row.strategy_id) return undefined
-  return savedStrategies.find((strategy) => strategy.id === row.strategy_id)
+function ScanTableHeader({ draggable }: { draggable?: boolean }) {
+  return (
+    <TableHeader className="bg-muted/30">
+      <TableRow className="hover:bg-transparent">
+        {draggable ? <TableHead className={cn(compactHead, 'w-8')} /> : null}
+        <TableHead className={compactHead}>Symbol</TableHead>
+        <TableHead className={cn(compactHead, 'min-w-[120px]')}>Signal</TableHead>
+        <TableHead className={cn(compactHead, 'w-10 text-center')}>Buy</TableHead>
+        <TableHead className={cn(compactHead, 'w-10 text-center')}>Hold</TableHead>
+        <TableHead className={cn(compactHead, 'w-10 text-center')}>Sell</TableHead>
+        <TableHead className={cn(compactHead, 'w-10 text-right')}>Days</TableHead>
+        <TableHead className={cn(compactHead, 'w-10 text-right')}>Prf</TableHead>
+        <TableHead className={cn(compactHead, 'w-14 text-right')}>PnL</TableHead>
+        <TableHead className={cn(compactHead, 'w-14 text-right')}>Kelly</TableHead>
+        <TableHead className={cn(compactHead, 'min-w-[200px]')}>Description</TableHead>
+        <TableHead className={cn(compactHead, 'w-40 text-right')}>Actions</TableHead>
+      </TableRow>
+    </TableHeader>
+  )
+}
+
+function ScanTableRowContent({
+  row: r,
+  strategy,
+  onBacktestStrategy,
+  onLaneChange,
+  lanePending,
+  draggable = false,
+  dragHandleProps,
+}: {
+  row: ScanRow
+  strategy?: SavedStrategy
+  onBacktestStrategy?: (strategy: SavedStrategy) => void
+  onLaneChange?: (strategy: SavedStrategy, lane: ScanLane) => void
+  lanePending?: boolean
+  draggable?: boolean
+  dragHandleProps?: {
+    setActivatorNodeRef: (element: HTMLElement | null) => void
+    listeners: ReturnType<typeof useSortable>['listeners']
+    attributes: ReturnType<typeof useSortable>['attributes']
+  }
+}) {
+  const currentLane = resolveScanLane(strategy)
+
+  return (
+    <>
+      {draggable ? (
+        <TableCell className={cn(compactCell, 'w-8')}>
+          <button
+            type="button"
+            ref={dragHandleProps?.setActivatorNodeRef}
+            className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-muted"
+            aria-label="Drag to reorder"
+            {...dragHandleProps?.attributes}
+            {...dragHandleProps?.listeners}
+          >
+            <GripVertical className="size-3.5" />
+          </button>
+        </TableCell>
+      ) : null}
+      <TableCell className={cn(compactCell, 'font-mono font-medium')}>{r.symbol}</TableCell>
+      <TableCell className={cn(compactCell, 'font-mono text-[11px]')}>{r.signal}</TableCell>
+      <TableCell className={compactCell}>
+        <BoolCell value={r.buy_signal} />
+      </TableCell>
+      <TableCell className={compactCell}>
+        <BoolCell value={r.hold_long} />
+      </TableCell>
+      <TableCell className={compactCell}>
+        <BoolCell value={r.sell_signal} />
+      </TableCell>
+      <TableCell className={cn(compactCell, 'text-right font-mono tabular-nums')}>{r.days}</TableCell>
+      <TableCell className={cn(compactCell, 'text-right font-mono tabular-nums')}>{r.profit}</TableCell>
+      <TableCell
+        className={cn(
+          compactCell,
+          'text-right font-mono tabular-nums',
+          r.trade_pnl > 0 ? 'text-[var(--gain)]' : 'text-muted-foreground',
+        )}
+      >
+        {r.trade_pnl.toFixed(1)}%
+      </TableCell>
+      <TableCell className={cn(compactCell, 'text-right font-mono tabular-nums text-muted-foreground')}>
+        {r.kelly === null ? '—' : `${r.kelly.toFixed(1)}%`}
+      </TableCell>
+      <TableCell
+        className={cn(compactCell, 'max-w-[360px] truncate text-[11px] text-muted-foreground')}
+        title={r.description}
+      >
+        {r.description}
+      </TableCell>
+      <TableCell className={compactCell}>
+        {strategy ? (
+          <div className="flex items-center justify-end gap-1">
+            <Select
+              value={currentLane}
+              onValueChange={(value) => {
+                if (!value || value === currentLane) return
+                onLaneChange?.(strategy, value as ScanLane)
+              }}
+              disabled={lanePending}
+            >
+              <SelectTrigger className="h-6 w-[92px] text-[10px]">
+                <SelectValue>
+                  {(value: string) => LANE_LABELS[value as ScanLane] ?? value}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {SCAN_LANES.map((lane) => (
+                  <SelectItem key={lane} value={lane} className="text-xs">
+                    {LANE_LABELS[lane]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 gap-1 px-1.5 text-[11px]"
+              onClick={() => onBacktestStrategy?.(strategy)}
+            >
+              Backtest
+              <ArrowUpRight className="size-3" />
+            </Button>
+          </div>
+        ) : null}
+      </TableCell>
+    </>
+  )
+}
+
+function SortableScanTableRow({
+  row,
+  strategy,
+  onBacktestStrategy,
+  onLaneChange,
+  lanePending,
+}: {
+  row: ScanRow
+  strategy?: SavedStrategy
+  onBacktestStrategy?: (strategy: SavedStrategy) => void
+  onLaneChange?: (strategy: SavedStrategy, lane: ScanLane) => void
+  lanePending?: boolean
+}) {
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
+    useSortable({ id: row.id })
+
+  return (
+    <TableRow
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+      }}
+      className={cn(
+        'hover:bg-muted/30',
+        (row.buy_signal || row.hold_long) && 'bg-[var(--gain)]/8',
+        isDragging && 'opacity-60',
+      )}
+    >
+      <ScanTableRowContent
+        row={row}
+        strategy={strategy}
+        onBacktestStrategy={onBacktestStrategy}
+        onLaneChange={onLaneChange}
+        lanePending={lanePending}
+        draggable
+        dragHandleProps={{ setActivatorNodeRef, listeners, attributes }}
+      />
+    </TableRow>
+  )
+}
+
+function StaticScanTableRow({
+  row,
+  strategy,
+  onBacktestStrategy,
+}: {
+  row: ScanRow
+  strategy?: SavedStrategy
+  onBacktestStrategy?: (strategy: SavedStrategy) => void
+}) {
+  return (
+    <TableRow
+      className={cn('hover:bg-muted/30', (row.buy_signal || row.hold_long) && 'bg-[var(--gain)]/8')}
+    >
+      <ScanTableRowContent row={row} strategy={strategy} onBacktestStrategy={onBacktestStrategy} />
+    </TableRow>
+  )
+}
+
+function ScanLaneSection({
+  lane,
+  rows,
+  expanded,
+  onToggle,
+  strategyById,
+  onBacktestStrategy,
+  onLaneChange,
+  lanePending,
+}: {
+  lane: ScanLane
+  rows: ScanRow[]
+  expanded: boolean
+  onToggle: () => void
+  strategyById: Map<string, SavedStrategy>
+  onBacktestStrategy?: (strategy: SavedStrategy) => void
+  onLaneChange?: (strategy: SavedStrategy, lane: ScanLane) => void
+  lanePending?: boolean
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: laneContainerId(lane) })
+  const activeCount = countActiveSignals(rows)
+
+  return (
+    <div className="overflow-hidden rounded-md border border-border/60">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center gap-2 bg-muted/20 px-3 py-2 text-left text-xs hover:bg-muted/30"
+      >
+        <ChevronDown
+          className={cn('size-3.5 shrink-0 transition-transform', !expanded && '-rotate-90')}
+        />
+        <span className="font-medium">{LANE_LABELS[lane]}</span>
+        <span className="text-muted-foreground">
+          {rows.length} rows · {activeCount} active
+        </span>
+      </button>
+      {expanded ? (
+        <div
+          ref={setNodeRef}
+          className={cn('overflow-x-auto', isOver && 'ring-1 ring-inset ring-primary/40')}
+        >
+          <Table className="text-xs">
+            <ScanTableHeader draggable />
+            <TableBody>
+              <SortableContext items={rows.map((row) => row.id)} strategy={verticalListSortingStrategy}>
+                {rows.map((row) => (
+                  <SortableScanTableRow
+                    key={row.id}
+                    row={row}
+                    strategy={row.strategy_id ? strategyById.get(row.strategy_id) : undefined}
+                    onBacktestStrategy={onBacktestStrategy}
+                    onLaneChange={onLaneChange}
+                    lanePending={lanePending}
+                  />
+                ))}
+              </SortableContext>
+              {rows.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={12}
+                    className="py-4 text-center text-[11px] text-muted-foreground"
+                  >
+                    Drop strategies here
+                  </TableCell>
+                </TableRow>
+              ) : null}
+            </TableBody>
+          </Table>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function LegacyScanSection({
+  rows,
+  expanded,
+  onToggle,
+}: {
+  rows: ScanRow[]
+  expanded: boolean
+  onToggle: () => void
+}) {
+  const activeCount = countActiveSignals(rows)
+
+  return (
+    <div className="overflow-hidden rounded-md border border-border/60">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center gap-2 bg-muted/20 px-3 py-2 text-left text-xs hover:bg-muted/30"
+      >
+        <ChevronDown
+          className={cn('size-3.5 shrink-0 transition-transform', !expanded && '-rotate-90')}
+        />
+        <span className="font-medium">Legacy signals</span>
+        <span className="text-muted-foreground">
+          {rows.length} rows · {activeCount} active
+        </span>
+      </button>
+      {expanded ? (
+        <div className="overflow-x-auto">
+          <Table className="text-xs">
+            <ScanTableHeader />
+            <TableBody>
+              {rows.map((row) => (
+                <StaticScanTableRow key={row.id} row={row} />
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function buildLaneUpdates(
+  lane: ScanLane,
+  rows: ScanRow[],
+  strategyById: Map<string, SavedStrategy>,
+): { id: string; payload: UpdateStrategyPayload }[] {
+  const updates: { id: string; payload: UpdateStrategyPayload }[] = []
+  rows.forEach((row, index) => {
+    if (!row.strategy_id) return
+    const strategy = strategyById.get(row.strategy_id)
+    if (!strategy) return
+    const currentLane = resolveScanLane(strategy)
+    const currentOrder = strategy.scan_sort_order ?? 0
+    if (currentLane === lane && currentOrder === index) return
+    updates.push({
+      id: strategy.id,
+      payload: { scan_lane: lane, scan_sort_order: index },
+    })
+  })
+  return updates
 }
 
 export function ScanSection({
@@ -92,8 +519,23 @@ export function ScanSection({
 }: {
   onBacktestStrategy?: (strategy: SavedStrategy) => void
 }) {
+  const queryClient = useQueryClient()
   const [query, setQuery] = useState('')
   const [symbolFilter, setSymbolFilter] = useState<string>('all')
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(
+    () => new Set(['active', 'legacy']),
+  )
+  const [laneRows, setLaneRows] = useState<LaneRows>({
+    active: [],
+    testing: [],
+    archived: [],
+  })
+  const [legacyRows, setLegacyRows] = useState<ScanRow[]>([])
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
 
   const {
     data: rows = [],
@@ -110,27 +552,165 @@ export function ScanSection({
     queryFn: getSavedStrategies,
   })
 
-  const symbols = useMemo(
-    () => sortSymbolsForFilter([...new Set(rows.map((row) => row.symbol))]),
-    [rows],
+  const strategyById = useMemo(
+    () => new Map(savedStrategies.map((strategy) => [strategy.id, strategy])),
+    [savedStrategies],
   )
 
   const filtered = useMemo(() => {
-    return sortScanRows(
-      rows.filter((r) => {
-        if (symbolFilter !== 'all' && r.symbol !== symbolFilter) return false
-        if (!query) return true
-        const q = query.toLowerCase()
-        return (
-          r.symbol.toLowerCase().includes(q) ||
-          r.signal.toLowerCase().includes(q) ||
-          r.description.toLowerCase().includes(q)
-        )
-      }),
-    )
+    return rows.filter((row) => {
+      if (symbolFilter !== 'all' && row.symbol !== symbolFilter) return false
+      if (!query) return true
+      const q = query.toLowerCase()
+      return (
+        row.symbol.toLowerCase().includes(q) ||
+        row.signal.toLowerCase().includes(q) ||
+        row.description.toLowerCase().includes(q)
+      )
+    })
   }, [rows, query, symbolFilter])
 
-  const activeSignals = filtered.filter((r) => r.buy_signal || r.hold_long).length
+  const grouped = useMemo(
+    () => groupScanRows(filtered, strategyById),
+    [filtered, strategyById],
+  )
+
+  useEffect(() => {
+    setLaneRows(grouped.lanes)
+    setLegacyRows(grouped.legacy)
+  }, [grouped])
+
+  const symbols = useMemo(
+    () => sortSymbols([...new Set(rows.map((row) => row.symbol))]),
+    [rows],
+  )
+
+  const activeSignals = filtered.filter((row) => row.buy_signal || row.hold_long).length
+
+  const laneMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: UpdateStrategyPayload }) =>
+      updateStrategy(id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['strategies'] })
+    },
+  })
+
+  const persistLaneLayout = useCallback(
+    async (nextLanes: LaneRows, touched: Set<ScanLane>) => {
+      const updates = [...touched].flatMap((lane) =>
+        buildLaneUpdates(lane, nextLanes[lane], strategyById),
+      )
+      const uniqueUpdates = new Map<string, UpdateStrategyPayload>()
+      for (const update of updates) {
+        uniqueUpdates.set(update.id, {
+          ...uniqueUpdates.get(update.id),
+          ...update.payload,
+        })
+      }
+      for (const [id, payload] of uniqueUpdates.entries()) {
+        await laneMutation.mutateAsync({ id, payload })
+      }
+    },
+    [laneMutation, strategyById],
+  )
+
+  const handleLaneChange = useCallback(
+    async (strategy: SavedStrategy, lane: ScanLane) => {
+      const currentLane = resolveScanLane(strategy)
+      if (currentLane === lane) return
+
+      const nextLanes: LaneRows = {
+        active: [...laneRows.active],
+        testing: [...laneRows.testing],
+        archived: [...laneRows.archived],
+      }
+      for (const sourceLane of SCAN_LANES) {
+        nextLanes[sourceLane] = nextLanes[sourceLane].filter((row) => row.strategy_id !== strategy.id)
+      }
+      const movedRow =
+        laneRows[currentLane].find((row) => row.strategy_id === strategy.id) ??
+        laneRows.testing.find((row) => row.strategy_id === strategy.id) ??
+        laneRows.active.find((row) => row.strategy_id === strategy.id) ??
+        laneRows.archived.find((row) => row.strategy_id === strategy.id)
+      if (movedRow) {
+        nextLanes[lane] = [...nextLanes[lane], movedRow]
+      }
+      setLaneRows(nextLanes)
+      setExpandedSections((prev) => new Set(prev).add(lane))
+      try {
+        await laneMutation.mutateAsync({
+          id: strategy.id,
+          payload: {
+            scan_lane: lane,
+            scan_sort_order: nextLanes[lane].length - 1,
+          },
+        })
+      } catch {
+        setLaneRows(grouped.lanes)
+      }
+    },
+    [grouped.lanes, laneMutation, laneRows],
+  )
+
+  const handleDragEnd = useCallback(
+    async (event: DragEndEvent) => {
+      const { active, over } = event
+      if (!over) return
+
+      const activeId = String(active.id)
+      const overId = String(over.id)
+      const sourceLane = findLaneForRow(laneRows, activeId)
+      if (!sourceLane) return
+
+      let targetLane = parseLaneContainerId(overId) ?? findLaneForRow(laneRows, overId) ?? sourceLane
+
+      const nextLanes: LaneRows = {
+        active: [...laneRows.active],
+        testing: [...laneRows.testing],
+        archived: [...laneRows.archived],
+      }
+
+      const sourceRows = [...nextLanes[sourceLane]]
+      const activeIndex = sourceRows.findIndex((row) => row.id === activeId)
+      if (activeIndex < 0) return
+
+      if (sourceLane === targetLane && !parseLaneContainerId(overId)) {
+        const overIndex = sourceRows.findIndex((row) => row.id === overId)
+        if (overIndex < 0 || activeIndex === overIndex) return
+        nextLanes[sourceLane] = arrayMove(sourceRows, activeIndex, overIndex)
+      } else {
+        const [movedRow] = sourceRows.splice(activeIndex, 1)
+        nextLanes[sourceLane] = sourceRows
+        const targetRows = sourceLane === targetLane ? sourceRows : [...nextLanes[targetLane]]
+        if (parseLaneContainerId(overId)) {
+          targetRows.push(movedRow)
+        } else {
+          const overIndex = targetRows.findIndex((row) => row.id === overId)
+          targetRows.splice(overIndex >= 0 ? overIndex : targetRows.length, 0, movedRow)
+        }
+        nextLanes[targetLane] = targetRows
+      }
+
+      setLaneRows(nextLanes)
+      const touched = new Set<ScanLane>([sourceLane])
+      if (targetLane !== sourceLane) touched.add(targetLane)
+      try {
+        await persistLaneLayout(nextLanes, touched)
+      } catch {
+        setLaneRows(grouped.lanes)
+      }
+    },
+    [grouped.lanes, laneRows, persistLaneLayout],
+  )
+
+  const toggleSection = (sectionId: string) => {
+    setExpandedSections((prev) => {
+      const next = new Set(prev)
+      if (next.has(sectionId)) next.delete(sectionId)
+      else next.add(sectionId)
+      return next
+    })
+  }
 
   return (
     <div className="flex flex-col gap-2">
@@ -157,9 +737,9 @@ export function ScanSection({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All symbols</SelectItem>
-              {symbols.map((s) => (
-                <SelectItem key={s} value={s} className="font-mono text-xs">
-                  {s}
+              {symbols.map((symbol) => (
+                <SelectItem key={symbol} value={symbol} className="font-mono text-xs">
+                  {symbol}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -195,100 +775,33 @@ export function ScanSection({
           Running scan…
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-md border border-border/60">
-          <Table className="text-xs">
-            <TableHeader className="bg-muted/30">
-              <TableRow className="hover:bg-transparent">
-                <TableHead className={compactHead}>Symbol</TableHead>
-                <TableHead className={cn(compactHead, 'min-w-[120px]')}>Signal</TableHead>
-                <TableHead className={cn(compactHead, 'w-10 text-center')}>Buy</TableHead>
-                <TableHead className={cn(compactHead, 'w-10 text-center')}>Hold</TableHead>
-                <TableHead className={cn(compactHead, 'w-10 text-center')}>Sell</TableHead>
-                <TableHead className={cn(compactHead, 'w-10 text-right')}>Days</TableHead>
-                <TableHead className={cn(compactHead, 'w-10 text-right')}>Prf</TableHead>
-                <TableHead className={cn(compactHead, 'w-14 text-right')}>PnL</TableHead>
-                <TableHead className={cn(compactHead, 'w-14 text-right')}>Kelly</TableHead>
-                <TableHead className={cn(compactHead, 'min-w-[200px]')}>Description</TableHead>
-                <TableHead className={cn(compactHead, 'w-24 text-right')}>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filtered.map((r) => (
-                <ScanTableRow
-                  key={r.id}
-                  row={r}
-                  savedStrategies={savedStrategies}
-                  onBacktestStrategy={onBacktestStrategy}
-                />
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <div className="flex flex-col gap-2">
+            {SCAN_LANES.map((lane) => (
+              <ScanLaneSection
+                key={lane}
+                lane={lane}
+                rows={laneRows[lane]}
+                expanded={expandedSections.has(lane)}
+                onToggle={() => toggleSection(lane)}
+                strategyById={strategyById}
+                onBacktestStrategy={onBacktestStrategy}
+                onLaneChange={handleLaneChange}
+                lanePending={laneMutation.isPending}
+              />
+            ))}
+            <LegacyScanSection
+              rows={legacyRows}
+              expanded={expandedSections.has('legacy')}
+              onToggle={() => toggleSection('legacy')}
+            />
+          </div>
+        </DndContext>
       )}
 
       {!isLoading && filtered.length === 0 && (
         <p className="py-3 text-center text-xs text-muted-foreground">No rows match your filters.</p>
       )}
     </div>
-  )
-}
-
-function ScanTableRow({
-  row: r,
-  savedStrategies,
-  onBacktestStrategy,
-}: {
-  row: ScanRow
-  savedStrategies: SavedStrategy[]
-  onBacktestStrategy?: (strategy: SavedStrategy) => void
-}) {
-  const strategy = resolveScanRowStrategy(r, savedStrategies)
-
-  return (
-    <TableRow className={cn('hover:bg-muted/30', (r.buy_signal || r.hold_long) && 'bg-[var(--gain)]/8')}>
-      <TableCell className={cn(compactCell, 'font-mono font-medium')}>{r.symbol}</TableCell>
-      <TableCell className={cn(compactCell, 'font-mono text-[11px]')}>{r.signal}</TableCell>
-      <TableCell className={compactCell}>
-        <BoolCell value={r.buy_signal} />
-      </TableCell>
-      <TableCell className={compactCell}>
-        <BoolCell value={r.hold_long} />
-      </TableCell>
-      <TableCell className={compactCell}>
-        <BoolCell value={r.sell_signal} />
-      </TableCell>
-      <TableCell className={cn(compactCell, 'text-right font-mono tabular-nums')}>{r.days}</TableCell>
-      <TableCell className={cn(compactCell, 'text-right font-mono tabular-nums')}>{r.profit}</TableCell>
-      <TableCell
-        className={cn(
-          compactCell,
-          'text-right font-mono tabular-nums',
-          r.trade_pnl > 0 ? 'text-[var(--gain)]' : 'text-muted-foreground',
-        )}
-      >
-        {r.trade_pnl.toFixed(1)}%
-      </TableCell>
-      <TableCell className={cn(compactCell, 'text-right font-mono tabular-nums text-muted-foreground')}>
-        {r.kelly === null ? '—' : `${r.kelly.toFixed(1)}%`}
-      </TableCell>
-      <TableCell className={cn(compactCell, 'max-w-[360px] truncate text-[11px] text-muted-foreground')} title={r.description}>
-        {r.description}
-      </TableCell>
-      <TableCell className={compactCell}>
-        {strategy ? (
-          <div className="flex justify-end">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 gap-1 px-1.5 text-[11px]"
-              onClick={() => onBacktestStrategy?.(strategy)}
-            >
-              Backtest
-              <ArrowUpRight className="size-3" />
-            </Button>
-          </div>
-        ) : null}
-      </TableCell>
-    </TableRow>
   )
 }

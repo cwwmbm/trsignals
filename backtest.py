@@ -92,7 +92,19 @@ def _format_ranking_results(results, include_value=True):
     return results
 
 
-def _run_indicator_threshold(data, days_in_trade, profitable_close, is_long, column_name, buy_sell, condition, value, include_yearly=True):
+def _run_indicator_threshold(
+    data,
+    days_in_trade,
+    profitable_close,
+    is_long,
+    column_name,
+    buy_sell,
+    condition,
+    value,
+    include_yearly=True,
+    *,
+    pnl_column=None,
+):
     if days_in_trade > 0:
         columns = ['Date', 'Close', '%Change', 'Buy', 'Sell', column_name]
         if UseProxyUnderlying:
@@ -112,7 +124,13 @@ def _run_indicator_threshold(data, days_in_trade, profitable_close, is_long, col
         else:
             data_copy['Sell'] = data_copy['Sell'] | (data_copy[column_name] >= value)
 
-    data_copy = execute_strategy(data_copy, days_in_trade, profitable_close, is_long)
+    data_copy = execute_strategy(
+        data_copy,
+        days_in_trade,
+        profitable_close,
+        is_long,
+        pnl_column=pnl_column,
+    )
     m = _ranking_metrics(data_copy, include_yearly=include_yearly)
     row = {
         'Buysell': buy_sell,
@@ -155,11 +173,11 @@ def add_yearly_to_indicator_rows(results, data, days_in_trade, profitable_close,
 
 
 #Backtest function that iterates over number of days in trade / profitable days in trade
-def backtest_days(data, max_days = 10, is_long = True, og = False):
+def backtest_days(data, max_days = 10, is_long = True, og = False, *, pnl_column=None):
     results = pd.DataFrame(columns=['Days', 'Prf', 'PnL', 'MaxDD', 'Trades', '%Pstv', 'Sharpe', 'Sortino', 'Yearly'])
     for i in range(1, max_days+1):
         for k in range(1, i+1):
-            signals = execute_strategy(data.copy(), i, k, is_long)
+            signals = execute_strategy(data.copy(), i, k, is_long, pnl_column=pnl_column)
             m = _ranking_metrics(signals)
             results.loc[i*10+k] = {
                 'Days': i,
@@ -194,27 +212,27 @@ def backtest_days(data, max_days = 10, is_long = True, og = False):
     return results
 
 #Backtest function that iterates over input indicator and its value
-def backtest_ind(data, days_in_trade, profitable_close, is_long, column_name, condition, min_value, max_value, step=0.1, og = False, include_yearly=True):
+def backtest_ind(data, days_in_trade, profitable_close, is_long, column_name, condition, min_value, max_value, step=0.1, og = False, include_yearly=True, *, pnl_column=None):
     rows = []
     for value in np.arange(min_value, max_value + step, step):
         if condition == 'both':
-            rows.append(_run_indicator_threshold(data, days_in_trade, profitable_close, is_long, column_name, 'Buy', 'more', value, include_yearly))
+            rows.append(_run_indicator_threshold(data, days_in_trade, profitable_close, is_long, column_name, 'Buy', 'more', value, include_yearly, pnl_column=pnl_column))
             cond = 'less'
         else:
             cond = condition
-        rows.append(_run_indicator_threshold(data, days_in_trade, profitable_close, is_long, column_name, 'Buy', cond, value, include_yearly))
+        rows.append(_run_indicator_threshold(data, days_in_trade, profitable_close, is_long, column_name, 'Buy', cond, value, include_yearly, pnl_column=pnl_column))
 
     return _format_ranking_results(pd.DataFrame(rows))
 
-def backtest_sell_ind(data, days_in_trade, profitable_close, is_long, column_name, condition, min_value, max_value, step=0.1, og = False, include_yearly=True):
+def backtest_sell_ind(data, days_in_trade, profitable_close, is_long, column_name, condition, min_value, max_value, step=0.1, og = False, include_yearly=True, *, pnl_column=None):
     rows = []
     for value in np.arange(min_value, max_value + step, step):
         if condition == 'both':
-            rows.append(_run_indicator_threshold(data, days_in_trade, profitable_close, is_long, column_name, 'Sell', 'more', value, include_yearly))
+            rows.append(_run_indicator_threshold(data, days_in_trade, profitable_close, is_long, column_name, 'Sell', 'more', value, include_yearly, pnl_column=pnl_column))
             cond = 'less'
         else:
             cond = condition
-        rows.append(_run_indicator_threshold(data, days_in_trade, profitable_close, is_long, column_name, 'Sell', cond, value, include_yearly))
+        rows.append(_run_indicator_threshold(data, days_in_trade, profitable_close, is_long, column_name, 'Sell', cond, value, include_yearly, pnl_column=pnl_column))
 
     return _format_ranking_results(pd.DataFrame(rows))
 
@@ -288,14 +306,38 @@ def build_symbol_dataset(full_data, symbols, symbol_to_yf=None):
     return dataset
 
 
-def load_symbol_dataset(symbols, years=25):
+def load_symbol_dataset(symbols, years=25, *, use_cache=True):
     """Load enriched, indicator-ready data for each symbol."""
-    context_symbols = [s for s in dt.MARKET_CONTEXT_SYMBOLS if s not in symbols]
-    all_symbols = list(dict.fromkeys(list(symbols) + context_symbols))
+    from api.market_data_cache import PROFILE_BULK, load as load_cached_frame, save as save_cached_frame
+
+    normalized = list(dict.fromkeys(symbol.strip().upper() for symbol in symbols))
+    dataset = {}
+    missing = []
+
+    if use_cache:
+        for symbol in normalized:
+            cached = load_cached_frame(symbol, years, PROFILE_BULK)
+            if cached is not None:
+                dataset[symbol] = cached
+            else:
+                missing.append(symbol)
+    else:
+        missing = normalized
+
+    if not missing:
+        return dataset
+
+    context_symbols = [s for s in dt.MARKET_CONTEXT_SYMBOLS if s not in missing]
+    all_symbols = list(dict.fromkeys(list(missing) + context_symbols))
     symbol_to_yf = {symbol: dt.to_yf_symbol(symbol) for symbol in all_symbols}
     yf_symbols = list(symbol_to_yf.values())
     full_data = dt.get_bulk_data(yf_symbols, years=years)
-    return build_symbol_dataset(full_data, symbols, symbol_to_yf)
+    fresh = build_symbol_dataset(full_data, missing, symbol_to_yf)
+    for symbol in missing:
+        dataset[symbol] = fresh[symbol]
+        if use_cache:
+            save_cached_frame(symbol, years, PROFILE_BULK, fresh[symbol])
+    return dataset
 
 def _buy_series_by_date(data, buy):
     return pd.Series(buy.values, index=pd.to_datetime(data['Date']))
@@ -353,7 +395,7 @@ def backtest_cross_symbol(buy_signal, primary_symbol, confirm_symbols=None, year
     data = execute_strategy(data, days, profit, is_long)
     return data, days, profit, description, is_long
 
-def backtest_symbol_confirmation_sweep(buy_signal, primary_symbol, symbol_pool, years=25, confirm_sets=None):
+def backtest_symbol_confirmation_sweep(buy_signal, primary_symbol, symbol_pool, years=25, confirm_sets=None, *, pnl_column=None):
     """
     Sweep all confirmation subsets from symbol_pool (excluding primary).
     Includes a primary-only row with no confirmation symbols.
@@ -373,7 +415,7 @@ def backtest_symbol_confirmation_sweep(buy_signal, primary_symbol, symbol_pool, 
         data, days, profit, _, _, is_long, _ = apply_cross_symbol_signal(
             buy_signal, primary_symbol, confirm_symbols, symbol_data
         )
-        data = execute_strategy(data, days, profit, is_long)
+        data = execute_strategy(data, days, profit, is_long, pnl_column=pnl_column)
         results = results._append(
             _backtest_result_row(buy_signal, primary_symbol, confirm_symbols, data, days, profit),
             ignore_index=True,

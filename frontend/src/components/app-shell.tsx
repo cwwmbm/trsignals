@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import {
+  Briefcase,
   CandlestickChart,
   FlaskConical,
   HelpCircle,
@@ -20,14 +21,16 @@ import { ScanSection } from '@/components/sections/scan-section'
 import { StrategiesSection } from '@/components/sections/strategies-section'
 import { StrategyBuilderSection } from '@/components/sections/strategy-builder-section'
 import { HelpSection } from '@/components/sections/help-section'
+import { PortfolioSection } from '@/components/sections/portfolio-section'
 
-type SectionId = 'backtest' | 'strategies' | 'builder' | 'scan' | 'help'
+type SectionId = 'backtest' | 'strategies' | 'builder' | 'scan' | 'portfolio' | 'help'
 
 const NAV: { id: SectionId; label: string; icon: typeof FlaskConical }[] = [
   { id: 'backtest', label: 'Backtest', icon: FlaskConical },
   { id: 'strategies', label: 'All strategies', icon: ListChecks },
   { id: 'builder', label: 'New strategy builder', icon: Wrench },
   { id: 'scan', label: 'Scan', icon: Radar },
+  { id: 'portfolio', label: 'Portfolio', icon: Briefcase },
   { id: 'help', label: 'Help', icon: HelpCircle },
 ]
 
@@ -36,6 +39,10 @@ const TITLES: Record<SectionId, { title: string; subtitle: string }> = {
   strategies: { title: 'All strategies', subtitle: 'Every saved strategy with its key metrics.' },
   builder: { title: 'New strategy builder', subtitle: 'Compose entry rules and save a new signal.' },
   scan: { title: 'Scan', subtitle: 'Latest signal scan across the symbol universe.' },
+  portfolio: {
+    title: 'Portfolio',
+    subtitle: 'Combine saved strategies and simulate shared all-in performance.',
+  },
   help: { title: 'Help', subtitle: 'Documentation, run modes, and glossary.' },
 }
 
@@ -176,6 +183,7 @@ export function AppShell() {
               }}
             />
           )}
+          {active === 'portfolio' && <PortfolioSection />}
           {active === 'help' && <HelpSection />}
         </main>
       </div>

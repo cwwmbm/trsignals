@@ -135,6 +135,8 @@ export type BuilderRefinePayload = {
   check_both?: boolean;
 };
 
+export type ScanLane = "active" | "testing" | "archived";
+
 export type SaveStrategyPayload = {
   name: string;
   symbol: string;
@@ -146,8 +148,11 @@ export type SaveStrategyPayload = {
   sell_conditions?: BuilderConditionPayload[];
   confirm_symbols?: string[];
   proxy_symbol?: string;
+  hold_on_buy_signal?: boolean;
   rth_entries_only?: boolean;
   eod_exit?: boolean;
+  scan_lane?: ScanLane;
+  scan_sort_order?: number;
 };
 
 export type SavedStrategy = SaveStrategyPayload & {
@@ -155,6 +160,12 @@ export type SavedStrategy = SaveStrategyPayload & {
   legacy_signal?: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type UpdateStrategyPayload = {
+  description?: string;
+  scan_lane?: ScanLane;
+  scan_sort_order?: number;
 };
 
 export type ScanRow = {
@@ -171,6 +182,15 @@ export type ScanRow = {
   trade_pnl: number;
   kelly: number | null;
   description: string;
+};
+
+export type PortfolioOverlapMode = "first_signal_only" | "hold_until_all_exit";
+
+export type PortfolioSimulatePayload = {
+  strategy_ids: string[];
+  overlap_mode: PortfolioOverlapMode;
+  proxy_symbol?: string;
+  years?: number;
 };
 
 export async function getSignals(): Promise<SignalInfo[]> {
@@ -236,13 +256,19 @@ export function runBuilderRefine(
   return postJson<DetailedResult | SweepResult>("/backtests/builder/refine", payload);
 }
 
+export function runPortfolioSimulation(
+  payload: PortfolioSimulatePayload,
+): Promise<DetailedResult> {
+  return postJson<DetailedResult>("/portfolios/simulate", payload);
+}
+
 export function saveStrategy(payload: SaveStrategyPayload): Promise<SavedStrategy> {
   return postJson<SavedStrategy>("/strategies", payload);
 }
 
 export function updateStrategy(
   id: string,
-  payload: { description: string },
+  payload: UpdateStrategyPayload,
 ): Promise<SavedStrategy> {
   return patchJson<SavedStrategy>(`/strategies/${id}`, payload);
 }

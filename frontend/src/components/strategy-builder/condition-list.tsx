@@ -1,7 +1,24 @@
 'use client'
 
-import { memo } from 'react'
-import { Plus, Trash2 } from 'lucide-react'
+import { memo, useMemo } from 'react'
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  type DragEndEvent,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { GripVertical, Plus, Trash2 } from 'lucide-react'
 import type { BuilderConditionPayload, CompareMode, IndicatorInfo } from '@/api'
 import { isFlagOperator } from '@/api'
 import { Button } from '@/components/ui/button'
@@ -50,6 +67,17 @@ export function newConditionRow(
     logic: 'AND',
     ...overrides,
   }
+}
+
+export function reorderConditions(
+  conditions: ConditionRow[],
+  activeId: string,
+  overId: string,
+): ConditionRow[] {
+  const oldIndex = conditions.findIndex((c) => c.id === activeId)
+  const newIndex = conditions.findIndex((c) => c.id === overId)
+  if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) return conditions
+  return arrayMove(conditions, oldIndex, newIndex)
 }
 
 export function formatConditionPreview(
@@ -197,6 +225,175 @@ function CompareRightOperand({
   )
 }
 
+function SortableConditionRow({
+  condition,
+  index,
+  reorderable,
+  indicators,
+  rightIndicators,
+  rightIndicatorIds,
+  minConditions,
+  totalConditions,
+  onUpdate,
+  onRemove,
+}: {
+  condition: ConditionRow
+  index: number
+  reorderable: boolean
+  indicators: IndicatorInfo[]
+  rightIndicators: IndicatorInfo[]
+  rightIndicatorIds: Set<string>
+  minConditions: number
+  totalConditions: number
+  onUpdate: (id: string, patch: Partial<ConditionRow>) => void
+  onRemove: (id: string) => void
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: condition.id, disabled: !reorderable })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  }
+
+  const flagCondition = isFlagIndicator(indicators, condition.left)
+  const compareMode: CompareMode = getCompareMode(indicators, condition.left)
+  const invalidRight =
+    !flagCondition &&
+    compareMode !== 'none' &&
+    isInvalidCompareRight(indicators, condition.left, condition.right, rightIndicatorIds)
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        'flex flex-col gap-1 rounded-md border border-border/50 bg-muted/15 px-2 py-1.5',
+        isDragging && 'z-10 opacity-60 shadow-md ring-1 ring-primary/30',
+      )}
+    >
+      <div className="flex flex-wrap items-center gap-1.5">
+        {reorderable ? (
+          <button
+            ref={setActivatorNodeRef}
+            type="button"
+            className={cn(
+              'flex size-7 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground active:cursor-grabbing',
+            )}
+            aria-label="Reorder condition"
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical className="size-3.5" />
+          </button>
+        ) : null}
+
+        {index > 0 ? (
+          <div className="flex shrink-0 overflow-hidden rounded border border-border/60">
+            {(['AND', 'OR'] as const).map((l) => (
+              <button
+                key={l}
+                type="button"
+                onClick={() => onUpdate(condition.id, { logic: l })}
+                className={cn(
+                  'px-2 py-0.5 text-[10px] font-medium transition-colors',
+                  condition.logic === l
+                    ? 'bg-primary/20 text-foreground'
+                    : 'text-muted-foreground hover:bg-muted',
+                )}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <span className="w-[52px] shrink-0 text-center text-[10px] font-medium text-muted-foreground">
+            IF
+          </span>
+        )}
+
+        <IndicatorSelect
+          value={condition.left}
+          onChange={(left) =>
+            onUpdate(condition.id, {
+              left,
+              ...normalizeConditionForLeft(indicators, left, condition, rightIndicatorIds),
+            })
+          }
+          indicators={indicators}
+          compact
+          className="min-w-[12rem] flex-[2]"
+        />
+        {flagCondition ? (
+          <Select
+            value={condition.operator}
+            onValueChange={(v) =>
+              v && onUpdate(condition.id, { operator: v as ConditionRow['operator'], right: '' })
+            }
+          >
+            <SelectTrigger size="sm" className="h-8 min-w-[6.5rem] shrink-0 text-xs">
+              <SelectValue>{(value: string) => formatConditionOperator(value)}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="is true">Is true</SelectItem>
+              <SelectItem value="is false">Is false</SelectItem>
+            </SelectContent>
+          </Select>
+        ) : (
+          <>
+            <Select
+              value={condition.operator}
+              onValueChange={(v) =>
+                v && onUpdate(condition.id, { operator: v as ConditionRow['operator'] })
+              }
+            >
+              <SelectTrigger size="sm" className="h-8 w-[5.5rem] shrink-0 font-mono text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {OPERATORS.map((op) => (
+                  <SelectItem key={op} value={op} className="font-mono text-xs">
+                    {op}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <CompareRightOperand
+              condition={condition}
+              indicators={indicators}
+              rightIndicators={rightIndicators}
+              rightIndicatorIds={rightIndicatorIds}
+              onChange={(patch) => onUpdate(condition.id, patch)}
+            />
+          </>
+        )}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7 shrink-0 text-muted-foreground hover:text-[var(--loss)]"
+          onClick={() => onRemove(condition.id)}
+          aria-label="Remove condition"
+          disabled={totalConditions <= minConditions}
+        >
+          <Trash2 className="size-3.5" />
+        </Button>
+      </div>
+      {invalidRight ? (
+        <p className={cn('text-[10px] text-[var(--loss)]', reorderable ? 'pl-[76px]' : 'pl-[60px]')}>
+          Choose a valid compare target for this indicator.
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
 export const ConditionList = memo(function ConditionList({
   conditions,
   onChange,
@@ -216,8 +413,24 @@ export const ConditionList = memo(function ConditionList({
   minConditions?: number
   emptyHint?: string
 }) {
+  const reorderable = conditions.length > 1
+  const sortableIds = useMemo(() => conditions.map((c) => c.id), [conditions])
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+
   const update = (id: string, patch: Partial<ConditionRow>) =>
     onChange((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)))
+
+  const remove = (id: string) => onChange((prev) => prev.filter((x) => x.id !== id))
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    onChange((prev) => reorderConditions(prev, String(active.id), String(over.id)))
+  }
 
   if (conditions.length === 0) {
     return (
@@ -228,120 +441,27 @@ export const ConditionList = memo(function ConditionList({
   }
 
   return (
-    <div className="flex flex-col gap-1.5">
-      {conditions.map((c, i) => {
-        const flagCondition = isFlagIndicator(indicators, c.left)
-        const compareMode: CompareMode = getCompareMode(indicators, c.left)
-        const invalidRight =
-          !flagCondition &&
-          compareMode !== 'none' &&
-          isInvalidCompareRight(indicators, c.left, c.right, rightIndicatorIds)
-
-        return (
-          <div
-            key={c.id}
-            className="flex flex-col gap-1 rounded-md border border-border/50 bg-muted/15 px-2 py-1.5"
-          >
-            <div className="flex flex-wrap items-center gap-1.5">
-              {i > 0 ? (
-                <div className="flex shrink-0 overflow-hidden rounded border border-border/60">
-                  {(['AND', 'OR'] as const).map((l) => (
-                    <button
-                      key={l}
-                      type="button"
-                      onClick={() => update(c.id, { logic: l })}
-                      className={cn(
-                        'px-2 py-0.5 text-[10px] font-medium transition-colors',
-                        c.logic === l
-                          ? 'bg-primary/20 text-foreground'
-                          : 'text-muted-foreground hover:bg-muted',
-                      )}
-                    >
-                      {l}
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <span className="w-[52px] shrink-0 text-center text-[10px] font-medium text-muted-foreground">
-                  IF
-                </span>
-              )}
-
-              <IndicatorSelect
-                value={c.left}
-                onChange={(left) =>
-                  update(c.id, {
-                    left,
-                    ...normalizeConditionForLeft(indicators, left, c, rightIndicatorIds),
-                  })
-                }
-                indicators={indicators}
-                compact
-                className="min-w-[12rem] flex-[2]"
-              />
-              {flagCondition ? (
-                <Select
-                  value={c.operator}
-                  onValueChange={(v) =>
-                    v && update(c.id, { operator: v as ConditionRow['operator'], right: '' })
-                  }
-                >
-                  <SelectTrigger size="sm" className="h-8 min-w-[6.5rem] shrink-0 text-xs">
-                    <SelectValue>{(value: string) => formatConditionOperator(value)}</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="is true">Is true</SelectItem>
-                    <SelectItem value="is false">Is false</SelectItem>
-                  </SelectContent>
-                </Select>
-              ) : (
-                <>
-                  <Select
-                    value={c.operator}
-                    onValueChange={(v) =>
-                      v && update(c.id, { operator: v as ConditionRow['operator'] })
-                    }
-                  >
-                    <SelectTrigger size="sm" className="h-8 w-[5.5rem] shrink-0 font-mono text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {OPERATORS.map((op) => (
-                        <SelectItem key={op} value={op} className="font-mono text-xs">
-                          {op}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <CompareRightOperand
-                    condition={c}
-                    indicators={indicators}
-                    rightIndicators={rightIndicators}
-                    rightIndicatorIds={rightIndicatorIds}
-                    onChange={(patch) => update(c.id, patch)}
-                  />
-                </>
-              )}
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7 shrink-0 text-muted-foreground hover:text-[var(--loss)]"
-                onClick={() => onChange((prev) => prev.filter((x) => x.id !== c.id))}
-                aria-label="Remove condition"
-                disabled={conditions.length <= minConditions}
-              >
-                <Trash2 className="size-3.5" />
-              </Button>
-            </div>
-            {invalidRight ? (
-              <p className="pl-[60px] text-[10px] text-[var(--loss)]">
-                Choose a valid compare target for this indicator.
-              </p>
-            ) : null}
-          </div>
-        )
-      })}
-    </div>
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
+        <div className="flex flex-col gap-1.5">
+          {conditions.map((c, i) => (
+            <SortableConditionRow
+              key={c.id}
+              condition={c}
+              index={i}
+              reorderable={reorderable}
+              indicators={indicators}
+              rightIndicators={rightIndicators}
+              rightIndicatorIds={rightIndicatorIds}
+              minConditions={minConditions}
+              totalConditions={conditions.length}
+              onUpdate={update}
+              onRemove={remove}
+            />
+          ))}
+        </div>
+      </SortableContext>
+    </DndContext>
   )
 })
 

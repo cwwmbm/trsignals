@@ -117,20 +117,20 @@ VWAP_SWEEPS = [
 VFI_EXCLUDED_TICKERS = {'NQ', 'ES', 'GC', 'SI', 'HG', 'RTY', 'YM', 'CL', 'SOXX', 'FXI'}
 
 
-def _run_one_sweep(data, days, profit, is_long, is_sell, og, spec):
+def _run_one_sweep(data, days, profit, is_long, is_sell, og, spec, *, pnl_column=None):
     buy_col, sell_col, condition = spec[0], spec[1], spec[2]
     buy_min, buy_max, buy_step = spec[3], spec[4], spec[5]
     sell_min, sell_max, sell_step = (spec[6], spec[7], spec[8]) if len(spec) > 6 else (buy_min, buy_max, buy_step)
     column = sell_col if is_sell else buy_col
     min_val, max_val, step = (sell_min, sell_max, sell_step) if is_sell else (buy_min, buy_max, buy_step)
     fn = bt.backtest_sell_ind if is_sell else bt.backtest_ind
-    return fn(data, days, profit, is_long, column, condition, min_val, max_val, step, og, include_yearly=False)
+    return fn(data, days, profit, is_long, column, condition, min_val, max_val, step, og, include_yearly=False, pnl_column=pnl_column)
 
 
-def _collect_sweeps(running_rows, data, days, profit, is_long, is_sell, og, specs, verbose=True, timing=False):
+def _collect_sweeps(running_rows, data, days, profit, is_long, is_sell, og, specs, verbose=True, timing=False, *, pnl_column=None):
     for spec in specs:
         started = perf_counter()
-        results = _run_one_sweep(data, days, profit, is_long, is_sell, og, spec)
+        results = _run_one_sweep(data, days, profit, is_long, is_sell, og, spec, pnl_column=pnl_column)
         top_results = bt.add_yearly_to_indicator_rows(results.head(3), data, days, profit, is_long)
         if timing:
             buy_col, sell_col = spec[0], spec[1]
@@ -142,7 +142,7 @@ def _collect_sweeps(running_rows, data, days, profit, is_long, is_sell, og, spec
     return running_rows
 
 
-def indicator_tryout(data, days, profit, is_long, is_sell=False, check_breadth=True, check_both=True, verbose=True, timing=False, exclude_columns=None, include_vwap_sweeps=False):
+def indicator_tryout(data, days, profit, is_long, is_sell=False, check_breadth=True, check_both=True, verbose=True, timing=False, exclude_columns=None, include_vwap_sweeps=False, *, pnl_column=None):
     """Grid-search indicator filters layered on the current buy/sell signal."""
     exclude_columns = set(exclude_columns or [])
     total_started = perf_counter()
@@ -164,28 +164,28 @@ def indicator_tryout(data, days, profit, is_long, is_sell=False, check_breadth=T
         if check_breadth:
             running_rows = _collect_sweeps(
                 running_rows, data, days, profit, is_long, is_sell, og,
-                _filter_specs(BREADTH_SWEEPS), verbose, timing,
+                _filter_specs(BREADTH_SWEEPS), verbose, timing, pnl_column=pnl_column,
             )
             if data['Date'].dt.year.iloc[0] >= 2003:
                 running_rows = _collect_sweeps(
                     running_rows, data, days, profit, is_long, is_sell, og,
-                    _filter_specs(POST_2003_BREADTH_SWEEPS), verbose, timing,
+                    _filter_specs(POST_2003_BREADTH_SWEEPS), verbose, timing, pnl_column=pnl_column,
                 )
 
         if check_both or not check_breadth:
             running_rows = _collect_sweeps(
                 running_rows, data, days, profit, is_long, is_sell, og,
-                _filter_specs(PRICE_SWEEPS), verbose, timing,
+                _filter_specs(PRICE_SWEEPS), verbose, timing, pnl_column=pnl_column,
             )
             if ticker not in VFI_EXCLUDED_TICKERS:
                 running_rows = _collect_sweeps(
                     running_rows, data, days, profit, is_long, is_sell, og,
-                    _filter_specs(VFI_SWEEPS), verbose, timing,
+                    _filter_specs(VFI_SWEEPS), verbose, timing, pnl_column=pnl_column,
                 )
             if include_vwap_sweeps and 'VWAP' in data.columns and data['VWAP'].notna().any():
                 running_rows = _collect_sweeps(
                     running_rows, data, days, profit, is_long, is_sell, og,
-                    _filter_specs(VWAP_SWEEPS), verbose, timing,
+                    _filter_specs(VWAP_SWEEPS), verbose, timing, pnl_column=pnl_column,
                 )
     finally:
         bt.set_timing_enabled(previous_timing)

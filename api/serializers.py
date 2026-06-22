@@ -137,19 +137,30 @@ def equity_curve_payload(
     return dataframe_records(rows)
 
 
-def trade_payload(data: pd.DataFrame, *, is_intraday: bool = False) -> list[dict]:
+def trade_payload(
+    data: pd.DataFrame,
+    *,
+    is_intraday: bool = False,
+    portfolio_equity: bool = False,
+) -> list[dict]:
     trades = []
     entry = None
     for _, row in data.iterrows():
         if bool(row.get("LongTradeIn", False)):
             entry = row
         if bool(row.get("LongTradeOut", False)) and entry is not None:
+            if portfolio_equity:
+                entry_price = float(entry["TradeEntry"])
+                exit_price = float(row["RollingPnL"])
+            else:
+                entry_price = float(entry["Close"])
+                exit_price = float(row["Close"])
             trades.append(
                 {
                     "entry_date": _format_timestamp(entry["Date"], is_intraday=is_intraday),
                     "exit_date": _format_timestamp(row["Date"], is_intraday=is_intraday),
-                    "entry_price": float(entry["Close"]),
-                    "exit_price": float(row["Close"]),
+                    "entry_price": entry_price,
+                    "exit_price": exit_price,
                     "trade_pnl": float(row["TradePnL"]),
                     "days_in_trade": int(row.get("DaysInTrade", 0)),
                     "status": "Closed",
@@ -158,12 +169,18 @@ def trade_payload(data: pd.DataFrame, *, is_intraday: bool = False) -> list[dict
             entry = None
     if entry is not None and bool(data.iloc[-1].get("HoldLong", False)):
         last = data.iloc[-1]
+        if portfolio_equity:
+            entry_price = float(entry["TradeEntry"])
+            exit_price = float(last["RollingPnL"])
+        else:
+            entry_price = float(entry["Close"])
+            exit_price = float(last["Close"])
         trades.append(
             {
                 "entry_date": _format_timestamp(entry["Date"], is_intraday=is_intraday),
                 "exit_date": "Open",
-                "entry_price": float(entry["Close"]),
-                "exit_price": float(last["Close"]),
+                "entry_price": entry_price,
+                "exit_price": exit_price,
                 "trade_pnl": float(last["TradePnL"]),
                 "days_in_trade": int(last.get("DaysInTrade", 0)),
                 "status": "Open",
@@ -180,6 +197,7 @@ def detailed_backtest_payload(
     *,
     periods_per_year: int = 252,
     is_intraday: bool = False,
+    portfolio_equity: bool = False,
 ) -> dict:
     total_bars = int(data.shape[0])
     equity_curve = equity_curve_payload(data, is_intraday=is_intraday)
@@ -194,7 +212,7 @@ def detailed_backtest_payload(
         "yearly": yearly_payload(data),
         "monthly": monthly_payload(data),
         "equity_curve": equity_curve,
-        "trades": trade_payload(data, is_intraday=is_intraday),
+        "trades": trade_payload(data, is_intraday=is_intraday, portfolio_equity=portfolio_equity),
         "equity_curve_total_points": total_bars,
         "equity_curve_shown_points": len(equity_curve),
     }

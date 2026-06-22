@@ -190,6 +190,7 @@ function buildSavePayload(
   rthEntriesOnly = true,
   eodExit = true,
   backtestAllData = false,
+  holdOnBuySignal = false,
 ): SaveStrategyPayload {
   const payload = buildPayload(
     symbol,
@@ -208,6 +209,7 @@ function buildSavePayload(
     rthEntriesOnly,
     eodExit,
     backtestAllData,
+    holdOnBuySignal,
   )
   if (!payload.name) {
     throw new Error('Strategy name is required to save')
@@ -223,10 +225,9 @@ function buildSavePayload(
     sell_conditions: payload.sell_conditions,
     confirm_symbols: payload.confirm_symbols ?? [],
     ...(payload.proxy_symbol ? { proxy_symbol: payload.proxy_symbol } : {}),
-    ...(payload.rth_entries_only !== undefined
-      ? { rth_entries_only: payload.rth_entries_only }
-      : {}),
-    ...(payload.eod_exit !== undefined ? { eod_exit: payload.eod_exit } : {}),
+    ...(customDatasetId
+      ? { rth_entries_only: rthEntriesOnly, eod_exit: eodExit }
+      : { hold_on_buy_signal: holdOnBuySignal }),
   }
 }
 
@@ -553,6 +554,7 @@ export const StrategyBuilderSetup = forwardRef<
     setDescription(initialStrategy.description ?? '')
     setRthEntriesOnly(initialStrategy.rth_entries_only ?? true)
     setEodExit(initialStrategy.eod_exit ?? true)
+    setHoldOnBuySignal(initialStrategy.hold_on_buy_signal ?? false)
     setEntryConditions(entryRows.length > 0 ? entryRows : defaultEntryConditions())
     setExitConditions(exitRows)
     setEntryOpen(true)
@@ -600,6 +602,7 @@ export const StrategyBuilderSetup = forwardRef<
           rthEntriesOnly,
           eodExit,
           backtestAllData,
+          holdOnBuySignal,
         ),
       buildRefineDraft: () =>
         buildPayload(
@@ -732,6 +735,7 @@ export const StrategyBuilderSetup = forwardRef<
           rthEntriesOnly,
           eodExit,
           backtestAllData,
+          holdOnBuySignal,
         ),
       )
     } catch (error) {
