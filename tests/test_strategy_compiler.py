@@ -3,7 +3,12 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from api.strategy_compiler import compile_buy_mask, compile_sell_mask, format_condition_preview
+from api.strategy_compiler import (
+    compile_buy_mask,
+    compile_sell_mask,
+    evaluate_condition_snapshot,
+    format_condition_preview,
+)
 
 
 class StrategyCompilerTests(unittest.TestCase):
@@ -173,6 +178,74 @@ class StrategyCompilerTests(unittest.TestCase):
             [{"left": "Close", "operator": "<", "right": "SMA200", "logic": "AND"}],
         )
         self.assertEqual(mask.tolist(), [True, True, False, False])
+
+    def test_evaluate_condition_snapshot_mixed_pass_fail(self):
+        snapshot = evaluate_condition_snapshot(
+            self.data,
+            [
+                {"left": "Close", "operator": "<", "right": "SMA200", "logic": "AND"},
+                {"left": "RSI2", "operator": "<=", "right": "30", "logic": "AND"},
+            ],
+            labels={"Close": "Close", "SMA200": "SMA(200)", "RSI2": "RSI(2)"},
+        )
+        self.assertEqual(len(snapshot), 2)
+        self.assertFalse(snapshot[0]["passed"])
+        self.assertTrue(snapshot[1]["passed"])
+        self.assertIsNone(snapshot[0]["logic"])
+        self.assertEqual(snapshot[1]["logic"], "AND")
+        self.assertEqual(snapshot[0]["left_value"], "102")
+        self.assertEqual(snapshot[0]["right_value"], "99.5")
+        self.assertEqual(snapshot[1]["left_value"], "30")
+        self.assertEqual(snapshot[1]["right_value"], "30")
+
+    def test_evaluate_condition_snapshot_flag_operator(self):
+        data = pd.DataFrame({"LowerCloses3": [1, -1, 1, -1]})
+        snapshot = evaluate_condition_snapshot(
+            data,
+            [{"left": "LowerCloses3", "operator": "is false", "right": "", "logic": "AND"}],
+            labels={"LowerCloses3": "Lower closes (3)"},
+        )
+        self.assertEqual(len(snapshot), 1)
+        self.assertTrue(snapshot[0]["passed"])
+        self.assertEqual(snapshot[0]["left_value"], "-1")
+        self.assertIsNone(snapshot[0]["right_value"])
+
+    def test_evaluate_condition_snapshot_nested_strategy(self):
+        strategies = {
+            "saved-1": SimpleNamespace(
+                conditions=[
+                    {"left": "Close", "operator": "<", "right": "SMA200", "logic": "AND"},
+                ],
+            )
+        }
+        snapshot = evaluate_condition_snapshot(
+            self.data,
+            [{"left": "strategy:saved-1", "operator": "is true", "right": "", "logic": "AND"}],
+            strategy_resolver=strategies.get,
+            labels={"strategy:saved-1": "Close under SMA"},
+        )
+        self.assertEqual(len(snapshot), 1)
+        self.assertFalse(snapshot[0]["passed"])
+        self.assertEqual(snapshot[0]["label"], "Close under SMA is true")
+
+    def test_evaluate_condition_snapshot_crosses_above(self):
+        data = pd.DataFrame({"RSI2": [18.0, 19.0, 21.0, 22.0]})
+        snapshot = evaluate_condition_snapshot(
+            data,
+            [{"left": "RSI2", "operator": "crosses above", "right": "20", "logic": "AND"}],
+            labels={"RSI2": "RSI(2)"},
+        )
+        self.assertEqual(len(snapshot), 1)
+        self.assertFalse(snapshot[0]["passed"])
+        self.assertEqual(snapshot[0]["left_value"], "22")
+        self.assertEqual(snapshot[0]["right_value"], "20")
+
+        data_cross = pd.DataFrame({"RSI2": [18.0, 19.0, 19.5, 21.0]})
+        snapshot_cross = evaluate_condition_snapshot(
+            data_cross,
+            [{"left": "RSI2", "operator": "crosses above", "right": "20", "logic": "AND"}],
+        )
+        self.assertTrue(snapshot_cross[0]["passed"])
 
 
 if __name__ == "__main__":

@@ -340,12 +340,35 @@ def load_symbol_dataset(symbols, years=25, *, use_cache=True):
     return dataset
 
 def _buy_series_by_date(data, buy):
-    return pd.Series(buy.values, index=pd.to_datetime(data['Date']))
+    length = len(data)
+    dates = pd.to_datetime(data["Date"])
+    if isinstance(buy, pd.Series):
+        values = buy.reindex(data.index).fillna(False).astype(bool).to_numpy()
+    elif isinstance(buy, (bool, np.bool_)):
+        values = np.full(length, bool(buy))
+    else:
+        values = np.asarray(buy, dtype=bool)
+    return pd.Series(values, index=dates)
+
+
+def _confirm_active_by_date(data, buy, sell, days, profit, is_long):
+    """True when confirm fires buy today or is holding without a sell signal."""
+    frame = data.copy()
+    frame["Buy"] = buy
+    frame["Sell"] = sell
+    executed = execute_strategy(frame, days, profit, is_long)
+    buy_series = _buy_series_by_date(data, buy)
+    hold = pd.Series(executed["HoldLong"].values, index=pd.to_datetime(data["Date"]))
+    sell_series = _buy_series_by_date(data, sell)
+    return buy_series | (hold & ~sell_series)
+
 
 def apply_cross_symbol_signal(buy_signal, primary_symbol, confirm_symbols, symbol_data):
     """
-    Apply a signal across symbols. Buy fires only when every symbol confirms;
-    sell and hold rules come from the primary symbol only.
+    Apply a signal across symbols. Primary buy fires when the primary entry
+    signal is true and every confirm symbol is active that day (confirm buy
+    today, or confirm still holding without a sell signal). Sell and hold
+    rules for the traded position come from the primary symbol only.
     """
     confirm_symbols = [s for s in confirm_symbols if s != primary_symbol]
     primary = symbol_data[primary_symbol].copy()
@@ -354,8 +377,16 @@ def apply_cross_symbol_signal(buy_signal, primary_symbol, confirm_symbols, symbo
     combined_buy = _buy_series_by_date(primary, p_buy)
     for symbol in confirm_symbols:
         sec_data = symbol_data[symbol]
-        s_buy, _, _, _, _, _, _, _ = buy_signal(sec_data, symbol)
-        combined_buy = combined_buy & _buy_series_by_date(sec_data, s_buy).reindex(combined_buy.index, fill_value=False)
+        s_buy, s_sell, s_days, s_profit, _, _, s_is_long, _ = buy_signal(sec_data, symbol)
+        confirm_active = _confirm_active_by_date(
+            sec_data,
+            s_buy,
+            s_sell,
+            s_days,
+            s_profit,
+            s_is_long,
+        )
+        combined_buy = combined_buy & confirm_active.reindex(combined_buy.index, fill_value=False)
 
     primary['Buy'] = combined_buy.values
     primary['Sell'] = p_sell

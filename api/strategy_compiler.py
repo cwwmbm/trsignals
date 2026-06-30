@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, TypedDict
 
+import numpy as np
 import pandas as pd
 
 from api.indicator_catalog import builder_eligible_ids, validate_compare_target
@@ -13,6 +14,17 @@ FLAG_OPERATORS = {"is true", "is false"}
 STRATEGY_INDICATOR_PREFIX = "strategy:"
 _INDICATOR_IDS = set(builder_eligible_ids())
 StrategyResolver = Callable[[str], Any | None]
+
+
+class ConditionSnapshotItem(TypedDict):
+    label: str
+    logic: str | None
+    passed: bool
+    left_value: str | None
+    right_value: str | None
+    operator: str
+    left: str
+    right: str
 
 
 def is_strategy_indicator(value: str) -> bool:
@@ -191,3 +203,92 @@ def format_condition_preview(conditions: list[dict], labels: dict[str, str] | No
         else:
             parts.append(f" {condition.get('logic', 'AND')} {snippet}")
     return "".join(parts)
+
+
+def _format_snapshot_value(value) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, (float, np.floating)) and pd.isna(value):
+        return None
+    if isinstance(value, (bool, np.bool_)):
+        return "true" if bool(value) else "false"
+    if isinstance(value, (int, np.integer)):
+        return str(int(value))
+    if isinstance(value, (float, np.floating)):
+        return f"{float(value):g}"
+    return str(value)
+
+
+def _snapshot_operand_value(data: pd.DataFrame, value: str):
+    if value in _INDICATOR_IDS:
+        if value not in data.columns:
+            return None
+        return data[value].iloc[-1]
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def _snapshot_values_for_condition(
+    data: pd.DataFrame,
+    condition: dict,
+) -> tuple[str | None, str | None]:
+    left_id = condition["left"]
+    operator = condition["operator"]
+    right_value = condition["right"]
+
+    if is_strategy_indicator(left_id) or operator in FLAG_OPERATORS:
+        if is_strategy_indicator(left_id):
+            return None, None
+        if left_id not in data.columns:
+            return None, None
+        return _format_snapshot_value(data[left_id].iloc[-1]), None
+
+    if left_id not in data.columns:
+        return None, None
+
+    left_value = _format_snapshot_value(data[left_id].iloc[-1])
+    validate_compare_target(left_id, right_value)
+    right_raw = _snapshot_operand_value(data, right_value)
+    return left_value, _format_snapshot_value(right_raw)
+
+
+def evaluate_condition_snapshot(
+    data: pd.DataFrame,
+    conditions: list[dict],
+    *,
+    strategy_resolver: StrategyResolver | None = None,
+    labels: dict[str, str] | None = None,
+) -> list[ConditionSnapshotItem]:
+    if data.empty or not conditions:
+        return []
+
+    labels = labels or {}
+    condition_dicts = _condition_dicts(conditions)
+    results: list[ConditionSnapshotItem] = []
+
+    for index, condition in enumerate(condition_dicts):
+        part = compile_condition_mask(
+            data,
+            [condition],
+            strategy_resolver=strategy_resolver,
+        )
+        passed = bool(part.iloc[-1])
+        left_value, right_value = _snapshot_values_for_condition(data, condition)
+        logic = None if index == 0 else condition.get("logic", "AND")
+
+        results.append(
+            {
+                "label": format_condition_preview([condition], labels),
+                "logic": logic,
+                "passed": passed,
+                "left_value": left_value,
+                "right_value": right_value,
+                "operator": condition["operator"],
+                "left": condition["left"],
+                "right": condition["right"],
+            }
+        )
+
+    return results

@@ -870,6 +870,9 @@ export const StrategyBuilderSetup = forwardRef<
               disabled={Boolean(customDataset)}
               className="h-8 font-mono text-sm"
             />
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Each confirm symbol must show a buy that day, or still be in an open hold without a sell signal.
+            </p>
           </Field>
           <Field label="Proxy symbol" htmlFor="strat-proxy-symbol">
             <Input

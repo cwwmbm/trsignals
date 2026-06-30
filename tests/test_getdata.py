@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from getdata import symbol_frame_from_bulk
+from getdata import extract_market_context, symbol_frame_from_bulk
 
 
 class BulkSymbolFrameTests(unittest.TestCase):
@@ -39,6 +39,21 @@ class BulkSymbolFrameTests(unittest.TestCase):
 
         self.assertEqual(frame["Date"].tolist(), list(dates[2:]))
         self.assertFalse(frame[["Open", "High", "Low", "Close"]].isna().any().any())
+
+    def test_extract_market_context_without_vix(self):
+        dates = pd.date_range("2024-01-02", periods=3, freq="B")
+        columns = pd.MultiIndex.from_product([["Close"], ["SPY", "RSP", "QQQ", "SMH", "XLF", "XLE", "XLU", "XLI", "GLD", "TLT", "SOXX"]])
+        full_data = pd.DataFrame(index=dates, columns=columns, dtype=float)
+        for symbol in columns.get_level_values(1):
+            full_data[("Close", symbol)] = 100.0
+
+        context = extract_market_context(
+            full_data,
+            {symbol: symbol for symbol in columns.get_level_values(1).unique()} | {"^VIX": "^VIX", "SPY": "SPY"},
+        )
+
+        self.assertTrue(context["vix_close"].isna().all())
+        self.assertEqual(len(context["breadth"]), 3)
 
 
 if __name__ == "__main__":

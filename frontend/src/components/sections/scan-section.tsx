@@ -64,6 +64,7 @@ import {
 } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
 import { compareSymbols, sortSymbols } from '@/lib/symbol-order'
+import { ConditionSnapshotHint } from '@/components/scan/condition-snapshot-hint'
 
 const SIGNAL_ORDER = [
   'buy_signal1',
@@ -282,7 +283,12 @@ function ScanTableRowContent({
         </TableCell>
       ) : null}
       <TableCell className={cn(compactCell, 'font-mono font-medium')}>{r.symbol}</TableCell>
-      <TableCell className={cn(compactCell, 'font-mono text-[11px]')}>{r.signal}</TableCell>
+      <TableCell className={cn(compactCell, 'font-mono text-[11px]')}>
+        <div className="flex min-w-0 items-center gap-1">
+          <span className="truncate">{r.signal}</span>
+          <ConditionSnapshotHint row={r} />
+        </div>
+      </TableCell>
       <TableCell className={compactCell}>
         <BoolCell value={r.buy_signal} />
       </TableCell>

@@ -9,7 +9,12 @@ import indicators as ind
 
 from api.indicator_catalog import list_indicators
 from api.proxy_symbol import execute_with_proxy, with_proxy_description
-from api.strategy_compiler import compile_buy_mask, compile_sell_mask, format_condition_preview
+from api.strategy_compiler import (
+    compile_buy_mask,
+    compile_sell_mask,
+    evaluate_condition_snapshot,
+    format_condition_preview,
+)
 from api.strategy_store import get_strategy_by_id, list_strategies
 from api.portfolio_store import list_portfolios
 
@@ -35,9 +40,7 @@ SCAN_SYMBOLS = [
     "RSP",
     "IWM",
     "FXI",
-    "AAPL",
     "GDX",
-    "MSFT",
     "GLD",
     "XBI",
     "TLT",
@@ -70,11 +73,45 @@ def _builder_scan_symbols(strategies) -> set[str]:
     return symbols
 
 
-def _scan_download_symbols(strategies) -> list[str]:
+def _collect_portfolio_symbols(portfolios) -> set[str]:
+    from api.portfolio_service import _collect_symbols, _resolve_portfolio_strategies
+
+    symbols: set[str] = set()
+    for portfolio in portfolios:
+        try:
+            portfolio_strategies = _resolve_portfolio_strategies(list(portfolio.strategy_ids))
+        except ValueError:
+            continue
+        proxy = getattr(portfolio, "proxy_symbol", None)
+        global_proxy = str(proxy).strip().upper() if proxy else None
+        if not global_proxy:
+            global_proxy = None
+        symbols.update(_collect_symbols(portfolio_strategies, global_proxy))
+    return symbols
+
+
+def _scan_dataset_symbols(strategies, portfolios) -> set[str]:
+    symbols: set[str] = set()
+    for strategy in strategies:
+        confirm = getattr(strategy, "confirm_symbols", None)
+        if confirm:
+            symbols.add(strategy.symbol.strip().upper())
+            symbols.update(
+                symbol.strip().upper()
+                for symbol in confirm
+                if symbol and str(symbol).strip()
+            )
+    symbols.update(_collect_portfolio_symbols(portfolios))
+    return {symbol for symbol in symbols if symbol and symbol not in SKIP_SCAN_SYMBOLS}
+
+
+def _scan_download_symbols(strategies, portfolios) -> list[str]:
     builder_symbols = _builder_scan_symbols(strategies)
+    portfolio_symbols = _collect_portfolio_symbols(portfolios)
+    all_extra = builder_symbols | portfolio_symbols
     extra_symbols = sorted(
         symbol
-        for symbol in builder_symbols
+        for symbol in all_extra
         if symbol not in SCAN_SYMBOLS and symbol not in SKIP_SCAN_SYMBOLS
     )
     return list(dict.fromkeys([*SCAN_SYMBOLS, *extra_symbols]))
@@ -345,6 +382,16 @@ def _builder_scan_row(
         strategy.description.strip() or rule_preview,
         strategy,
     )
+    condition_snapshot = evaluate_condition_snapshot(
+        data,
+        conditions,
+        strategy_resolver=get_strategy_by_id,
+        labels=labels,
+    )
+    passed_count = sum(1 for item in condition_snapshot if item["passed"])
+    as_of = data["Date"].iloc[-1] if not data.empty and "Date" in data.columns else None
+    if as_of is not None:
+        as_of = pd.Timestamp(as_of).strftime("%Y-%m-%d")
 
     return {
         "id": f"builder:{strategy.id}",
@@ -360,10 +407,19 @@ def _builder_scan_row(
         "trade_pnl": _scan_trade_pnl_pct(executed, is_long=strategy.direction == "long"),
         "kelly": compute_kelly(executed),
         "description": description,
+        "condition_snapshot": condition_snapshot or None,
+        "condition_passed_count": passed_count if condition_snapshot else None,
+        "condition_total_count": len(condition_snapshot) if condition_snapshot else None,
+        "condition_as_of": as_of,
     }
 
 
-def _portfolio_scan_row(portfolio) -> dict | None:
+def _portfolio_scan_row(
+    portfolio,
+    *,
+    bulk_data: pd.DataFrame | None = None,
+    symbol_dataset: dict[str, pd.DataFrame] | None = None,
+) -> dict | None:
     from api.portfolio_service import build_portfolio_overlay_frame
 
     try:
@@ -371,6 +427,8 @@ def _portfolio_scan_row(portfolio) -> dict | None:
             portfolio,
             years=1,
             use_cache=False,
+            bulk_data=bulk_data,
+            symbol_dataset=symbol_dataset,
         )
     except ValueError:
         return None
@@ -416,9 +474,10 @@ def run_scan(
 ) -> list[dict]:
     rows: list[dict] = []
     strategies = list_strategies()
+    portfolios = list_portfolios()
 
     if symbol_frames is None:
-        download_symbols = _scan_download_symbols(strategies)
+        download_symbols = _scan_download_symbols(strategies, portfolios)
         yf_symbols = [_yf_symbol(symbol) for symbol in download_symbols]
         symbol_mapping = dict(zip(download_symbols, yf_symbols))
         if full_data is None:
@@ -430,6 +489,12 @@ def run_scan(
                 continue
             symbol_frames[symbol] = _prepare_symbol_frame(full_data, symbol, yf_symbol)
 
+    symbol_dataset: dict | None = None
+    if full_data is not None:
+        dataset_symbols = _scan_dataset_symbols(strategies, portfolios)
+        if dataset_symbols:
+            symbol_dataset = bt.build_symbol_dataset(full_data, sorted(dataset_symbols))
+
     for symbol, data in symbol_frames.items():
         if symbol not in LEGACY_SCAN_SYMBOLS:
             continue
@@ -437,23 +502,6 @@ def run_scan(
             row = _legacy_scan_row(symbol, buy_signal, data)
             if row is not None:
                 rows.append(row)
-
-    symbol_dataset: dict | None = None
-    if full_data is not None:
-        cross_symbol_strategies = [
-            strategy
-            for strategy in strategies
-            if getattr(strategy, "confirm_symbols", None)
-        ]
-        if cross_symbol_strategies:
-            symbols_needed: set[str] = set()
-            for strategy in cross_symbol_strategies:
-                symbols_needed.add(strategy.symbol.strip().upper())
-                symbols_needed.update(
-                    symbol.strip().upper()
-                    for symbol in strategy.confirm_symbols
-                )
-            symbol_dataset = bt.build_symbol_dataset(full_data, list(symbols_needed))
 
     for strategy in strategies:
         if strategy.symbol not in symbol_frames:
@@ -467,8 +515,12 @@ def run_scan(
             )
         )
 
-    for portfolio in list_portfolios():
-        row = _portfolio_scan_row(portfolio)
+    for portfolio in portfolios:
+        row = _portfolio_scan_row(
+            portfolio,
+            bulk_data=full_data,
+            symbol_dataset=symbol_dataset,
+        )
         if row is not None:
             rows.append(row)
 

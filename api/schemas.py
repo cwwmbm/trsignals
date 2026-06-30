@@ -221,6 +221,17 @@ class UpdatePortfolioRequest(BaseModel):
     proxy_symbol: str | None = None
 
 
+class ConditionSnapshotItem(BaseModel):
+    label: str
+    logic: Literal["AND", "OR"] | None = None
+    passed: bool
+    left_value: str | None = None
+    right_value: str | None = None
+    operator: str
+    left: str
+    right: str
+
+
 class ScanRowResponse(BaseModel):
     id: str
     source: Literal["legacy", "builder", "portfolio"]
@@ -236,3 +247,7 @@ class ScanRowResponse(BaseModel):
     trade_pnl: float
     kelly: float | None
     description: str
+    condition_snapshot: list[ConditionSnapshotItem] | None = None
+    condition_passed_count: int | None = None
+    condition_total_count: int | None = None
+    condition_as_of: str | None = None

@@ -55,24 +55,34 @@ def _collect_symbols(strategies, global_proxy: str | None) -> set[str]:
     return symbols
 
 
+def _market_inputs_from_dataset(
+    symbol_dataset: dict[str, pd.DataFrame],
+) -> tuple[dict[str, pd.Series], dict[str, pd.Series]]:
+    track_changes: dict[str, pd.Series] = {}
+    close_series: dict[str, pd.Series] = {}
+    for symbol, data in symbol_dataset.items():
+        indexed = data.set_index(pd.to_datetime(data["Date"]))
+        close_series[symbol] = indexed["Close"]
+        track_changes[symbol] = _track_change_from_close(indexed["Close"])
+    return track_changes, close_series
+
+
 def _load_portfolio_market_data(
     symbols: set[str],
     *,
     years: int,
     use_cache: bool = True,
+    symbol_dataset: dict[str, pd.DataFrame] | None = None,
+    bulk_data: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame | None, dict[str, pd.DataFrame], dict[str, pd.Series], dict[str, pd.Series]]:
     """Load required symbols once and derive PnL inputs from cached or fresh data."""
+    if symbol_dataset is not None:
+        track_changes, close_series = _market_inputs_from_dataset(symbol_dataset)
+        return bulk_data, symbol_dataset, track_changes, close_series
+
     symbol_list = sorted(symbols)
     symbol_dataset = bt.load_symbol_dataset(symbol_list, years=years, use_cache=use_cache)
-
-    track_changes: dict[str, pd.Series] = {}
-    close_series: dict[str, pd.Series] = {}
-    for symbol in symbol_list:
-        data = symbol_dataset[symbol]
-        indexed = data.set_index(pd.to_datetime(data["Date"]))
-        close_series[symbol] = indexed["Close"]
-        track_changes[symbol] = _track_change_from_close(indexed["Close"])
-
+    track_changes, close_series = _market_inputs_from_dataset(symbol_dataset)
     return None, symbol_dataset, track_changes, close_series
 
 
@@ -369,6 +379,8 @@ def build_portfolio_overlay_frame(
     *,
     years: int = 1,
     use_cache: bool = True,
+    symbol_dataset: dict[str, pd.DataFrame] | None = None,
+    bulk_data: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, list, str, int, int]:
     strategy_ids = list(portfolio.strategy_ids)
     strategies = _resolve_portfolio_strategies(strategy_ids)
@@ -380,6 +392,8 @@ def build_portfolio_overlay_frame(
         symbols,
         years=years,
         use_cache=use_cache,
+        symbol_dataset=symbol_dataset,
+        bulk_data=bulk_data,
     )
 
     signals_by_id: dict[str, StrategySignals] = {}

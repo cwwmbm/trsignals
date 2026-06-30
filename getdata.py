@@ -252,7 +252,10 @@ def to_yf_symbol(symbol):
 def _bulk_close(full_data, yf_symbol):
     close = full_data['Close']
     if isinstance(close, pd.DataFrame):
-        return close[yf_symbol]
+        if yf_symbol in close.columns:
+            return close[yf_symbol]
+        reference = close['SPY'] if 'SPY' in close.columns else close.iloc[:, 0]
+        return pd.Series(np.nan, index=reference.index)
     return close
 
 

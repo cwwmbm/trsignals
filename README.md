@@ -290,7 +290,7 @@ buy, sell, days, profit, desc, _, is_long, _ = ind.combine_buy_signals(
 
 ## Cross-symbol confirmation
 
-Trade the **primary** symbol at leverage. Buy only fires when the signal is true on **all** symbols in the confirm list. **Sell** is evaluated on the primary only.
+Trade the **primary** symbol at leverage. Primary buy only fires when every confirm symbol is **active** that day: either its entry signal is true, or it is still in a simulated hold from a prior entry and has no sell signal. **Sell** is evaluated on the primary only.
 
 ```python
 # Sweep — compare confirm combinations

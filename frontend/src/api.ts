@@ -168,6 +168,17 @@ export type UpdateStrategyPayload = {
   scan_sort_order?: number;
 };
 
+export type ConditionSnapshotItem = {
+  label: string;
+  logic?: "AND" | "OR" | null;
+  passed: boolean;
+  left_value?: string | null;
+  right_value?: string | null;
+  operator: string;
+  left: string;
+  right: string;
+};
+
 export type ScanRow = {
   id: string;
   source: "legacy" | "builder" | "portfolio";
@@ -183,6 +194,10 @@ export type ScanRow = {
   trade_pnl: number;
   kelly: number | null;
   description: string;
+  condition_snapshot?: ConditionSnapshotItem[] | null;
+  condition_passed_count?: number | null;
+  condition_total_count?: number | null;
+  condition_as_of?: string | null;
 };
 
 export type PortfolioOverlapMode = "first_signal_only" | "hold_until_all_exit";
