@@ -431,9 +431,14 @@ def _volume_weighted_session_std(
 
 
 def stub_vwap_columns(data: pd.DataFrame) -> pd.DataFrame:
-    for column_id in VWAP_INDICATOR_COLUMN_IDS:
-        data[column_id] = np.nan
-    return data
+    overlap = [column_id for column_id in VWAP_INDICATOR_COLUMN_IDS if column_id in data.columns]
+    if overlap:
+        data = data.drop(columns=overlap)
+    stubs = pd.DataFrame(
+        {column_id: np.nan for column_id in VWAP_INDICATOR_COLUMN_IDS},
+        index=data.index,
+    )
+    return pd.concat([data, stubs], axis=1)
 
 
 def add_vwap_indicators(data: pd.DataFrame, *, source_timezone: str | None = None) -> pd.DataFrame:

@@ -1,7 +1,11 @@
 import warn_config  # noqa: F401
 import logging
+from pathlib import Path
+
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 import config
 from api.schemas import (
@@ -49,6 +53,8 @@ from api.signal_registry import list_signals
 
 app = FastAPI(title="TradingStrategy API")
 logger = logging.getLogger(__name__)
+
+_FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 app.add_middleware(
     CORSMiddleware,
@@ -198,12 +204,19 @@ def get_saved_strategies() -> list[dict]:
     return list_saved_strategies()
 
 
-@app.get("/scan")
+@app.get("/api/scan")
 def scan() -> list[dict]:
     try:
         return run_live_scan()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/scan")
+def scan_page() -> FileResponse:
+    if not _FRONTEND_DIST.is_dir():
+        raise HTTPException(status_code=404, detail="Frontend not built")
+    return FileResponse(_FRONTEND_DIST / "index.html")
 
 
 @app.post("/portfolios/simulate")
@@ -235,3 +248,7 @@ def remove_saved_portfolio(portfolio_id: str) -> dict:
         return delete_saved_portfolio(portfolio_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+if _FRONTEND_DIST.is_dir():
+    app.mount("/", StaticFiles(directory=_FRONTEND_DIST, html=True), name="frontend")

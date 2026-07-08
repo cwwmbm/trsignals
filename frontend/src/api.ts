@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+const API_URL = import.meta.env.VITE_API_URL ?? "";
 
 export type SignalExpression =
   | { kind: "single"; name: string }
@@ -346,7 +346,7 @@ export async function getSavedStrategies(): Promise<SavedStrategy[]> {
 }
 
 export async function getScan(): Promise<ScanRow[]> {
-  const response = await fetch(`${API_URL}/scan`);
+  const response = await fetch(`${API_URL}/api/scan`);
   if (!response.ok) throw new Error(await response.text());
   return response.json();
 }

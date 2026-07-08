@@ -1,0 +1,10 @@
+{
+  "name": "TradingStrategy Scan",
+  "short_name": "Scan",
+  "description": "Latest trading signal scan",
+  "start_url": "/scan",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#0a0a0a",
+  "orientation": "portrait-primary"
+}

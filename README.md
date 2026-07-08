@@ -40,7 +40,67 @@ npm install
 npm run dev
 ```
 
-Open the Vite URL (usually `http://localhost:5173`). The frontend talks to the backend at `http://localhost:8000` by default. Override it with `VITE_API_URL` if needed.
+Open the Vite URL (usually `http://localhost:5173`). The frontend talks to the backend at `http://localhost:8000` via `frontend/.env.development`. Override with `VITE_API_URL` if needed.
+
+### Mobile Scan (remote access)
+
+Access Scan from your phone while the Mac stays running at home.
+
+**1. Start the unified server** (builds frontend + serves API + UI on one port):
+
+```bash
+source venv/bin/activate
+./scripts/serve-mobile.sh
+```
+
+Or manually:
+
+```bash
+cd frontend && npm run build && cd ..
+python -m uvicorn api.main:app --host 0.0.0.0 --port 8000
+```
+
+Open `http://localhost:8000/scan` on desktop, or use remote access below.
+
+**2. Remote access with port forwarding**
+
+No third-party accounts. Your router forwards traffic from the internet to the Mac.
+
+1. Start the unified server (above). It binds to `0.0.0.0:8000`.
+2. Find your Mac’s LAN IP: **System Settings → Network** (e.g. `192.168.1.42`), or:
+   ```bash
+   ipconfig getifaddr en0   # Wi‑Fi; use en1 etc. if needed
+   ```
+3. In your router admin UI, add a **port forwarding** rule:
+   - External port: `8000` (or another port if your ISP blocks 8000)
+   - Internal IP: your Mac’s LAN IP
+   - Internal port: `8000`
+   - Protocol: TCP
+4. Optional but recommended: give the Mac a **DHCP reservation** so its LAN IP doesn’t change.
+5. Find your **public IP** (whatismyip.com, or `curl -s ifconfig.me`). If it changes often, set up **dynamic DNS** on your router (No-IP, DuckDNS, etc.).
+6. On your phone (any network): `http://<public-ip>:8000/scan`  
+   If you used a non‑8000 external port: `http://<public-ip>:<external-port>/scan`
+7. **macOS firewall:** if enabled, allow incoming connections for Python when prompted, or add a rule in **System Settings → Network → Firewall**.
+8. **Add to Home Screen** (Safari Share → Add to Home Screen) for an app-like experience.
+
+**Security:** The app has no login. Anyone who can reach that URL can see your scan data. Use a non-obvious external port, restrict by IP on the router if supported, or add auth before exposing broadly.
+
+**Same Wi‑Fi only (no port forwarding):** skip steps 3–5 and use `http://<mac-lan-ip>:8000/scan` on your phone while at home.
+
+**Keep the Mac awake** while away: System Settings → Battery/Energy → disable sleep on power adapter, or run `caffeinate -dims` in a terminal.
+
+**Alternative: Tailscale (private, no port forwarding)**
+
+Install [Tailscale](https://tailscale.com/download) on Mac and phone, sign in, then open `http://<mac-tailscale-ip>:8000/scan`. No public exposure; requires a free account.
+
+**Alternative: Cloudflare quick tunnel (HTTPS, no router config)**
+
+```bash
+brew install cloudflared
+cloudflared tunnel --url http://localhost:8000
+```
+
+Bookmark the generated `https://….trycloudflare.com/scan` URL. The link is public while the tunnel runs — treat it like an open port.
 
 ## Project layout
 
