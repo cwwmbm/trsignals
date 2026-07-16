@@ -11,6 +11,7 @@ from api.proxy_symbol import execute_with_proxy, proxy_column, with_proxy_descri
 from api.scan_service import execute_saved_strategy
 from api.schemas import BuilderBacktestRequest, BuilderCondition
 from api.strategy_store import _normalize_proxy_symbol
+from backtest_runners import attach_proxy_column
 
 
 def _signal_frame(*, signal_close, proxy_close, buy_at=(5,)) -> pd.DataFrame:
@@ -120,6 +121,82 @@ def _sample_builder_data(rows: int = 10) -> pd.DataFrame:
 
 
 class ExecuteWithProxyTests(unittest.TestCase):
+    def test_attach_proxy_column_aligns_by_date_not_index_labels(self):
+        dates = pd.date_range("2020-01-01", periods=5, freq="B")
+        # Non-zero-based index, like scan frames after bulk extract.
+        data = pd.DataFrame(
+            {
+                "Date": dates,
+                "Close": [100.0, 101.0, 102.0, 103.0, 104.0],
+            },
+            index=[10, 11, 12, 13, 14],
+        )
+        proxy_close = pd.Series(
+            [50.0, 51.0, 52.0, 53.0, 54.0],
+            index=dates,
+            name="SOXX",
+        )
+
+        with patch("api.market_data_cache.load_close_column", return_value=None):
+            with patch("getdata._bulk_close", return_value=proxy_close):
+                merged = attach_proxy_column(data.copy(), "SOXX", years=1, bulk_data=object(), use_cache=False)
+
+        pd.testing.assert_series_equal(
+            merged["SOXX"],
+            pd.Series([50.0, 51.0, 52.0, 53.0, 54.0], index=[10, 11, 12, 13, 14], name="SOXX"),
+        )
+
+    def test_symbol_confirmation_sweep_attaches_proxy_column(self):
+        rows = 8
+        dates = pd.date_range("2020-01-01", periods=rows, freq="B")
+        symbol_data = {
+            "SPY": pd.DataFrame(
+                {
+                    "Date": dates,
+                    "Close": np.linspace(100, 108, rows),
+                    "%Change": np.r_[0.0, np.diff(np.linspace(100, 108, rows)) / np.linspace(100, 108, rows)[:-1]],
+                }
+            ),
+            "QQQ": pd.DataFrame(
+                {
+                    "Date": dates,
+                    "Close": np.linspace(200, 208, rows),
+                    "%Change": np.r_[0.0, np.diff(np.linspace(200, 208, rows)) / np.linspace(200, 208, rows)[:-1]],
+                }
+            ),
+        }
+
+        def buy_signal(data, symbol):
+            buy = pd.Series(False, index=data.index)
+            buy.iloc[2] = True
+            return buy, False, 2, 1, "test", "", True, False
+
+        executed = symbol_data["SPY"].copy()
+        executed["RollingPnL"] = 15000.0
+        executed["LongTradeOut"] = False
+        executed["TradePnL"] = 0.0
+        executed["Drawdown"] = 0.0
+        executed["Buy"] = False
+        executed["Sell"] = False
+
+        with patch("backtest.load_symbol_dataset", return_value=symbol_data):
+            with patch("backtest.execute_strategy", return_value=executed) as execute_strategy:
+                with patch("backtest_runners.attach_proxy_column") as attach_proxy:
+                    attach_proxy.side_effect = lambda frame, proxy, **_kwargs: frame.assign(**{proxy: np.linspace(50, 58, len(frame))})
+                    bt.backtest_symbol_confirmation_sweep(
+                        buy_signal,
+                        "SPY",
+                        ["SPY", "QQQ"],
+                        years=1,
+                        confirm_sets=[[]],
+                        pnl_column="SOXX",
+                    )
+
+        attach_proxy.assert_called_once()
+        self.assertEqual(attach_proxy.call_args.args[1], "SOXX")
+        execute_strategy.assert_called_once()
+        self.assertEqual(execute_strategy.call_args.kwargs["pnl_column"], "SOXX")
+
     def test_execute_with_proxy_passes_pnl_column(self):
         data = _signal_frame(
             signal_close=[100, 100, 100, 100, 100],

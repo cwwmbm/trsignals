@@ -6,7 +6,11 @@ from typing import Any, TypedDict
 import numpy as np
 import pandas as pd
 
-from api.indicator_catalog import builder_eligible_ids, validate_compare_target
+from api.indicator_catalog import (
+    builder_eligible_ids,
+    is_primary_only_indicator,
+    validate_compare_target,
+)
 
 
 VALID_OPERATORS = {"<", "<=", ">", ">=", "=", "crosses above", "crosses below", "is true", "is false"}
@@ -176,6 +180,38 @@ def compile_buy_mask(
     strategy_resolver: StrategyResolver | None = None,
 ) -> pd.Series:
     return compile_condition_mask(data, conditions, strategy_resolver=strategy_resolver)
+
+
+def is_primary_only_entry_filter(condition: dict) -> bool:
+    """Market-wide filters applied on the primary frame after cross-symbol confirm.
+
+    Symbol-specific conditions (High, IBR, ADX, RSI2, strategy refs, …) stay inside
+    the confirm buy_signal and run on every symbol. Breadth / Vix / SPYBull gate the
+    merged primary Buy so they match indicator-sweep without changing confirm holds.
+    """
+    left_id = condition["left"]
+    if is_strategy_indicator(left_id):
+        return False
+    return is_primary_only_indicator(left_id)
+
+
+def split_entry_conditions_for_confirm(conditions) -> tuple[list[dict], list[dict]]:
+    condition_dicts = _condition_dicts(conditions)
+    confirm_conditions: list[dict] = []
+    primary_filters: list[dict] = []
+    for condition in condition_dicts:
+        if is_primary_only_entry_filter(condition):
+            primary_filters.append(condition)
+        else:
+            confirm_conditions.append(condition)
+    return confirm_conditions, primary_filters
+
+
+def uses_split_confirm_entry_filters(conditions, confirm_symbols: list[str] | None) -> bool:
+    if not confirm_symbols:
+        return False
+    confirm_conditions, primary_filters = split_entry_conditions_for_confirm(conditions)
+    return bool(confirm_conditions) and bool(primary_filters)
 
 
 def compile_sell_mask(

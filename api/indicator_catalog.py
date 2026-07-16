@@ -627,6 +627,27 @@ def builder_eligible_ids() -> list[str]:
     return [item["id"] for item in INDICATOR_CATALOG if item.get("builderEligible", True)]
 
 
+# Cross-market / shared series — same values on every symbol frame.
+# When confirm symbols are set, these gate primary Buy after confirm merge
+# (matching indicator-sweep), not per-symbol confirm hold logic.
+_MARKET_WIDE_INDICATOR_IDS = frozenset(
+    {
+        "Vix",
+        "SPYBull",
+        *(item["id"] for item in INDICATOR_CATALOG if item.get("kind") == "breadth"),
+    }
+)
+
+
+def is_market_wide_indicator(indicator_id: str) -> bool:
+    return indicator_id in _MARKET_WIDE_INDICATOR_IDS
+
+
+def is_primary_only_indicator(indicator_id: str) -> bool:
+    """Market-wide filters applied on the primary frame after confirms."""
+    return is_market_wide_indicator(indicator_id)
+
+
 def custom_data_only_indicator_ids() -> list[str]:
     return sorted(
         item["id"]

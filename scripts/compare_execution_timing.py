@@ -134,14 +134,15 @@ def _run_next_open_execution(
                     else profitable_closes[i - 1]
                 )
 
-        if hold_on_buy and buy[i] and hold_long[i]:
-            long_out[i] = False
-        else:
-            long_out[i] = (
-                (sell[i] and hold_long[i])
-                or (days_in_trade[i] >= days)
-                or (profitable_closes[i] >= profit)
-            )
+        would_exit = (
+            (sell[i] and hold_long[i])
+            or (days_in_trade[i] >= days)
+            or (profitable_closes[i] >= profit)
+        )
+        long_out[i], reset_counters = bt._hold_on_buy_exit(hold_on_buy, buy[i], hold_long[i], would_exit)
+        if reset_counters:
+            days_in_trade[i] = 0
+            profitable_closes[i] = 0
 
         if long_in[i]:
             trade_entry[i] = _mark_price(open_px, i)

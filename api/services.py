@@ -4,6 +4,7 @@ from indicator_sweep import indicator_tryout
 
 from api.builder_strategy import (
     backtest_builder_signal_sweep,
+    builder_indicator_tryout,
     builder_signal_callable,
     draft_to_saved_strategy,
     prepare_builder_refine_frame,
@@ -349,19 +350,38 @@ def run_builder_refine(request) -> dict | list[dict]:
         if request.mode == "indicator-sweep":
             check_breadth = request.check_breadth if custom_dataset is None else False
             exclude_columns = set(custom_dataset.unavailable_indicator_ids) if custom_dataset else None
-            results = indicator_tryout(
-                refine_frame,
-                days,
-                profit,
-                is_long,
-                is_sell=request.is_sell,
-                check_breadth=check_breadth,
-                check_both=request.check_both,
-                verbose=False,
-                exclude_columns=exclude_columns,
-                include_vwap_sweeps=custom_dataset is not None and custom_dataset.has_vwap,
-                pnl_column=pnl_col,
-            )
+            if primary.confirm_symbols:
+                results = builder_indicator_tryout(
+                    primary,
+                    refine_frame,
+                    days,
+                    profit,
+                    is_long,
+                    years=years,
+                    is_sell=request.is_sell,
+                    check_breadth=check_breadth,
+                    check_both=request.check_both,
+                    exclude_columns=exclude_columns,
+                    include_vwap_sweeps=custom_dataset is not None and custom_dataset.has_vwap,
+                    pnl_column=pnl_col,
+                    strategy_resolver=get_strategy_by_id,
+                    labels=labels,
+                    verbose=False,
+                )
+            else:
+                results = indicator_tryout(
+                    refine_frame,
+                    days,
+                    profit,
+                    is_long,
+                    is_sell=request.is_sell,
+                    check_breadth=check_breadth,
+                    check_both=request.check_both,
+                    verbose=False,
+                    exclude_columns=exclude_columns,
+                    include_vwap_sweeps=custom_dataset is not None and custom_dataset.has_vwap,
+                    pnl_column=pnl_col,
+                )
             return dataframe_records(results)
 
         raise ValueError(f"Unsupported refine mode: {request.mode}")

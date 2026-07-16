@@ -18,13 +18,11 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import {
   ArrowUpRight,
-  Check,
   ChevronDown,
   GripVertical,
   Loader2,
   RefreshCw,
   Search,
-  X,
 } from 'lucide-react'
 import type { SavedPortfolio, SavedStrategy, ScanLane, ScanRow } from '@/api'
 import type { PortfolioInitialState } from '@/components/sections/portfolio-section'
@@ -48,7 +46,9 @@ import {
 } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
 import { ConditionSnapshotHint } from '@/components/scan/condition-snapshot-hint'
+import { ScanSignalCheck } from '@/components/scan/scan-signal-indicator'
 import { useScanBoard } from '@/hooks/use-scan-board'
+import { scanRowAccentClass } from '@/lib/scan-signals'
 import {
   LANE_LABELS,
   SCAN_LANES,
@@ -60,14 +60,6 @@ import {
 
 const compactHead = 'h-7 px-1.5 py-0 text-[11px] font-medium'
 const compactCell = 'px-1.5 py-0.5'
-
-function BoolCell({ value }: { value: boolean }) {
-  return value ? (
-    <Check className="mx-auto size-3 text-[var(--gain)]" aria-label="True" />
-  ) : (
-    <X className="mx-auto size-3 text-muted-foreground/50" aria-label="False" />
-  )
-}
 
 function ScanTableHeader({ draggable }: { draggable?: boolean }) {
   return (
@@ -143,13 +135,13 @@ function ScanTableRowContent({
         </div>
       </TableCell>
       <TableCell className={compactCell}>
-        <BoolCell value={r.buy_signal} />
+        <ScanSignalCheck row={r} kind="buy" />
       </TableCell>
       <TableCell className={compactCell}>
-        <BoolCell value={r.hold_long} />
+        <ScanSignalCheck row={r} kind="hold" />
       </TableCell>
       <TableCell className={compactCell}>
-        <BoolCell value={r.sell_signal} />
+        <ScanSignalCheck row={r} kind="sell" />
       </TableCell>
       <TableCell className={cn(compactCell, 'text-right font-mono tabular-nums')}>{r.days}</TableCell>
       <TableCell className={cn(compactCell, 'text-right font-mono tabular-nums')}>{r.profit}</TableCell>
@@ -262,7 +254,7 @@ function SortableScanTableRow({
       }}
       className={cn(
         'hover:bg-muted/30',
-        (row.buy_signal || row.hold_long) && 'bg-[var(--gain)]/8',
+        scanRowAccentClass(row),
         isDragging && 'opacity-60',
       )}
     >
@@ -292,9 +284,7 @@ function StaticScanTableRow({
   onBacktestStrategy?: (strategy: SavedStrategy) => void
 }) {
   return (
-    <TableRow
-      className={cn('hover:bg-muted/30', (row.buy_signal || row.hold_long) && 'bg-[var(--gain)]/8')}
-    >
+    <TableRow className={cn('hover:bg-muted/30', scanRowAccentClass(row))}>
       <ScanTableRowContent row={row} strategy={strategy} onBacktestStrategy={onBacktestStrategy} />
     </TableRow>
   )

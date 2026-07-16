@@ -15,7 +15,9 @@ import {
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { ConditionSnapshotHint } from '@/components/scan/condition-snapshot-hint'
+import { ScanSignalBadge } from '@/components/scan/scan-signal-indicator'
 import { useScanBoard } from '@/hooks/use-scan-board'
+import { scanCardAccentClass } from '@/lib/scan-signals'
 import {
   LANE_LABELS,
   SCAN_LANES,
@@ -23,19 +25,6 @@ import {
   resolvePortfolioScanLane,
   resolveScanLane,
 } from '@/lib/scan-board'
-
-function SignalBadge({ label, active }: { label: string; active: boolean }) {
-  return (
-    <span
-      className={cn(
-        'rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide',
-        active ? 'bg-[var(--gain)]/15 text-[var(--gain)]' : 'bg-muted text-muted-foreground',
-      )}
-    >
-      {label}
-    </span>
-  )
-}
 
 function ScanMobileCard({
   row,
@@ -53,14 +42,10 @@ function ScanMobileCard({
   lanePending: boolean
 }) {
   const currentLane = portfolio ? resolvePortfolioScanLane(portfolio) : resolveScanLane(strategy)
-  const isActive = row.buy_signal || row.hold_long
 
   return (
     <Card
-      className={cn(
-        'gap-2 p-3 shadow-none',
-        isActive && 'border-[var(--gain)]/30 bg-[var(--gain)]/5',
-      )}
+      className={cn('gap-2 p-3 shadow-none', scanCardAccentClass(row))}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
@@ -71,9 +56,9 @@ function ScanMobileCard({
           </div>
         </div>
         <div className="flex shrink-0 gap-1">
-          <SignalBadge label="B" active={row.buy_signal} />
-          <SignalBadge label="H" active={row.hold_long} />
-          <SignalBadge label="S" active={row.sell_signal} />
+          <ScanSignalBadge row={row} kind="buy" />
+          <ScanSignalBadge row={row} kind="hold" />
+          <ScanSignalBadge row={row} kind="sell" />
         </div>
       </div>
 
@@ -131,15 +116,8 @@ function ScanMobileCard({
 }
 
 function LegacyMobileCard({ row }: { row: ScanRow }) {
-  const isActive = row.buy_signal || row.hold_long
-
   return (
-    <Card
-      className={cn(
-        'gap-2 p-3 shadow-none',
-        isActive && 'border-[var(--gain)]/30 bg-[var(--gain)]/5',
-      )}
-    >
+    <Card className={cn('gap-2 p-3 shadow-none', scanCardAccentClass(row))}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="font-mono text-base font-semibold">{row.symbol}</p>
@@ -149,9 +127,9 @@ function LegacyMobileCard({ row }: { row: ScanRow }) {
           </div>
         </div>
         <div className="flex shrink-0 gap-1">
-          <SignalBadge label="B" active={row.buy_signal} />
-          <SignalBadge label="H" active={row.hold_long} />
-          <SignalBadge label="S" active={row.sell_signal} />
+          <ScanSignalBadge row={row} kind="buy" />
+          <ScanSignalBadge row={row} kind="hold" />
+          <ScanSignalBadge row={row} kind="sell" />
         </div>
       </div>
       <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs tabular-nums">

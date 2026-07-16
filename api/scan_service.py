@@ -289,7 +289,11 @@ def execute_saved_strategy(
     try:
         confirm_symbols = getattr(strategy, "confirm_symbols", None) or []
         if confirm_symbols:
-            from api.builder_strategy import builder_signal_callable
+            from api.builder_strategy import (
+                apply_primary_entry_filters,
+                builder_signal_callable,
+                _confirm_strategy_for_cross_symbol,
+            )
 
             labels = {item["id"]: item["label"] for item in list_indicators(builder_only=True)}
             labels.update(
@@ -298,8 +302,9 @@ def execute_saved_strategy(
                     for saved in list_strategies()
                 }
             )
+            confirm_strategy, primary_filters = _confirm_strategy_for_cross_symbol(strategy)
             signal = builder_signal_callable(
-                strategy,
+                confirm_strategy,
                 strategy_resolver=get_strategy_by_id,
                 labels=labels,
             )
@@ -315,6 +320,11 @@ def execute_saved_strategy(
                 primary_symbol,
                 confirm_symbols,
                 symbol_data,
+            )
+            frame = apply_primary_entry_filters(
+                frame,
+                primary_filters,
+                strategy_resolver=get_strategy_by_id,
             )
             return execute_with_proxy(
                 frame,

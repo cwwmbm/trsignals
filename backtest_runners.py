@@ -45,7 +45,8 @@ def attach_proxy_column(
         proxy_frame = pd.DataFrame({"Date": proxy_close.index, proxy: proxy_close.values})
         proxy_frame["Date"] = pd.to_datetime(proxy_frame["Date"])
         merged = data.merge(proxy_frame, on="Date", how="left")
-        data[proxy] = merged[proxy]
+        # Assign by position: merge resets the index, so label alignment would shift prices.
+        data[proxy] = merged[proxy].to_numpy()
         return data
 
     if use_cache:

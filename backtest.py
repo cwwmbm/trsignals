@@ -14,6 +14,13 @@ TIMING_ENABLED = os.getenv("BACKTEST_TIMING", "").lower() in {"1", "true", "yes"
 HoldOnBuySignal = False
 
 
+def _hold_on_buy_exit(hold_on_buy, buy, hold_long, would_exit):
+    """Suppress exit and reset hold/profit counters when buy blocks a would-be exit."""
+    if hold_on_buy and buy and hold_long and would_exit:
+        return False, True
+    return would_exit, False
+
+
 def set_timing_enabled(enabled):
     global TIMING_ENABLED
     TIMING_ENABLED = enabled
@@ -446,6 +453,10 @@ def backtest_symbol_confirmation_sweep(buy_signal, primary_symbol, symbol_pool, 
         data, days, profit, _, _, is_long, _ = apply_cross_symbol_signal(
             buy_signal, primary_symbol, confirm_symbols, symbol_data
         )
+        if pnl_column:
+            from backtest_runners import attach_proxy_column
+
+            data = attach_proxy_column(data, pnl_column, years=years)
         data = execute_strategy(data, days, profit, is_long, pnl_column=pnl_column)
         results = results._append(
             _backtest_result_row(buy_signal, primary_symbol, confirm_symbols, data, days, profit),
@@ -538,14 +549,28 @@ def og_strat(data, days = 0, profit = 0, external_count = 0, start_capital = 150
             data['TradeEntry'].at[i] = data['Close'].at[i] if (((data['LongTradeIn'].at[i] or data['OneDayBuy'].at[i])) and data['TradeEntry'].shift(1).at[i] == 0) else data['TradeEntry'].shift(1).at[i] if data['HoldLong'].at[i] else 0
             data['TradePnL'].at[i] = data['TradePnL'].shift(1).at[i] + data['%Change'].at[i] if data['HoldLong'].at[i] else 0
             #(data['Close'].at[i] - data['TradeEntry'].at[i]) / data['TradeEntry'].at[i] if data['HoldLong'].at[i] else 0
-            if HoldOnBuySignal and data['Buy'].at[i] and data['HoldLong'].at[i]:
-                data['LongTradeOut'].at[i] = False
-            else:
-                data['LongTradeOut'].at[i] = (data['Sell'].at[i] and data['HoldLong'].at[i]) or (                           #If sell signal and hold long
-                                            data['OneDayBuy'].shift(1).at[i] and not data['HoldLong'].shift(1).at[i] and not data['Buy'].shift(1).at[i]) or ( #Or if one day buy and not hold long on previous day (and not buy signal today)
-                                            data['TradePnL'].at[i] < -stop_loss)                                            #Or if hit stoploss 
-                if (days > 0):
-                    data['LongTradeOut'].at[i] = data['LongTradeOut'].at[i] or (data['DaysInTrade'].at[i] >= days) or (data['ProfitableCloses'].at[i] >= profit)
+            would_time_profit_exit = (
+                (days > 0)
+                and (
+                    (data['DaysInTrade'].at[i] >= days)
+                    or (data['ProfitableCloses'].at[i] >= profit)
+                )
+            )
+            would_exit = (data['Sell'].at[i] and data['HoldLong'].at[i]) or would_time_profit_exit
+            long_out, reset_counters = _hold_on_buy_exit(
+                HoldOnBuySignal,
+                data['Buy'].at[i],
+                data['HoldLong'].at[i],
+                would_exit,
+            )
+            data['LongTradeOut'].at[i] = long_out or (
+                data['OneDayBuy'].shift(1).at[i]
+                and not data['HoldLong'].shift(1).at[i]
+                and not data['Buy'].shift(1).at[i]
+            ) or (data['TradePnL'].at[i] < -stop_loss)
+            if reset_counters:
+                data['DaysInTrade'].at[i] = 0
+                data['ProfitableCloses'].at[i] = 0
             #data['TradeEntry'].at[i] = data['Close'].at[i] if (data['LongTradeIn'].at[i] or data['OneDayBuy'].at[i]) else data['TradeEntry'].shift(1).at[i] if data['HoldLong'].at[i] else 0
 
 
@@ -682,14 +707,28 @@ def long_og_strat_proxy(data, days = 0, profit = 0, start_capital = 15000):
             data['TradeEntry'].at[i] = data['Close'].at[i] if (((data['LongTradeIn'].at[i] or data['OneDayBuy'].at[i])) and data['TradeEntry'].shift(1).at[i] == 0) else data['TradeEntry'].shift(1).at[i] if data['HoldLong'].at[i] else 0
             data['TradePnL'].at[i] = data['TradePnL'].shift(1).at[i] + data['TrackChange'].at[i] if data['HoldLong'].at[i] else 0
             #(data['Close'].at[i] - data['TradeEntry'].at[i]) / data['TradeEntry'].at[i] if data['HoldLong'].at[i] else 0
-            if HoldOnBuySignal and data['Buy'].at[i] and data['HoldLong'].at[i]:
-                data['LongTradeOut'].at[i] = False
-            else:
-                data['LongTradeOut'].at[i] = (data['Sell'].at[i] and data['HoldLong'].at[i]) or (                           #If sell signal and hold long
-                                            data['OneDayBuy'].shift(1).at[i] and not data['HoldLong'].shift(1).at[i] and not data['Buy'].shift(1).at[i]) or ( #Or if one day buy and not hold long on previous day (and not buy signal today)
-                                            data['TradePnL'].at[i] < -stop_loss)                                            #Or if hit stoploss 
-                if (days > 0):
-                    data['LongTradeOut'].at[i] = data['LongTradeOut'].at[i] or (data['DaysInTrade'].at[i] >= days) or (data['ProfitableCloses'].at[i] >= profit)
+            would_time_profit_exit = (
+                (days > 0)
+                and (
+                    (data['DaysInTrade'].at[i] >= days)
+                    or (data['ProfitableCloses'].at[i] >= profit)
+                )
+            )
+            would_exit = (data['Sell'].at[i] and data['HoldLong'].at[i]) or would_time_profit_exit
+            long_out, reset_counters = _hold_on_buy_exit(
+                HoldOnBuySignal,
+                data['Buy'].at[i],
+                data['HoldLong'].at[i],
+                would_exit,
+            )
+            data['LongTradeOut'].at[i] = long_out or (
+                data['OneDayBuy'].shift(1).at[i]
+                and not data['HoldLong'].shift(1).at[i]
+                and not data['Buy'].shift(1).at[i]
+            ) or (data['TradePnL'].at[i] < -stop_loss)
+            if reset_counters:
+                data['DaysInTrade'].at[i] = 0
+                data['ProfitableCloses'].at[i] = 0
             #data['TradeEntry'].at[i] = data['Close'].at[i] if (data['LongTradeIn'].at[i] or data['OneDayBuy'].at[i]) else data['TradeEntry'].shift(1).at[i] if data['HoldLong'].at[i] else 0
 
 
@@ -769,10 +808,11 @@ def long_strat(data, days, prof_closes, is_long = True, start_capital = 15000, p
             else:
                 profitable_closes[i] = profitable_closes[i - 1] + 1 if close[i] < close[i - 1] else profitable_closes[i - 1]
 
-        if HoldOnBuySignal and buy[i] and hold_long[i]:
-            long_out[i] = False
-        else:
-            long_out[i] = (sell[i] and hold_long[i]) or (days_in_trade[i] >= days) or (profitable_closes[i] >= prof_closes)
+        would_exit = (sell[i] and hold_long[i]) or (days_in_trade[i] >= days) or (profitable_closes[i] >= prof_closes)
+        long_out[i], reset_counters = _hold_on_buy_exit(HoldOnBuySignal, buy[i], hold_long[i], would_exit)
+        if reset_counters:
+            days_in_trade[i] = 0
+            profitable_closes[i] = 0
         if long_in[i]:
             trade_entry[i] = mark_price(i)
         elif hold_long[i]:
