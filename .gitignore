@@ -18,3 +18,4 @@ IntradayData/
 Alpaca.Market/
 .env
 unused/
+data_backup/

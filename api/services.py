@@ -820,6 +820,40 @@ def save_strategy(request) -> dict:
 
 
 def update_saved_strategy(strategy_id: str, request) -> dict:
+    if hasattr(request, "model_dump"):
+        payload = request.model_dump(exclude_unset=True)
+    else:
+        payload = request.dict(exclude_unset=True)
+    trading_keys = {
+        "name",
+        "symbol",
+        "direction",
+        "hold_days",
+        "profit",
+        "conditions",
+        "sell_conditions",
+        "confirm_symbols",
+        "proxy_symbol",
+        "hold_on_buy_signal",
+        "rth_entries_only",
+        "eod_exit",
+    }
+    if trading_keys & set(payload.keys()):
+        existing = get_strategy_by_id(strategy_id)
+        if existing is None:
+            raise ValueError(f"Unknown strategy: {strategy_id}")
+        symbol = str(payload.get("symbol") or existing.symbol).strip().upper()
+        conditions = payload.get("conditions")
+        if conditions is None:
+            conditions = [_model_dump(condition) for condition in existing.conditions]
+        sell_conditions = payload.get("sell_conditions")
+        if sell_conditions is None:
+            sell_conditions = [_model_dump(condition) for condition in existing.sell_conditions]
+        data = load_ticker_data(symbol, years=1)
+        compile_buy_mask(data, conditions, strategy_resolver=get_strategy_by_id)
+        if sell_conditions:
+            compile_sell_mask(data, sell_conditions, strategy_resolver=get_strategy_by_id)
+
     updated = update_strategy(strategy_id, request)
     if updated is None:
         raise ValueError(f"Unknown strategy: {strategy_id}")

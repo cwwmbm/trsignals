@@ -96,6 +96,27 @@ def get_strategy_by_id(strategy_id: str, store_path: Path | None = None) -> Save
     return None
 
 
+def find_strategy_by_name_symbol(
+    name: str,
+    symbol: str,
+    store_path: Path | None = None,
+) -> SavedStrategy | None:
+    """Return the most recently updated strategy matching name+symbol, if any."""
+    needle_name = name.strip().casefold()
+    needle_symbol = symbol.strip().upper()
+    if not needle_name or not needle_symbol:
+        return None
+    matches = [
+        strategy
+        for strategy in list_strategies(store_path=store_path)
+        if strategy.name.strip().casefold() == needle_name
+        and strategy.symbol.strip().upper() == needle_symbol
+    ]
+    if not matches:
+        return None
+    return max(matches, key=lambda strategy: strategy.updated_at)
+
+
 def create_strategy(
     request: SaveStrategyRequest,
     store_path: Path | None = None,
@@ -148,12 +169,50 @@ def update_strategy(
             if not payload:
                 return _validate_saved_strategy(item)
             updated = {**item, "updated_at": _now_iso()}
+            if "name" in payload and payload["name"] is not None:
+                updated["name"] = payload["name"].strip()
+            if "symbol" in payload and payload["symbol"] is not None:
+                updated["symbol"] = payload["symbol"].strip().upper()
+            if "direction" in payload and payload["direction"] is not None:
+                updated["direction"] = payload["direction"]
+            if "hold_days" in payload and payload["hold_days"] is not None:
+                updated["hold_days"] = payload["hold_days"]
+            if "profit" in payload and payload["profit"] is not None:
+                updated["profit"] = payload["profit"]
             if "description" in payload and payload["description"] is not None:
                 updated["description"] = payload["description"].strip()
+            if "conditions" in payload and payload["conditions"] is not None:
+                updated["conditions"] = payload["conditions"]
+            if "sell_conditions" in payload and payload["sell_conditions"] is not None:
+                updated["sell_conditions"] = payload["sell_conditions"]
+            symbol_for_norm = updated.get("symbol", item.get("symbol", ""))
+            if "confirm_symbols" in payload and payload["confirm_symbols"] is not None:
+                updated["confirm_symbols"] = _normalize_confirm_symbols(
+                    symbol_for_norm, list(payload["confirm_symbols"])
+                )
+            if "proxy_symbol" in payload:
+                updated["proxy_symbol"] = _normalize_proxy_symbol(
+                    symbol_for_norm, payload["proxy_symbol"]
+                )
+            if "hold_on_buy_signal" in payload and payload["hold_on_buy_signal"] is not None:
+                updated["hold_on_buy_signal"] = payload["hold_on_buy_signal"]
+            if "rth_entries_only" in payload and payload["rth_entries_only"] is not None:
+                updated["rth_entries_only"] = payload["rth_entries_only"]
+            if "eod_exit" in payload and payload["eod_exit"] is not None:
+                updated["eod_exit"] = payload["eod_exit"]
             if "scan_lane" in payload and payload["scan_lane"] is not None:
                 updated["scan_lane"] = payload["scan_lane"]
             if "scan_sort_order" in payload and payload["scan_sort_order"] is not None:
                 updated["scan_sort_order"] = payload["scan_sort_order"]
+            # Re-normalize confirm/proxy if symbol changed but those fields were not sent.
+            if "symbol" in payload and "confirm_symbols" not in payload:
+                updated["confirm_symbols"] = _normalize_confirm_symbols(
+                    updated["symbol"], list(updated.get("confirm_symbols") or [])
+                )
+            if "symbol" in payload and "proxy_symbol" not in payload:
+                updated["proxy_symbol"] = _normalize_proxy_symbol(
+                    updated["symbol"], updated.get("proxy_symbol")
+                )
             items[index] = updated
             _write_raw(path, items)
             return _validate_saved_strategy(updated)

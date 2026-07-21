@@ -208,6 +208,8 @@ function ScanTableRowContent({
                   onOpenPortfolio?.({
                     strategyIds: portfolio.strategy_ids,
                     overlapMode: portfolio.overlap_mode,
+                    name: portfolio.name,
+                    description: portfolio.description ?? '',
                     ...(portfolio.proxy_symbol ? { proxySymbol: portfolio.proxy_symbol } : {}),
                   })
                 }

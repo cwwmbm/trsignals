@@ -10,6 +10,7 @@ import {
   getSavedStrategies,
   runPortfolioSimulation,
   savePortfolio,
+  updatePortfolio,
 } from '@/api'
 import { DetailResults } from '@/components/backtest/detail-results'
 import { Button } from '@/components/ui/button'
@@ -37,6 +38,8 @@ export type PortfolioInitialState = {
   overlapMode?: PortfolioOverlapMode
   proxySymbol?: string
   years?: string
+  name?: string
+  description?: string
 }
 
 function sortStrategies(strategies: SavedStrategy[]) {
@@ -86,11 +89,27 @@ export function PortfolioSection({
   })
 
   const saveMutation = useMutation({
-    mutationFn: savePortfolio,
+    mutationFn: async ({
+      payload,
+      existingId,
+    }: {
+      payload: {
+        name: string
+        description: string
+        strategy_ids: string[]
+        overlap_mode: PortfolioOverlapMode
+        proxy_symbol?: string
+      }
+      existingId?: string
+    }) => {
+      if (existingId) {
+        return updatePortfolio(existingId, payload)
+      }
+      return savePortfolio(payload)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['portfolios'] })
-      setPortfolioName('')
-      setPortfolioDescription('')
+      queryClient.invalidateQueries({ queryKey: ['scan'] })
     },
   })
 
@@ -98,6 +117,7 @@ export function PortfolioSection({
     mutationFn: deletePortfolio,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['portfolios'] })
+      queryClient.invalidateQueries({ queryKey: ['scan'] })
     },
   })
 
@@ -107,6 +127,8 @@ export function PortfolioSection({
     if (initialState.overlapMode) setOverlapMode(initialState.overlapMode)
     setProxySymbol(initialState.proxySymbol?.trim() ?? '')
     if (initialState.years) setYears(initialState.years)
+    if (initialState.name != null) setPortfolioName(initialState.name)
+    if (initialState.description != null) setPortfolioDescription(initialState.description)
   }, [initialState])
 
   const sortedStrategies = useMemo(() => sortStrategies(strategies), [strategies])
@@ -160,17 +182,42 @@ export function PortfolioSection({
   }
 
   const handleSave = () => {
-    saveMutation.mutate({
+    const payload = {
       name: portfolioName.trim(),
       description: portfolioDescription.trim(),
       strategy_ids: selectedInOrder,
       overlap_mode: overlapMode,
       ...(proxySymbol.trim() ? { proxy_symbol: proxySymbol.trim().toUpperCase() } : {}),
-    })
+    }
+    const nameKey = payload.name.toLowerCase()
+    const existing = savedPortfolios
+      .filter((portfolio) => portfolio.name.trim().toLowerCase() === nameKey)
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0]
+
+    if (existing) {
+      const override = window.confirm(
+        `A portfolio named "${existing.name}" already exists. Override it?`,
+      )
+      if (!override) return
+      saveMutation.mutate({ payload, existingId: existing.id })
+      return
+    }
+
+    saveMutation.mutate(
+      { payload },
+      {
+        onSuccess: () => {
+          setPortfolioName('')
+          setPortfolioDescription('')
+        },
+      },
+    )
   }
 
   const handleLoadPortfolio = (portfolio: SavedPortfolio) => {
     applyPortfolioSelection(portfolio, setSelectedIds, setOverlapMode, setProxySymbol)
+    setPortfolioName(portfolio.name)
+    setPortfolioDescription(portfolio.description ?? '')
   }
 
   const result = mutation.data

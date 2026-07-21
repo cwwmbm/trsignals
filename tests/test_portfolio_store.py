@@ -7,6 +7,7 @@ from api.schemas import SavePortfolioRequest, UpdatePortfolioRequest
 from api.portfolio_store import (
     create_portfolio,
     delete_portfolio,
+    find_portfolio_by_name,
     list_portfolios,
     update_portfolio,
 )
@@ -91,6 +92,72 @@ class PortfolioStoreTests(unittest.TestCase):
         self.assertTrue(delete_portfolio(saved.id, store_path=self.store_path))
         self.assertEqual(list_portfolios(store_path=self.store_path), [])
         self.assertFalse(delete_portfolio(saved.id, store_path=self.store_path))
+
+    @patch("api.portfolio_store.get_strategy_by_id")
+    def test_find_portfolio_by_name_case_insensitive(self, mock_get_strategy):
+        from types import SimpleNamespace
+
+        mock_get_strategy.return_value = SimpleNamespace(
+            id="s1",
+            name="Long SPY",
+            direction="long",
+        )
+        saved = create_portfolio(
+            SavePortfolioRequest(name="Core Combo", strategy_ids=["s1"]),
+            store_path=self.store_path,
+        )
+        update_portfolio(
+            saved.id,
+            UpdatePortfolioRequest(scan_lane="active"),
+            store_path=self.store_path,
+        )
+        found = find_portfolio_by_name("core combo", store_path=self.store_path)
+        self.assertIsNotNone(found)
+        assert found is not None
+        self.assertEqual(found.id, saved.id)
+        self.assertEqual(found.scan_lane, "active")
+        self.assertIsNone(find_portfolio_by_name("missing", store_path=self.store_path))
+
+    @patch("api.portfolio_store.get_strategy_by_id")
+    def test_replace_portfolio_preserves_id_and_scan_lane(self, mock_get_strategy):
+        from types import SimpleNamespace
+
+        mock_get_strategy.side_effect = lambda strategy_id: SimpleNamespace(
+            id=strategy_id,
+            name=f"Strategy {strategy_id}",
+            direction="long",
+        )
+        saved = create_portfolio(
+            SavePortfolioRequest(name="Combo", strategy_ids=["s1"], description="old"),
+            store_path=self.store_path,
+        )
+        update_portfolio(
+            saved.id,
+            UpdatePortfolioRequest(scan_lane="active", scan_sort_order=2),
+            store_path=self.store_path,
+        )
+        updated = update_portfolio(
+            saved.id,
+            UpdatePortfolioRequest(
+                name="Combo",
+                description="new",
+                strategy_ids=["s1", "s2"],
+                overlap_mode="hold_until_all_exit",
+                proxy_symbol="qqq",
+            ),
+            store_path=self.store_path,
+        )
+        self.assertIsNotNone(updated)
+        assert updated is not None
+        self.assertEqual(updated.id, saved.id)
+        self.assertEqual(updated.scan_lane, "active")
+        self.assertEqual(updated.scan_sort_order, 2)
+        self.assertEqual(updated.created_at, saved.created_at)
+        self.assertEqual(updated.description, "new")
+        self.assertEqual(updated.strategy_ids, ["s1", "s2"])
+        self.assertEqual(updated.overlap_mode, "hold_until_all_exit")
+        self.assertEqual(updated.proxy_symbol, "QQQ")
+        self.assertEqual(len(list_portfolios(store_path=self.store_path)), 1)
 
     @patch("api.portfolio_store.get_strategy_by_id")
     def test_rejects_short_strategy(self, mock_get_strategy):

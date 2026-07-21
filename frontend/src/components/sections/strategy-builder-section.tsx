@@ -8,6 +8,7 @@ import {
   runBuilderBacktest,
   runBuilderRefine,
   saveStrategy,
+  updateStrategy,
   type CustomDatasetInfo,
   type DetailedResult,
   type SaveStrategyPayload,
@@ -74,7 +75,18 @@ export function StrategyBuilderSection({
   })
 
   const saveMutation = useMutation({
-    mutationFn: saveStrategy,
+    mutationFn: async ({
+      payload,
+      existingId,
+    }: {
+      payload: SaveStrategyPayload
+      existingId?: string
+    }) => {
+      if (existingId) {
+        return updateStrategy(existingId, payload)
+      }
+      return saveStrategy(payload)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['scan'] })
       queryClient.invalidateQueries({ queryKey: ['strategies'] })
@@ -143,16 +155,48 @@ export function StrategyBuilderSection({
     (payload: SaveStrategyPayload) => {
       setValidationError(null)
       setSaveMessage(null)
-      saveMutation.mutate(payload, {
-        onSuccess: (saved) => {
-          setSaveMessage(`Saved "${saved.name}" — it will appear on the Scan page.`)
+      const nameKey = payload.name.trim().toLowerCase()
+      const symbolKey = payload.symbol.trim().toUpperCase()
+      const existing = savedStrategies
+        .filter(
+          (strategy) =>
+            strategy.name.trim().toLowerCase() === nameKey &&
+            strategy.symbol.trim().toUpperCase() === symbolKey,
+        )
+        .sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0]
+
+      if (existing) {
+        const override = window.confirm(
+          `A strategy named "${existing.name}" for ${existing.symbol} already exists. Override it?`,
+        )
+        if (!override) return
+        saveMutation.mutate(
+          { payload, existingId: existing.id },
+          {
+            onSuccess: (saved) => {
+              setSaveMessage(`Updated "${saved.name}" — Scan will use the new definition.`)
+            },
+            onError: (error) => {
+              setValidationError(String(error))
+            },
+          },
+        )
+        return
+      }
+
+      saveMutation.mutate(
+        { payload },
+        {
+          onSuccess: (saved) => {
+            setSaveMessage(`Saved "${saved.name}" — it will appear on the Scan page.`)
+          },
+          onError: (error) => {
+            setValidationError(String(error))
+          },
         },
-        onError: (error) => {
-          setValidationError(String(error))
-        },
-      })
+      )
     },
-    [saveMutation],
+    [saveMutation, savedStrategies],
   )
 
   const handleAddFromSweepRow = useCallback((row: Record<string, unknown>) => {

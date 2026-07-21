@@ -244,7 +244,19 @@ export type SavedStrategy = SaveStrategyPayload & {
 };
 
 export type UpdateStrategyPayload = {
+  name?: string;
+  symbol?: string;
+  direction?: "long" | "short";
+  hold_days?: number;
+  profit?: number;
   description?: string;
+  conditions?: BuilderConditionPayload[];
+  sell_conditions?: BuilderConditionPayload[];
+  confirm_symbols?: string[];
+  proxy_symbol?: string | null;
+  hold_on_buy_signal?: boolean;
+  rth_entries_only?: boolean;
+  eod_exit?: boolean;
   scan_lane?: ScanLane;
   scan_sort_order?: number;
 };
@@ -300,6 +312,7 @@ export type SavedPortfolio = SavePortfolioPayload & {
 };
 
 export type UpdatePortfolioPayload = {
+  name?: string;
   description?: string;
   scan_lane?: ScanLane;
   scan_sort_order?: number;

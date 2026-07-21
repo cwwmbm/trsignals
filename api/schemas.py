@@ -197,7 +197,19 @@ class SaveStrategyRequest(BaseModel):
 
 
 class UpdateStrategyRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1)
+    symbol: str | None = None
+    direction: Literal["long", "short"] | None = None
+    hold_days: int | None = Field(default=None, ge=1, le=100)
+    profit: int | None = Field(default=None, ge=0, le=100)
     description: str | None = None
+    conditions: list[BuilderCondition] | None = None
+    sell_conditions: list[BuilderCondition] | None = None
+    confirm_symbols: list[str] | None = None
+    proxy_symbol: str | None = None
+    hold_on_buy_signal: bool | None = None
+    rth_entries_only: bool | None = None
+    eod_exit: bool | None = None
     scan_lane: ScanLane | None = None
     scan_sort_order: int | None = None
 
@@ -234,6 +246,7 @@ class SavePortfolioRequest(BaseModel):
 
 
 class UpdatePortfolioRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1)
     description: str | None = None
     scan_lane: ScanLane | None = None
     scan_sort_order: int | None = None

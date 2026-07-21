@@ -99,6 +99,21 @@ def get_portfolio_by_id(portfolio_id: str, store_path: Path | None = None) -> Sa
     return None
 
 
+def find_portfolio_by_name(name: str, store_path: Path | None = None) -> SavedPortfolio | None:
+    """Return the most recently updated portfolio matching name, if any."""
+    needle = name.strip().casefold()
+    if not needle:
+        return None
+    matches = [
+        portfolio
+        for portfolio in list_portfolios(store_path=store_path)
+        if portfolio.name.strip().casefold() == needle
+    ]
+    if not matches:
+        return None
+    return max(matches, key=lambda portfolio: portfolio.updated_at)
+
+
 def create_portfolio(
     request: SavePortfolioRequest,
     store_path: Path | None = None,
@@ -143,6 +158,8 @@ def update_portfolio(
             if not payload:
                 return _validate_saved_portfolio(item)
             updated = {**item, "updated_at": _now_iso()}
+            if "name" in payload and payload["name"] is not None:
+                updated["name"] = payload["name"].strip()
             if "description" in payload and payload["description"] is not None:
                 updated["description"] = payload["description"].strip()
             if "scan_lane" in payload and payload["scan_lane"] is not None:
