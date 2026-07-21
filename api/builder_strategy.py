@@ -195,6 +195,7 @@ def prepare_builder_refine_frame(
     years: int = 25,
     data: pd.DataFrame | None = None,
     symbol_data: dict | None = None,
+    in_sample_end: pd.Timestamp | None = None,
     strategy_resolver: StrategyResolver | None = None,
     labels: dict[str, str] | None = None,
 ) -> tuple[pd.DataFrame, int, int, bool, str | None]:
@@ -203,6 +204,7 @@ def prepare_builder_refine_frame(
     Returns (data, hold_days, profit, is_long, pnl_column).
     """
     from api.proxy_symbol import proxy_column
+    from api.sample_window import slice_frame_to_end, slice_symbol_data_to_end
     from backtest_runners import attach_proxy_column
 
     pnl_col = proxy_column(strategy)
@@ -213,6 +215,8 @@ def prepare_builder_refine_frame(
         needed = list(dict.fromkeys([primary_symbol, *confirm_symbols]))
         if symbol_data is None:
             symbol_data = bt.load_symbol_dataset(needed, years=years)
+        if in_sample_end is not None:
+            symbol_data = slice_symbol_data_to_end(symbol_data, in_sample_end)
         confirm_strategy, primary_filters = _confirm_strategy_for_cross_symbol(strategy)
         signal = builder_signal_callable(
             confirm_strategy,
@@ -233,6 +237,8 @@ def prepare_builder_refine_frame(
     else:
         if data is None:
             raise ValueError("Primary market data is required when strategy has no confirm symbols")
+        if in_sample_end is not None:
+            data = slice_frame_to_end(data, in_sample_end)
         buy, sell = _compile_strategy_masks(
             data,
             strategy,
@@ -356,6 +362,7 @@ def builder_indicator_tryout(
     exclude_columns=None,
     include_vwap_sweeps: bool = False,
     pnl_column: str | None = None,
+    in_sample_end: pd.Timestamp | None = None,
     strategy_resolver: StrategyResolver | None = None,
     labels: dict[str, str] | None = None,
     verbose: bool = False,
@@ -368,6 +375,7 @@ def builder_indicator_tryout(
     "Add to entry" matches backtest. Sell sweeps stay on the primary frame.
     """
     from api.indicator_catalog import is_market_wide_indicator
+    from api.sample_window import slice_symbol_data_to_end
     from indicator_sweep import (
         BREADTH_SWEEPS,
         POST_2003_BREADTH_SWEEPS,
@@ -386,6 +394,8 @@ def builder_indicator_tryout(
         primary_symbol = strategy.symbol.strip().upper()
         needed = list(dict.fromkeys([primary_symbol, *confirm_symbols]))
         symbol_data = bt.load_symbol_dataset(needed, years=years)
+        if in_sample_end is not None:
+            symbol_data = slice_symbol_data_to_end(symbol_data, in_sample_end)
 
     def _filter_specs(specs):
         if not exclude_columns:
@@ -620,19 +630,24 @@ def backtest_builder_signal_sweep(
     strategy_resolver: StrategyResolver | None = None,
     labels: dict[str, str] | None = None,
     years: int = 25,
+    in_sample_end: pd.Timestamp | None = None,
 ) -> pd.DataFrame:
     from api.proxy_symbol import proxy_column
+    from api.sample_window import slice_frame_to_end
 
     pnl_col = proxy_column(primary)
     if primary.confirm_symbols:
         base_data, days, profit, is_long, pnl_col = prepare_builder_refine_frame(
             primary,
             years=years,
+            in_sample_end=in_sample_end,
             strategy_resolver=strategy_resolver,
             labels=labels,
         )
     else:
         base_data = data.copy()
+        if in_sample_end is not None:
+            base_data = slice_frame_to_end(base_data, in_sample_end)
         days = primary.hold_days
         profit = primary.profit
         is_long = primary.direction == "long"

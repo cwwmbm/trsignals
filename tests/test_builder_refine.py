@@ -12,8 +12,14 @@ from api.builder_strategy import (
     combine_builder_buy_masks,
     draft_to_saved_strategy,
 )
-from api.schemas import BuilderBacktestRequest, BuilderCondition, BuilderRefineRequest, SaveStrategyRequest
-from api.services import run_builder_backtest, run_builder_refine
+from api.schemas import (
+    BuilderBacktestRequest,
+    BuilderCondition,
+    BuilderRefineOutcomeRequest,
+    BuilderRefineRequest,
+    SaveStrategyRequest,
+)
+from api.services import run_builder_backtest, run_builder_refine, run_builder_refine_outcome
 from api.strategy_store import create_strategy, get_strategy_by_id
 
 
@@ -167,10 +173,13 @@ class BuilderRefineServiceTests(unittest.TestCase):
         with patch("api.services.load_ticker_data", return_value=data.copy()):
             with patch("api.services.list_strategies", return_value=[secondary_a, secondary_b, other_symbol]):
                 with patch("api.services.backtest_builder_signal_sweep", side_effect=fake_sweep) as combo:
-                    rows = run_builder_refine(request)
+                    payload = run_builder_refine(request)
 
-        self.assertEqual(len(rows), 4)
+        self.assertEqual(len(payload["rows"]), 4)
+        self.assertEqual(payload["meta"]["sample"], "in_sample")
+        self.assertIn("in_sample_end", payload["meta"])
         combo.assert_called_once()
+        self.assertIsNotNone(combo.call_args.kwargs.get("in_sample_end"))
         self.assertEqual([item.id for item in captured_secondaries], [secondary_a.id, secondary_b.id])
 
     def test_hold_days_refine_uses_prepared_frame_with_confirm_and_proxy(self):
@@ -195,16 +204,18 @@ class BuilderRefineServiceTests(unittest.TestCase):
                 backtest_days.return_value = pd.DataFrame(
                     [{"Days": 2, "Prf": 1, "Sharpe": 1.0}]
                 )
-                rows = run_builder_refine(request)
+                payload = run_builder_refine(request)
 
-        prepare.assert_called_once()
+        self.assertGreaterEqual(prepare.call_count, 2)
+        self.assertIsNotNone(prepare.call_args.kwargs.get("in_sample_end"))
         backtest_days.assert_called_once_with(
             prepared,
             3,
             True,
             pnl_column="SOXX",
         )
-        self.assertEqual(len(rows), 1)
+        self.assertEqual(len(payload["rows"]), 1)
+        self.assertEqual(payload["meta"]["sample"], "in_sample")
 
     def test_indicator_sweep_returns_rows(self):
         request = BuilderRefineRequest(
@@ -223,9 +234,10 @@ class BuilderRefineServiceTests(unittest.TestCase):
                         {"Indicator": "RSI5", "Value": 25, "Sharpe": 0.9},
                     ]
                 )
-                rows = run_builder_refine(request)
+                payload = run_builder_refine(request)
 
-        self.assertEqual(len(rows), 2)
+        self.assertEqual(len(payload["rows"]), 2)
+        self.assertEqual(payload["meta"]["sample"], "in_sample")
         tryout.assert_called_once()
 
     def test_indicator_sweep_uses_backtest_all_data_from_strategy(self):
@@ -250,13 +262,13 @@ class BuilderRefineServiceTests(unittest.TestCase):
                 tryout.return_value = pd.DataFrame(
                     [{"Indicator": "RSI2", "Value": 20, "Sharpe": 1.1}]
                 )
-                rows = run_builder_refine(request)
+                payload = run_builder_refine(request)
 
         store.load_backtest_frame.assert_called_once_with(
             "dataset-1",
             backtest_all_data=False,
         )
-        self.assertEqual(len(rows), 1)
+        self.assertEqual(len(payload["rows"]), 1)
         tryout.assert_called_once()
         self.assertFalse(tryout.call_args.kwargs.get("include_vwap_sweeps"))
 
@@ -282,9 +294,9 @@ class BuilderRefineServiceTests(unittest.TestCase):
                 tryout.return_value = pd.DataFrame(
                     [{"Indicator": "Close_VWAP", "Value": 0.5, "Sharpe": 1.2}]
                 )
-                rows = run_builder_refine(request)
+                payload = run_builder_refine(request)
 
-        self.assertEqual(len(rows), 1)
+        self.assertEqual(len(payload["rows"]), 1)
         tryout.assert_called_once()
         self.assertTrue(tryout.call_args.kwargs.get("include_vwap_sweeps"))
 
@@ -308,6 +320,138 @@ class BuilderRefineServiceTests(unittest.TestCase):
         self.assertEqual(saved_strategy.confirm_symbols, ["SMH", "QQQ"])
         payload.assert_called_once()
         self.assertEqual(result, {"summary": {"PnL": 1}})
+
+    def test_refine_outcome_full_vs_in_sample_meta(self):
+        request = BuilderRefineOutcomeRequest(
+            mode="indicator-sweep",
+            strategy=_draft_request(),
+            sample="full",
+            row={"Indicator": "RSI2", "Condition": "less", "Value": 20, "Buysell": "Buy"},
+        )
+        data = _sample_data(rows=20)
+        prepared = data.copy()
+        prepared["Buy"] = True
+        prepared["Sell"] = False
+
+        with patch("api.services.load_ticker_data", return_value=data.copy()):
+            with patch(
+                "api.services.prepare_builder_refine_frame",
+                return_value=(prepared, 2, 1, True, None),
+            ) as prepare:
+                with patch("api.services.bt._run_indicator_threshold") as threshold:
+                    threshold.return_value = {
+                        "PnL": 1234.5,
+                        "MaxDD": 12.34,
+                        "Trades": 3,
+                        "%Pstv": 66.6,
+                        "CAGR": "10%",
+                        "Sharpe": 1.23,
+                        "Sortino": 1.45,
+                        "Yearly": [{"year": 2020, "pnl_percent": 1.0}],
+                    }
+                    full_payload = run_builder_refine_outcome(request)
+
+        self.assertEqual(full_payload["meta"]["sample"], "full")
+        self.assertEqual(full_payload["meta"]["period_end"], "2020-01-28")
+        self.assertIsNone(prepare.call_args.kwargs.get("in_sample_end"))
+        self.assertEqual(full_payload["metrics"]["Trades"], 3)
+        self.assertTrue(str(full_payload["metrics"]["PnL"]).startswith("$"))
+
+        request.sample = "in_sample"
+        with patch("api.services.load_ticker_data", return_value=data.copy()):
+            with patch(
+                "api.services.prepare_builder_refine_frame",
+                return_value=(prepared, 2, 1, True, None),
+            ) as prepare:
+                with patch("api.services.bt._run_indicator_threshold") as threshold:
+                    threshold.return_value = {
+                        "PnL": 100.0,
+                        "MaxDD": 5.0,
+                        "Trades": 1,
+                        "%Pstv": 100.0,
+                        "CAGR": "5%",
+                        "Sharpe": 0.5,
+                        "Sortino": 0.6,
+                        "Yearly": [],
+                    }
+                    is_payload = run_builder_refine_outcome(request)
+
+        self.assertEqual(is_payload["meta"]["sample"], "in_sample")
+        self.assertIsNotNone(prepare.call_args.kwargs.get("in_sample_end"))
+        self.assertNotEqual(
+            full_payload["meta"]["in_sample_end"],
+            full_payload["meta"]["period_end"],
+        )
+
+    def test_refine_filters_rows_below_min_in_sample_trades(self):
+        from api.services import _filter_rows_by_min_in_sample_trades
+
+        rows = [
+            {"Indicator": "RSI2", "Trades": 150, "Sharpe": 1.2},
+            {"Indicator": "RSI5", "Trades": 99, "Sharpe": 1.5},
+            {"Indicator": "ADX14", "Trades": 100, "Sharpe": 1.1},
+        ]
+        filtered = _filter_rows_by_min_in_sample_trades(rows, minimum=100)
+        self.assertEqual([row["Indicator"] for row in filtered], ["RSI2", "ADX14"])
+
+    def test_refine_attaches_full_period_for_rows_with_yearly(self):
+        request = BuilderRefineRequest(
+            mode="indicator-sweep",
+            strategy=_draft_request(),
+            check_both=False,
+            check_breadth=False,
+        )
+        data = _sample_data(rows=20)
+        prepared = data.copy()
+        prepared["Buy"] = True
+        prepared["Sell"] = False
+
+        with patch("api.services.load_ticker_data", return_value=data.copy()):
+            with patch(
+                "api.services.prepare_builder_refine_frame",
+                return_value=(prepared, 2, 1, True, None),
+            ):
+                with patch("api.services.indicator_tryout") as tryout:
+                    tryout.return_value = pd.DataFrame(
+                        [
+                            {
+                                "Indicator": "RSI2",
+                                "Condition": "less",
+                                "Value": 20,
+                                "Buysell": "Buy",
+                                "Sharpe": 1.1,
+                                "Yearly": [{"year": 2020, "pnl_percent": 1.0}],
+                            },
+                            {
+                                "Indicator": "RSI5",
+                                "Condition": "less",
+                                "Value": 25,
+                                "Buysell": "Buy",
+                                "Sharpe": 0.9,
+                            },
+                        ]
+                    )
+                    with patch("api.services._evaluate_refine_row_metrics") as evaluate:
+                        evaluate.return_value = {
+                            "PnL": 9999,
+                            "MaxDD": 11.1,
+                            "Trades": 7,
+                            "%Pstv": 70.0,
+                            "CAGR": "9%",
+                            "Sharpe": 1.5,
+                            "Sortino": 1.6,
+                            "Yearly": [{"year": 2021, "pnl_percent": 2.0}],
+                        }
+                        payload = run_builder_refine(request)
+
+        self.assertIn("FullPeriod", payload["rows"][0])
+        self.assertEqual(payload["rows"][0]["FullPeriod"]["Trades"], 7)
+        self.assertEqual(
+            payload["rows"][0]["FullPeriod"]["Yearly"],
+            [{"year": 2021, "pnl_percent": 2.0}],
+        )
+        self.assertNotIn("FullPeriod", payload["rows"][1])
+        evaluate.assert_called_once()
 
 
 class BuilderComboSweepTests(unittest.TestCase):

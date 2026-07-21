@@ -13,6 +13,7 @@ import {
   type SaveStrategyPayload,
   type SavedStrategy,
   type SweepResult,
+  type SweepResultResponse,
 } from '@/api'
 import { MemoizedStrategyBuilderResultsPane } from '@/components/backtest/strategy-builder-results-pane'
 import {
@@ -47,7 +48,9 @@ export function StrategyBuilderSection({
     Record<string, unknown> | undefined
   >()
 
-  const [refineResult, setRefineResult] = useState<DetailedResult | SweepResult | undefined>()
+  const [refineResult, setRefineResult] = useState<
+    DetailedResult | SweepResult | SweepResultResponse | undefined
+  >()
   const [refineResultsVersion, setRefineResultsVersion] = useState(0)
   const [refineSelectedSweepRow, setRefineSelectedSweepRow] = useState<
     Record<string, unknown> | undefined

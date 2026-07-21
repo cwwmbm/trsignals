@@ -10,10 +10,12 @@ from fastapi.staticfiles import StaticFiles
 import config
 from api.schemas import (
     BuilderBacktestRequest,
+    BuilderRefineOutcomeRequest,
     BuilderRefineRequest,
     CustomDatasetResponse,
     HoldDaysSweepRequest,
     IndicatorSweepRequest,
+    MonteCarloRequest,
     SaveStrategyRequest,
     SignalComboSweepRequest,
     SingleBacktestRequest,
@@ -31,9 +33,11 @@ from api.services import (
     get_custom_dataset_metadata,
     run_builder_backtest,
     run_builder_refine,
+    run_builder_refine_outcome,
     run_hold_days_sweep,
     run_indicator_sweep,
     run_live_scan,
+    run_monte_carlo_simulation,
     run_portfolio_simulation,
     run_signal_combo_sweep,
     run_single_backtest,
@@ -89,6 +93,8 @@ def read_config() -> dict:
         "ticker": config.ticker,
         "leverage": config.Leverage,
         "exclude_best_return_year": config.ExcludeBestReturnYear,
+        "in_sample_fraction": config.IN_SAMPLE_FRACTION,
+        "min_in_sample_trades": config.MIN_IN_SAMPLE_TRADES,
         "rsi2_buy": config.RSI2Buy,
         "rsi5_buy": config.RSI5Buy,
         "rsi2_sell": config.RSI2Sell,
@@ -140,6 +146,11 @@ def builder_backtest(request: BuilderBacktestRequest) -> dict:
     return _handle_errors(run_builder_backtest, request)
 
 
+@app.post("/backtests/monte-carlo")
+def monte_carlo(request: MonteCarloRequest) -> dict:
+    return _handle_errors(run_monte_carlo_simulation, request)
+
+
 @app.post("/datasets/custom", response_model=CustomDatasetResponse)
 async def upload_custom_data(file: UploadFile = File(...)) -> dict:
     try:
@@ -174,8 +185,13 @@ def remove_custom_data(dataset_id: str) -> dict:
 
 
 @app.post("/backtests/builder/refine")
-def builder_refine(request: BuilderRefineRequest) -> dict | list[dict]:
+def builder_refine(request: BuilderRefineRequest) -> dict:
     return _handle_errors(run_builder_refine, request)
+
+
+@app.post("/backtests/builder/refine/outcome")
+def builder_refine_outcome(request: BuilderRefineOutcomeRequest) -> dict:
+    return _handle_errors(run_builder_refine_outcome, request)
 
 
 @app.post("/strategies")

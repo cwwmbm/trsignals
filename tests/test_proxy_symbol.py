@@ -75,6 +75,29 @@ class LongStratProxyTests(unittest.TestCase):
         explicit = bt.execute_strategy(data.copy(), days=3, profit=99, is_long=True, pnl_column=None)
         self.assertEqual(baseline["RollingPnL"].iloc[-1], explicit["RollingPnL"].iloc[-1])
 
+    @patch("stats.ExcludeBestReturnYear", False)
+    def test_run_indicator_threshold_keeps_pnl_column_when_hold_days_positive(self):
+        data = _signal_frame(
+            signal_close=[100, 100, 100, 100, 105, 105, 110, 110],
+            proxy_close=[50, 50, 50, 55, 55, 60, 60, 65],
+            buy_at=(3,),
+        )
+        data["RSI2"] = [10, 10, 10, 10, 40, 40, 40, 40]
+        row = bt._run_indicator_threshold(
+            data,
+            days_in_trade=2,
+            profitable_close=99,
+            is_long=True,
+            column_name="RSI2",
+            buy_sell="Buy",
+            condition="less",
+            value=20,
+            include_yearly=False,
+            pnl_column="SOXX",
+        )
+        self.assertEqual(row["Indicator"], "RSI2")
+        self.assertGreater(row["Trades"], 0)
+
 
 class ExecuteSavedStrategyProxyTests(unittest.TestCase):
     def test_execute_saved_strategy_uses_proxy_execution(self):

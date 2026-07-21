@@ -75,6 +75,13 @@ class IndicatorSweepRequest(BaseModel):
     runtime_options: RuntimeOptions = Field(default_factory=RuntimeOptions)
 
 
+class MonteCarloRequest(BaseModel):
+    trade_returns: list[float]
+    method: Literal["shuffle", "bootstrap"] = "shuffle"
+    n_sims: int = Field(default=1000, ge=1, le=10_000)
+    start_capital: float = Field(default=15000.0, gt=0)
+
+
 class BuilderCondition(BaseModel):
     left: str
     operator: Literal["<", "<=", ">", ">=", "=", "crosses above", "crosses below", "is true", "is false"]
@@ -135,6 +142,20 @@ class BuilderRefineRequest(BaseModel):
     is_sell: bool = False
     check_breadth: bool = False
     check_both: bool = False
+
+
+RefineSampleMode = Literal["in_sample", "full"]
+
+
+class BuilderRefineOutcomeRequest(BaseModel):
+    mode: BuilderRefineMode
+    strategy: BuilderBacktestRequest
+    row: dict
+    sample: RefineSampleMode = "full"
+    primary_symbol: str | None = None
+    symbol_pool: list[str] | None = None
+    max_days: int = Field(default=7, ge=1, le=100)
+    is_sell: bool = False
 
 
 class SavedStrategy(BaseModel):

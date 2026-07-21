@@ -1,6 +1,8 @@
 import { memo } from "react";
 import type { DetailedResult } from "@/api";
+import { DrawdownCurve } from "@/components/drawdown-curve";
 import { EquityCurve } from "@/components/equity-curve";
+import { MonteCarloPanel } from "@/components/backtest/monte-carlo-panel";
 import { negativeYearRowClass, ResultsTable, tradeRowClass } from "@/components/backtest/results-table";
 import { StatCard, SUMMARY_KEYS, summaryLabel, summaryTone } from "@/components/backtest/stat-card";
 import { formatMetric } from "@/lib/format-metric";
@@ -66,6 +68,17 @@ export const DetailResults = memo(function DetailResults({
           data={result.equity_curve}
           totalPoints={result.equity_curve_total_points}
         />
+      </div>
+
+      <div className="mt-3 rounded-md border border-border/60 bg-muted/20 p-3">
+        <DrawdownCurve
+          data={result.equity_curve}
+          totalPoints={result.equity_curve_total_points}
+        />
+      </div>
+
+      <div className="mt-3 rounded-md border border-border/60 bg-muted/20 p-3">
+        <MonteCarloPanel trades={result.trades} />
       </div>
     </>
   );

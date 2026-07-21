@@ -63,6 +63,55 @@ export interface DetailedResult {
   equity_curve_shown_points?: number;
 }
 
+export type MonteCarloMethod = "shuffle" | "bootstrap";
+
+export type MonteCarloPercentiles = {
+  p5: number;
+  p25: number;
+  p50: number;
+  p75: number;
+  p95: number;
+  mean: number;
+};
+
+export type MonteCarloDrawdownBin = {
+  drawdown_pct: number;
+  count: number;
+  cumulative_pct: number;
+};
+
+export type MonteCarloConfidenceMarker = {
+  percentile: number;
+  drawdown_pct: number;
+  cumulative_pct: number;
+};
+
+export type MonteCarloResult = {
+  method: MonteCarloMethod;
+  n_sims: number;
+  n_trades: number;
+  start_capital: number;
+  actual: {
+    final_equity: number;
+    max_drawdown: number;
+  };
+  summary: {
+    final_equity: MonteCarloPercentiles;
+    max_drawdown: MonteCarloPercentiles;
+    pct_sims_final_equity_ge_actual: number;
+    pct_sims_max_drawdown_le_actual: number;
+  };
+  drawdown_distribution: MonteCarloDrawdownBin[];
+  confidence_marker: MonteCarloConfidenceMarker;
+};
+
+export type MonteCarloPayload = {
+  trade_returns: number[];
+  method: MonteCarloMethod;
+  n_sims?: number;
+  start_capital?: number;
+};
+
 export interface CustomDatasetInfo {
   id: string;
   symbol: string;
@@ -133,6 +182,38 @@ export type BuilderRefinePayload = {
   is_sell?: boolean;
   check_breadth?: boolean;
   check_both?: boolean;
+};
+
+export type RefineSampleMode = "in_sample" | "full";
+
+export type SweepMeta = {
+  sample: RefineSampleMode;
+  in_sample_fraction: number;
+  in_sample_end: string;
+  period_start: string;
+  period_end: string;
+  min_in_sample_trades?: number;
+};
+
+export type SweepResultResponse = {
+  rows: SweepResult;
+  meta: SweepMeta;
+};
+
+export type BuilderRefineOutcomePayload = {
+  mode: import("@/lib/builder-refine-config").BuilderRefineMode;
+  strategy: BuilderBacktestPayload;
+  row: Record<string, unknown>;
+  sample: RefineSampleMode;
+  primary_symbol?: string;
+  symbol_pool?: string[];
+  max_days?: number;
+  is_sell?: boolean;
+};
+
+export type BuilderRefineOutcomeResponse = {
+  metrics: Record<string, unknown>;
+  meta: SweepMeta;
 };
 
 export type ScanLane = "active" | "testing" | "archived";
@@ -287,14 +368,27 @@ export function runBacktest(mode: RunMode, payload: Record<string, unknown>) {
   return postJson<DetailedResult | SweepResult>(pathByMode[mode], payload);
 }
 
+export function runMonteCarlo(payload: MonteCarloPayload) {
+  return postJson<MonteCarloResult>("/backtests/monte-carlo", payload);
+}
+
 export function runBuilderBacktest(payload: BuilderBacktestPayload): Promise<DetailedResult> {
   return postJson<DetailedResult>("/backtests/builder", payload);
 }
 
 export function runBuilderRefine(
   payload: BuilderRefinePayload,
-): Promise<DetailedResult | SweepResult> {
-  return postJson<DetailedResult | SweepResult>("/backtests/builder/refine", payload);
+): Promise<SweepResultResponse> {
+  return postJson<SweepResultResponse>("/backtests/builder/refine", payload);
+}
+
+export function fetchBuilderRefineOutcome(
+  payload: BuilderRefineOutcomePayload,
+): Promise<BuilderRefineOutcomeResponse> {
+  return postJson<BuilderRefineOutcomeResponse>(
+    "/backtests/builder/refine/outcome",
+    payload,
+  );
 }
 
 export function runPortfolioSimulation(

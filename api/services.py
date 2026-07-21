@@ -1,20 +1,30 @@
 import backtest as bt
+import config
 from backtest_runners import load_ticker_data
 from indicator_sweep import indicator_tryout
 
 from api.builder_strategy import (
+    _compile_strategy_masks,
+    _run_confirm_embedded_buy_threshold,
     backtest_builder_signal_sweep,
     builder_indicator_tryout,
     builder_signal_callable,
+    combine_builder_buy_masks,
     draft_to_saved_strategy,
     prepare_builder_refine_frame,
 )
+from api.indicator_catalog import is_market_wide_indicator, list_indicators
 from api.proxy_symbol import proxy_column, with_proxy_description
+from api.sample_window import (
+    in_sample_end_timestamp,
+    sample_window_meta,
+    slice_frame_to_end,
+    slice_symbol_data_to_end,
+)
 from api.serializers import dataframe_records, detailed_backtest_payload
 from api.signal_registry import get_signal, resolve_signal
 from api.strategy_compiler import compile_buy_mask, compile_sell_mask, format_condition_preview
 from api.scan_service import execute_saved_strategy
-from api.indicator_catalog import list_indicators
 from api.strategy_store import (
     create_strategy,
     delete_strategy,
@@ -274,7 +284,340 @@ def run_builder_backtest(request) -> dict:
     return _with_builder_hold_on_buy(request, custom_dataset, _run)
 
 
-def run_builder_refine(request) -> dict | list[dict]:
+def _refine_reference_frame(primary, data, *, years: int, labels: dict[str, str]):
+    """Full-period frame used to compute the in-sample cutoff."""
+    if primary.confirm_symbols:
+        return prepare_builder_refine_frame(
+            primary,
+            years=years,
+            strategy_resolver=get_strategy_by_id,
+            labels=labels,
+        )[0]
+    if data is None:
+        raise ValueError("Primary market data is required when strategy has no confirm symbols")
+    return data
+
+
+def _format_outcome_metrics(metrics: dict) -> dict:
+    import indicators as ind
+
+    pnl = metrics["PnL"]
+    max_dd = metrics["MaxDD"]
+    return {
+        "PnL": ind.format_dollar_value(int(pnl)),
+        "MaxDD": f"{round(float(max_dd), 2)}%",
+        "Trades": int(metrics["Trades"]),
+        "%Pstv": round(float(metrics["%Pstv"]), 1),
+        "CAGR": metrics["CAGR"],
+        "Sharpe": round(float(metrics["Sharpe"]), 2)
+        if metrics["Sharpe"] == metrics["Sharpe"]
+        else metrics["Sharpe"],
+        "Sortino": round(float(metrics["Sortino"]), 2)
+        if metrics["Sortino"] == metrics["Sortino"]
+        else metrics["Sortino"],
+        "Yearly": metrics.get("Yearly") or [],
+    }
+
+
+def _full_period_summary(metrics: dict) -> dict:
+    formatted = _format_outcome_metrics(metrics)
+    return {
+        "PnL": formatted["PnL"],
+        "MaxDD": formatted["MaxDD"],
+        "Trades": formatted["Trades"],
+        "Sharpe": formatted["Sharpe"],
+        "Yearly": formatted["Yearly"],
+    }
+
+
+def _evaluate_refine_row_metrics(
+    *,
+    mode: str,
+    primary,
+    row: dict,
+    data,
+    years: int,
+    labels: dict[str, str],
+    use_end,
+    primary_symbol: str | None = None,
+    cache: dict | None = None,
+) -> dict:
+    """Return raw ranking metrics (including Yearly) for one refine row."""
+    cache = cache if cache is not None else {}
+    pnl_col = proxy_column(primary)
+    row = dict(row or {})
+
+    if mode == "indicator-sweep":
+        column = str(row.get("Indicator") or "")
+        condition = str(row.get("Condition") or "").lower()
+        buy_sell = str(row.get("Buysell") or row.get("BuySell") or "Buy")
+        value = row.get("Value")
+        if not column or condition not in {"more", "less"} or value is None:
+            raise ValueError("Indicator sweep outcome requires Indicator, Condition, and Value")
+        try:
+            value = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Invalid indicator Value: {value}") from exc
+
+        if (
+            buy_sell == "Buy"
+            and primary.confirm_symbols
+            and not is_market_wide_indicator(column)
+        ):
+            cache_key = ("confirm_symbol_data", use_end)
+            symbol_data = cache.get(cache_key)
+            if symbol_data is None:
+                needed = list(
+                    dict.fromkeys(
+                        [primary.symbol.strip().upper(), *primary.confirm_symbols]
+                    )
+                )
+                symbol_data = bt.load_symbol_dataset(needed, years=years)
+                if use_end is not None:
+                    symbol_data = slice_symbol_data_to_end(symbol_data, use_end)
+                cache[cache_key] = symbol_data
+            detail = _run_confirm_embedded_buy_threshold(
+                primary,
+                years=years,
+                symbol_data=symbol_data,
+                column_name=column,
+                condition=condition,
+                value=value,
+                include_yearly=True,
+                strategy_resolver=get_strategy_by_id,
+                labels=labels,
+                pnl_column=pnl_col,
+            )
+            return {
+                "PnL": detail["PnL"],
+                "MaxDD": detail["MaxDD"],
+                "Trades": detail["Trades"],
+                "%Pstv": detail["%Pstv"],
+                "CAGR": detail["CAGR"],
+                "Sharpe": detail["Sharpe"],
+                "Sortino": detail["Sortino"],
+                "Yearly": detail.get("Yearly") or [],
+            }
+
+        cache_key = ("refine_frame", use_end)
+        packed = cache.get(cache_key)
+        if packed is None:
+            packed = prepare_builder_refine_frame(
+                primary,
+                years=years,
+                data=data,
+                in_sample_end=use_end,
+                strategy_resolver=get_strategy_by_id,
+                labels=labels,
+            )
+            cache[cache_key] = packed
+        refine_frame, days, profit, is_long, frame_pnl = packed
+        detail = bt._run_indicator_threshold(
+            refine_frame,
+            days,
+            profit,
+            is_long,
+            column,
+            buy_sell,
+            condition,
+            value,
+            include_yearly=True,
+            pnl_column=frame_pnl or pnl_col,
+        )
+        return {
+            "PnL": detail["PnL"],
+            "MaxDD": detail["MaxDD"],
+            "Trades": detail["Trades"],
+            "%Pstv": detail["%Pstv"],
+            "CAGR": detail["CAGR"],
+            "Sharpe": detail["Sharpe"],
+            "Sortino": detail["Sortino"],
+            "Yearly": detail.get("Yearly") or [],
+        }
+
+    if mode == "hold-days-sweep":
+        hold_days = int(row.get("Days") or primary.hold_days)
+        profit = int(row.get("Prf") if row.get("Prf") is not None else primary.profit)
+        cache_key = ("refine_frame", use_end)
+        packed = cache.get(cache_key)
+        if packed is None:
+            packed = prepare_builder_refine_frame(
+                primary,
+                years=years,
+                data=data,
+                in_sample_end=use_end,
+                strategy_resolver=get_strategy_by_id,
+                labels=labels,
+            )
+            cache[cache_key] = packed
+        refine_frame, _, _, is_long, frame_pnl = packed
+        executed = bt.execute_strategy(
+            refine_frame,
+            hold_days,
+            profit,
+            is_long,
+            pnl_column=frame_pnl or pnl_col,
+        )
+        return bt._ranking_metrics(executed, include_yearly=True)
+
+    if mode == "symbol-confirm-sweep":
+        symbol = (primary_symbol or primary.symbol).strip().upper()
+        confirm_raw = str(row.get("Confirm") or "").strip()
+        if not confirm_raw or confirm_raw == "(none)":
+            confirm_symbols = []
+        else:
+            confirm_symbols = [
+                part.strip().upper()
+                for part in confirm_raw.split("+")
+                if part.strip()
+            ]
+        signal = builder_signal_callable(
+            primary,
+            strategy_resolver=get_strategy_by_id,
+            labels=labels,
+        )
+        needed = list(dict.fromkeys([symbol, *confirm_symbols]))
+        cache_key = ("symbol_data", tuple(needed), use_end)
+        symbol_data = cache.get(cache_key)
+        if symbol_data is None:
+            symbol_data = bt.load_symbol_dataset(needed, years=years)
+            if use_end is not None:
+                symbol_data = slice_symbol_data_to_end(symbol_data, use_end)
+            cache[cache_key] = symbol_data
+        frame, days, profit, _, _, is_long, _ = bt.apply_cross_symbol_signal(
+            signal,
+            symbol,
+            confirm_symbols,
+            symbol_data,
+        )
+        if pnl_col:
+            from backtest_runners import attach_proxy_column
+
+            frame = attach_proxy_column(frame, pnl_col, years=years)
+        executed = bt.execute_strategy(
+            frame, days, profit, is_long, pnl_column=pnl_col
+        )
+        return bt._ranking_metrics(executed, include_yearly=True)
+
+    if mode == "signal-combo-sweep":
+        secondary_id = str(row.get("SecondaryId") or "").strip()
+        combo_mode = str(row.get("Mode") or "AND").lower()
+        if combo_mode not in {"and", "or"}:
+            raise ValueError("Combo outcome requires Mode AND or OR")
+        secondary = get_strategy_by_id(secondary_id) if secondary_id else None
+        if secondary is None:
+            raise ValueError(f"Unknown secondary strategy: {secondary_id}")
+
+        if primary.confirm_symbols:
+            cache_key = ("refine_frame", use_end)
+            packed = cache.get(cache_key)
+            if packed is None:
+                packed = prepare_builder_refine_frame(
+                    primary,
+                    years=years,
+                    in_sample_end=use_end,
+                    strategy_resolver=get_strategy_by_id,
+                    labels=labels,
+                )
+                cache[cache_key] = packed
+            refine_frame, days, profit, is_long, frame_pnl = packed
+            data_copy = refine_frame.copy()
+            s_buy, _s_sell = _compile_strategy_masks(
+                data_copy,
+                secondary,
+                strategy_resolver=get_strategy_by_id,
+            )
+            buy = data_copy["Buy"] & s_buy if combo_mode == "and" else data_copy["Buy"] | s_buy
+            data_copy["Buy"] = buy
+            executed = bt.execute_strategy(
+                data_copy,
+                days,
+                profit,
+                is_long,
+                pnl_column=frame_pnl or pnl_col,
+            )
+        else:
+            frame_data = data if use_end is None else slice_frame_to_end(data, use_end)
+            data_copy = frame_data.copy()
+            buy, sell, days, profit, _, _, is_long, _ = combine_builder_buy_masks(
+                primary,
+                secondary,
+                data_copy,
+                combo_mode,
+                strategy_resolver=get_strategy_by_id,
+                labels=labels,
+            )
+            data_copy["Buy"] = buy
+            data_copy["Sell"] = sell
+            if pnl_col:
+                from backtest_runners import attach_proxy_column
+
+                data_copy = attach_proxy_column(data_copy, pnl_col, years=years)
+            executed = bt.execute_strategy(
+                data_copy, days, profit, is_long, pnl_column=pnl_col
+            )
+        return bt._ranking_metrics(executed, include_yearly=True)
+
+    raise ValueError(f"Unsupported refine mode: {mode}")
+
+
+def _row_trade_count(row: dict) -> int:
+    value = row.get("Trades")
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _filter_rows_by_min_in_sample_trades(rows, minimum: int | None = None) -> list[dict]:
+    min_trades = config.MIN_IN_SAMPLE_TRADES if minimum is None else int(minimum)
+    row_list = rows if isinstance(rows, list) else dataframe_records(rows)
+    return [row for row in row_list if _row_trade_count(row) >= min_trades]
+
+
+def _attach_full_period_to_rows(
+    rows,
+    *,
+    mode: str,
+    primary,
+    data,
+    years: int,
+    labels: dict[str, str],
+    primary_symbol: str | None = None,
+) -> list[dict]:
+    row_list = _filter_rows_by_min_in_sample_trades(rows)
+    cache: dict = {}
+    for row in row_list:
+        if row.get("Yearly") is None:
+            continue
+        metrics = _evaluate_refine_row_metrics(
+            mode=mode,
+            primary=primary,
+            row=row,
+            data=data,
+            years=years,
+            labels=labels,
+            use_end=None,
+            primary_symbol=primary_symbol,
+            cache=cache,
+        )
+        row["FullPeriod"] = _full_period_summary(metrics)
+    return row_list
+
+
+def _wrap_refine_rows(rows, full_frame, *, in_sample_end) -> dict:
+    meta = sample_window_meta(
+        full_frame,
+        sample="in_sample",
+        in_sample_end=in_sample_end,
+    )
+    meta["min_in_sample_trades"] = int(config.MIN_IN_SAMPLE_TRADES)
+    return {
+        "rows": rows if isinstance(rows, list) else dataframe_records(rows),
+        "meta": meta,
+    }
+
+def run_builder_refine(request) -> dict:
     if not request.strategy.conditions:
         raise ValueError("Draft strategy must have at least one entry condition")
 
@@ -288,6 +631,8 @@ def run_builder_refine(request) -> dict | list[dict]:
         raise ValueError("Symbol confirmation sweep is not supported with custom intraday data")
 
     def _run():
+        full_frame = _refine_reference_frame(primary, data, years=years, labels=labels)
+        in_sample_end = in_sample_end_timestamp(full_frame)
         pnl_col = proxy_column(primary)
 
         if request.mode == "signal-combo-sweep":
@@ -306,13 +651,23 @@ def run_builder_refine(request) -> dict | list[dict]:
                 strategy_resolver=get_strategy_by_id,
                 labels=labels,
                 years=years,
+                in_sample_end=in_sample_end,
             )
-            return dataframe_records(results)
+            rows = _attach_full_period_to_rows(
+                results,
+                mode=request.mode,
+                primary=primary,
+                data=data,
+                years=years,
+                labels=labels,
+            )
+            return _wrap_refine_rows(rows, full_frame, in_sample_end=in_sample_end)
 
         refine_frame, days, profit, is_long, pnl_col = prepare_builder_refine_frame(
             primary,
             years=years,
             data=data,
+            in_sample_end=in_sample_end,
             strategy_resolver=get_strategy_by_id,
             labels=labels,
         )
@@ -335,8 +690,18 @@ def run_builder_refine(request) -> dict | list[dict]:
                 symbol_pool,
                 years=years,
                 pnl_column=pnl_col,
+                in_sample_end=in_sample_end,
             )
-            return dataframe_records(results)
+            rows = _attach_full_period_to_rows(
+                results,
+                mode=request.mode,
+                primary=primary,
+                data=data,
+                years=years,
+                labels=labels,
+                primary_symbol=primary_symbol,
+            )
+            return _wrap_refine_rows(rows, full_frame, in_sample_end=in_sample_end)
 
         if request.mode == "hold-days-sweep":
             results = bt.backtest_days(
@@ -345,7 +710,15 @@ def run_builder_refine(request) -> dict | list[dict]:
                 is_long,
                 pnl_column=pnl_col,
             )
-            return dataframe_records(results)
+            rows = _attach_full_period_to_rows(
+                results,
+                mode=request.mode,
+                primary=primary,
+                data=data,
+                years=years,
+                labels=labels,
+            )
+            return _wrap_refine_rows(rows, full_frame, in_sample_end=in_sample_end)
 
         if request.mode == "indicator-sweep":
             check_breadth = request.check_breadth if custom_dataset is None else False
@@ -364,6 +737,7 @@ def run_builder_refine(request) -> dict | list[dict]:
                     exclude_columns=exclude_columns,
                     include_vwap_sweeps=custom_dataset is not None and custom_dataset.has_vwap,
                     pnl_column=pnl_col,
+                    in_sample_end=in_sample_end,
                     strategy_resolver=get_strategy_by_id,
                     labels=labels,
                     verbose=False,
@@ -382,9 +756,54 @@ def run_builder_refine(request) -> dict | list[dict]:
                     include_vwap_sweeps=custom_dataset is not None and custom_dataset.has_vwap,
                     pnl_column=pnl_col,
                 )
-            return dataframe_records(results)
+            rows = _attach_full_period_to_rows(
+                results,
+                mode=request.mode,
+                primary=primary,
+                data=data,
+                years=years,
+                labels=labels,
+            )
+            return _wrap_refine_rows(rows, full_frame, in_sample_end=in_sample_end)
 
         raise ValueError(f"Unsupported refine mode: {request.mode}")
+
+    return _with_builder_hold_on_buy(request.strategy, custom_dataset, _run)
+
+
+def run_builder_refine_outcome(request) -> dict:
+    """Evaluate one refine sweep row on in-sample or full period."""
+    if not request.strategy.conditions:
+        raise ValueError("Draft strategy must have at least one entry condition")
+
+    labels = _builder_condition_labels()
+    primary = draft_to_saved_strategy(request.strategy, labels=labels)
+    years = request.strategy.years
+    row = dict(request.row or {})
+    data, custom_dataset = _load_builder_data(request.strategy)
+    if custom_dataset is not None and request.mode == "symbol-confirm-sweep":
+        raise ValueError("Symbol confirmation sweep is not supported with custom intraday data")
+
+    def _run():
+        full_frame = _refine_reference_frame(primary, data, years=years, labels=labels)
+        in_sample_end = in_sample_end_timestamp(full_frame)
+        use_end = in_sample_end if request.sample == "in_sample" else None
+        meta = sample_window_meta(
+            full_frame,
+            sample=request.sample,
+            in_sample_end=in_sample_end,
+        )
+        metrics = _evaluate_refine_row_metrics(
+            mode=request.mode,
+            primary=primary,
+            row=row,
+            data=data,
+            years=years,
+            labels=labels,
+            use_end=use_end,
+            primary_symbol=request.primary_symbol,
+        )
+        return {"metrics": _format_outcome_metrics(metrics), "meta": meta}
 
     return _with_builder_hold_on_buy(request.strategy, custom_dataset, _run)
 
@@ -456,6 +875,17 @@ def upload_custom_dataset(content: bytes, filename: str | None = None) -> dict:
 
     dataset = custom_dataset_store.add_from_csv(content, filename=filename)
     return custom_dataset_store.metadata(dataset)
+
+
+def run_monte_carlo_simulation(request) -> dict:
+    from api.monte_carlo import run_monte_carlo
+
+    return run_monte_carlo(
+        request.trade_returns,
+        method=request.method,
+        n_sims=request.n_sims,
+        start_capital=request.start_capital,
+    )
 
 
 def get_custom_dataset_metadata(dataset_id: str) -> dict:

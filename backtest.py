@@ -116,8 +116,10 @@ def _run_indicator_threshold(
         columns = ['Date', 'Close', '%Change', 'Buy', 'Sell', column_name]
         if UseProxyUnderlying:
             columns.append(ProxySymbol)
+        if pnl_column:
+            columns.append(pnl_column)
         columns = list(dict.fromkeys(columns))
-        data_copy = data.loc[:, columns].copy()
+        data_copy = data.loc[:, [c for c in columns if c in data.columns]].copy()
     else:
         data_copy = data.copy()
     if buy_sell == 'Buy':
@@ -433,7 +435,16 @@ def backtest_cross_symbol(buy_signal, primary_symbol, confirm_symbols=None, year
     data = execute_strategy(data, days, profit, is_long)
     return data, days, profit, description, is_long
 
-def backtest_symbol_confirmation_sweep(buy_signal, primary_symbol, symbol_pool, years=25, confirm_sets=None, *, pnl_column=None):
+def backtest_symbol_confirmation_sweep(
+    buy_signal,
+    primary_symbol,
+    symbol_pool,
+    years=25,
+    confirm_sets=None,
+    *,
+    pnl_column=None,
+    in_sample_end=None,
+):
     """
     Sweep all confirmation subsets from symbol_pool (excluding primary).
     Includes a primary-only row with no confirmation symbols.
@@ -446,6 +457,10 @@ def backtest_symbol_confirmation_sweep(buy_signal, primary_symbol, symbol_pool, 
 
     needed = list(dict.fromkeys([primary_symbol] + candidates))
     symbol_data = load_symbol_dataset(needed, years=years)
+    if in_sample_end is not None:
+        from api.sample_window import slice_symbol_data_to_end
+
+        symbol_data = slice_symbol_data_to_end(symbol_data, in_sample_end)
     results = pd.DataFrame(columns=['Signal', 'Primary', 'Confirm', 'Days', 'Profit', 'PnL', 'MaxDD', 'Trades', '%Pstv', 'CAGR', 'Sharpe', 'Sortino'])
 
     for confirm_symbols in confirm_sets:

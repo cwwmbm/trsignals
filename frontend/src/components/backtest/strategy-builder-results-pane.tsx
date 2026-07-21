@@ -1,7 +1,12 @@
 "use client";
 
 import { memo, useEffect, useState } from "react";
-import type { DetailedResult, SweepResult } from "@/api";
+import type {
+  DetailedResult,
+  SweepMeta,
+  SweepResult,
+  SweepResultResponse,
+} from "@/api";
 import {
   BuilderRefinePanel,
   type BuilderRefinePanelProps,
@@ -11,8 +16,31 @@ import { SweepResults } from "@/components/backtest/sweep-results";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-function isDetailedResult(result: DetailedResult | SweepResult | undefined): result is DetailedResult {
+function isDetailedResult(
+  result: DetailedResult | SweepResult | SweepResultResponse | undefined,
+): result is DetailedResult {
   return Boolean(result && !Array.isArray(result) && "summary" in result);
+}
+
+function isSweepResultResponse(
+  result: DetailedResult | SweepResult | SweepResultResponse | undefined,
+): result is SweepResultResponse {
+  return Boolean(result && !Array.isArray(result) && "rows" in result && "meta" in result);
+}
+
+function sweepRows(
+  result: DetailedResult | SweepResult | SweepResultResponse | undefined,
+): SweepResult | undefined {
+  if (Array.isArray(result)) return result;
+  if (isSweepResultResponse(result)) return result.rows;
+  return undefined;
+}
+
+function sweepMeta(
+  result: DetailedResult | SweepResult | SweepResultResponse | undefined,
+): SweepMeta | undefined {
+  if (isSweepResultResponse(result)) return result.meta;
+  return undefined;
 }
 
 const ResultsBody = memo(function ResultsBody({
@@ -24,7 +52,7 @@ const ResultsBody = memo(function ResultsBody({
   canAddRow,
   addRowLabel,
 }: {
-  result: DetailedResult | SweepResult | undefined;
+  result: DetailedResult | SweepResult | SweepResultResponse | undefined;
   selectedSweepRow: Record<string, unknown> | undefined;
   onSelectSweepRow: (row: Record<string, unknown>) => void;
   emptyMessage: string;
@@ -38,15 +66,20 @@ const ResultsBody = memo(function ResultsBody({
   if (isDetailedResult(result)) {
     return <DetailResults result={result} embedded />;
   }
+  const rows = sweepRows(result);
+  if (!rows) {
+    return <p className="py-6 text-center text-xs text-muted-foreground">{emptyMessage}</p>;
+  }
   return (
     <SweepResults
-      rows={result}
+      rows={rows}
       selectedRow={selectedSweepRow}
       onSelectRow={onSelectSweepRow}
       embedded
       onAddRow={onAddRow}
       canAddRow={canAddRow}
       addRowLabel={addRowLabel}
+      meta={sweepMeta(result)}
     />
   );
 });
@@ -56,7 +89,7 @@ type StrategyBuilderResultsPaneProps = {
   builderResultsVersion: number;
   builderSelectedSweepRow: Record<string, unknown> | undefined;
   onBuilderSelectSweepRow: (row: Record<string, unknown>) => void;
-  refineResult: DetailedResult | SweepResult | undefined;
+  refineResult: DetailedResult | SweepResult | SweepResultResponse | undefined;
   refineResultsVersion: number;
   refineSelectedSweepRow: Record<string, unknown> | undefined;
   onRefineSelectSweepRow: (row: Record<string, unknown>) => void;

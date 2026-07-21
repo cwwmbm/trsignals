@@ -25,3 +25,8 @@ DownDays = 3
 OneDayArm = False #No code written to support this yet
 
 ExcludeBestReturnYear = True  # drop best-return year from Sharpe/CAGR/etc.; yearly table unchanged
+
+# Builder refine: default ranking uses the first fraction of the loaded timeline.
+IN_SAMPLE_FRACTION = 0.70
+# Drop refine rows whose in-sample trade count is below this minimum.
+MIN_IN_SAMPLE_TRADES = 100
