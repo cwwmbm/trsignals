@@ -53,6 +53,53 @@ export interface IndicatorInfo {
   defaultCompareNumber?: string;
 }
 
+export type ContributionMetrics = {
+  cagr_percent: number | null;
+  sharpe: number | null;
+  sortino: number | null;
+  max_drawdown: number | null;
+  rolling_pnl: number | null;
+  time_in_market_percent: number | null;
+  trades: number;
+  worst_calendar_year_pnl_percent: number | null;
+  avg_days_in_trade: number | null;
+  median_days_in_trade: number | null;
+  calmar: number | null;
+  ulcer_index: number | null;
+  time_under_water_percent: number | null;
+  trades_per_year: number | null;
+  utility: number | null;
+  exposure_adjusted_return: number | null;
+};
+
+export type StrategyContribution = {
+  strategy_id: string;
+  strategy_name: string;
+  full: ContributionMetrics;
+  without_strategy: ContributionMetrics;
+  cagr_contribution_pp: number | null;
+  sharpe_delta: number | null;
+  sortino_delta: number | null;
+  calmar_delta: number | null;
+  ulcer_index_delta: number | null;
+  time_under_water_delta_pp: number | null;
+  max_drawdown_effect_pp: number | null;
+  final_equity_delta: number | null;
+  added_exposure_pp: number | null;
+  added_portfolio_trades: number | null;
+  worst_calendar_year_pnl_delta_pp: number | null;
+  avg_days_in_trade_delta: number | null;
+  median_days_in_trade_delta: number | null;
+  marginal_utility: number | null;
+  exposure_adjusted_return_delta: number | null;
+  marginal_cagr_per_10pp_exposure: number | null;
+  candidate_holding_days: number;
+  overlapping_holding_days: number;
+  unique_holding_days: number;
+  unique_holding_percent: number | null;
+  redundant_holding_percent: number | null;
+};
+
 export interface DetailedResult {
   summary: Record<string, number | string | null>;
   yearly: Array<Record<string, number | string | null>>;
@@ -61,6 +108,7 @@ export interface DetailedResult {
   trades: Array<Record<string, number | string | null>>;
   equity_curve_total_points?: number;
   equity_curve_shown_points?: number;
+  contribution?: StrategyContribution[] | null;
 }
 
 export type MonteCarloMethod = "shuffle" | "bootstrap";
@@ -290,6 +338,9 @@ export type ScanRow = {
   condition_snapshot?: ConditionSnapshotItem[] | null;
   condition_passed_count?: number | null;
   condition_total_count?: number | null;
+  sell_condition_snapshot?: ConditionSnapshotItem[] | null;
+  sell_condition_passed_count?: number | null;
+  sell_condition_total_count?: number | null;
   condition_as_of?: string | null;
 };
 
@@ -326,6 +377,17 @@ export type PortfolioSimulatePayload = {
   overlap_mode: PortfolioOverlapMode;
   proxy_symbol?: string;
   years?: number;
+};
+
+export type PortfolioShapleyPayload = PortfolioSimulatePayload & {
+  samples?: number;
+  seed?: number;
+};
+
+export type PortfolioShapleyResult = {
+  samples_used: number;
+  exact: boolean;
+  shapley: StrategyContribution[];
 };
 
 export async function getSignals(): Promise<SignalInfo[]> {
@@ -408,6 +470,12 @@ export function runPortfolioSimulation(
   payload: PortfolioSimulatePayload,
 ): Promise<DetailedResult> {
   return postJson<DetailedResult>("/portfolios/simulate", payload);
+}
+
+export function runPortfolioShapley(
+  payload: PortfolioShapleyPayload,
+): Promise<PortfolioShapleyResult> {
+  return postJson<PortfolioShapleyResult>("/portfolios/shapley", payload);
 }
 
 export function savePortfolio(payload: SavePortfolioPayload): Promise<SavedPortfolio> {

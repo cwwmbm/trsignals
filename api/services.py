@@ -881,6 +881,12 @@ def run_portfolio_simulation(request) -> dict:
     return simulate_portfolio(request)
 
 
+def run_portfolio_shapley(request) -> dict:
+    from api.portfolio_service import simulate_portfolio_shapley
+
+    return simulate_portfolio_shapley(request)
+
+
 def save_portfolio(request) -> dict:
     saved = create_portfolio(request)
     return _model_dump(saved)

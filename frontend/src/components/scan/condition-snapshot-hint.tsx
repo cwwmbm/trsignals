@@ -16,12 +16,67 @@ function formatValues(item: ConditionSnapshotItem): string | null {
   return null
 }
 
+function ConditionSnapshotList({ items }: { items: ConditionSnapshotItem[] }) {
+  return (
+    <ul className="max-h-64 space-y-1 overflow-y-auto px-3 py-2">
+      {items.map((item, index) => {
+        const values = formatValues(item)
+        return (
+          <li
+            key={`${item.left}-${item.operator}-${item.right}-${index}`}
+            className={cn(
+              'flex items-start justify-between gap-3 text-[11px] leading-4',
+              item.passed ? 'text-[var(--gain)]' : 'text-[var(--loss)]',
+            )}
+          >
+            <span className="min-w-0">
+              {item.logic ? <span className="mr-1 opacity-70">{item.logic}</span> : null}
+              {item.label}
+            </span>
+            {values ? (
+              <span className="shrink-0 font-mono tabular-nums opacity-90">{values}</span>
+            ) : null}
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+function SnapshotSection({
+  title,
+  asOf,
+  passed,
+  total,
+  items,
+  borderedTop = false,
+}: {
+  title: string
+  asOf?: string | null
+  passed: number
+  total: number
+  items: ConditionSnapshotItem[]
+  borderedTop?: boolean
+}) {
+  return (
+    <div className={cn(borderedTop && 'border-t border-border')}>
+      <div className="border-b border-border px-3 py-2 text-[11px] text-muted-foreground">
+        {title}
+        {asOf ? ` · ${asOf}` : ''}
+        {` · ${passed}/${total} pass`}
+      </div>
+      <ConditionSnapshotList items={items} />
+    </div>
+  )
+}
+
 type ConditionSnapshotHintProps = {
   row: ScanRow
 }
 
 export function ConditionSnapshotHint({ row }: ConditionSnapshotHintProps) {
-  const snapshot = row.condition_snapshot
+  const entrySnapshot = row.condition_snapshot
+  const exitSnapshot = row.sell_condition_snapshot
   const [open, setOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
 
@@ -48,12 +103,17 @@ export function ConditionSnapshotHint({ row }: ConditionSnapshotHintProps) {
     }
   }, [open])
 
-  if (row.source !== 'builder' || !snapshot?.length) {
+  const hasEntry = Boolean(entrySnapshot?.length)
+  const hasExit = Boolean(exitSnapshot?.length)
+  if (row.source !== 'builder' || (!hasEntry && !hasExit)) {
     return null
   }
 
-  const passed = row.condition_passed_count ?? snapshot.filter((item) => item.passed).length
-  const total = row.condition_total_count ?? snapshot.length
+  const entryPassed = row.condition_passed_count ?? entrySnapshot?.filter((item) => item.passed).length ?? 0
+  const entryTotal = row.condition_total_count ?? entrySnapshot?.length ?? 0
+  const exitPassed =
+    row.sell_condition_passed_count ?? exitSnapshot?.filter((item) => item.passed).length ?? 0
+  const exitTotal = row.sell_condition_total_count ?? exitSnapshot?.length ?? 0
   const asOf = row.condition_as_of
 
   return (
@@ -67,7 +127,7 @@ export function ConditionSnapshotHint({ row }: ConditionSnapshotHintProps) {
             ref={triggerRef}
             type="button"
             className="inline-flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
-            aria-label="Show entry condition snapshot"
+            aria-label="Show entry and exit condition snapshot"
             onClick={(event) => {
               event.stopPropagation()
               setOpen((current) => !current)
@@ -81,33 +141,25 @@ export function ConditionSnapshotHint({ row }: ConditionSnapshotHintProps) {
           align="start"
           className="max-w-sm border border-border bg-card p-0 text-foreground shadow-md [&>svg]:hidden"
         >
-          <div className="border-b border-border px-3 py-2 text-[11px] text-muted-foreground">
-            Entry conditions
-            {asOf ? ` · ${asOf}` : ''}
-            {` · ${passed}/${total} pass`}
-          </div>
-          <ul className="max-h-64 space-y-1 overflow-y-auto px-3 py-2">
-            {snapshot.map((item, index) => {
-              const values = formatValues(item)
-              return (
-                <li
-                  key={`${item.left}-${item.operator}-${item.right}-${index}`}
-                  className={cn(
-                    'flex items-start justify-between gap-3 text-[11px] leading-4',
-                    item.passed ? 'text-[var(--gain)]' : 'text-[var(--loss)]',
-                  )}
-                >
-                  <span className="min-w-0">
-                    {item.logic ? <span className="mr-1 opacity-70">{item.logic}</span> : null}
-                    {item.label}
-                  </span>
-                  {values ? (
-                    <span className="shrink-0 font-mono tabular-nums opacity-90">{values}</span>
-                  ) : null}
-                </li>
-              )
-            })}
-          </ul>
+          {hasEntry ? (
+            <SnapshotSection
+              title="Entry conditions"
+              asOf={asOf}
+              passed={entryPassed}
+              total={entryTotal}
+              items={entrySnapshot!}
+            />
+          ) : null}
+          {hasExit ? (
+            <SnapshotSection
+              title="Exit conditions"
+              asOf={hasEntry ? null : asOf}
+              passed={exitPassed}
+              total={exitTotal}
+              items={exitSnapshot!}
+              borderedTop={hasEntry}
+            />
+          ) : null}
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>

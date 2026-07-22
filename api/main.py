@@ -21,6 +21,7 @@ from api.schemas import (
     SingleBacktestRequest,
     SymbolConfirmDetailRequest,
     SymbolConfirmSweepRequest,
+    PortfolioShapleyRequest,
     PortfolioSimulateRequest,
     SavePortfolioRequest,
     UpdatePortfolioRequest,
@@ -38,6 +39,7 @@ from api.services import (
     run_indicator_sweep,
     run_live_scan,
     run_monte_carlo_simulation,
+    run_portfolio_shapley,
     run_portfolio_simulation,
     run_signal_combo_sweep,
     run_single_backtest,
@@ -238,6 +240,11 @@ def scan_page() -> FileResponse:
 @app.post("/portfolios/simulate")
 def portfolio_simulate(request: PortfolioSimulateRequest) -> dict:
     return _handle_errors(run_portfolio_simulation, request)
+
+
+@app.post("/portfolios/shapley")
+def portfolio_shapley(request: PortfolioShapleyRequest) -> dict:
+    return _handle_errors(run_portfolio_shapley, request)
 
 
 @app.get("/portfolios")

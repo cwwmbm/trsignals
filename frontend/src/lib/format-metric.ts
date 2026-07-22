@@ -21,3 +21,30 @@ export function formatMetric(value: unknown, column?: string) {
   }
   return String(value);
 }
+
+/** Format a percentage-point delta, e.g. +2.4 pp / −4.1 pp. */
+export function formatPpDelta(value: unknown, digits = 1): string {
+  if (value === null || value === undefined || typeof value !== "number" || Number.isNaN(value)) {
+    return "-";
+  }
+  const sign = value > 0 ? "+" : value < 0 ? "\u2212" : "";
+  const abs = Math.abs(value).toFixed(digits);
+  return `${sign}${abs} pp`;
+}
+
+/** Format a signed numeric delta (ratios, utility, etc.). */
+export function formatSignedDelta(value: unknown, digits = 2): string {
+  if (value === null || value === undefined || typeof value !== "number" || Number.isNaN(value)) {
+    return "-";
+  }
+  const sign = value > 0 ? "+" : value < 0 ? "\u2212" : "";
+  return `${sign}${Math.abs(value).toFixed(digits)}`;
+}
+
+/** Format a holding-share fraction (0–1) as a percent. */
+export function formatHoldingPercent(value: unknown, digits = 0): string {
+  if (value === null || value === undefined || typeof value !== "number" || Number.isNaN(value)) {
+    return "-";
+  }
+  return `${(value * 100).toFixed(digits)}%`;
+}

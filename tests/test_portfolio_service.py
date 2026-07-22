@@ -380,6 +380,10 @@ class PortfolioSimulationTests(unittest.TestCase):
         payload = simulate_portfolio(request)
         self.assertIn("summary", payload)
         self.assertIn("equity_curve", payload)
+        self.assertIn("contribution", payload)
+        self.assertEqual(len(payload["contribution"]), 1)
+        self.assertEqual(payload["contribution"][0]["strategy_id"], "a")
+        self.assertIn("cagr_contribution_pp", payload["contribution"][0])
         self.assertIn("Portfolio", payload["summary"]["description"])
         mock_load_market_data.assert_called_once()
 

@@ -1,3 +1,6 @@
+import math
+
+import numpy as np
 import pandas as pd
 import indicators as ind
 from config import ExcludeBestReturnYear
@@ -61,6 +64,53 @@ def cagr_percent(data, returns=None, best_year=None, periods_per_year=252):
     return round(cagr_decimal(data, returns, best_year, periods_per_year) * 100, 2)
 
 
+def calmar_ratio(cagr_percent_value, max_drawdown_fraction):
+    """Calmar = CAGR% / MaxDD%. Returns None when inputs are invalid or MaxDD is 0."""
+    try:
+        cagr = float(cagr_percent_value)
+        max_dd = float(max_drawdown_fraction)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(cagr) or not math.isfinite(max_dd) or max_dd <= 0:
+        return None
+    return cagr / (max_dd * 100.0)
+
+
+def ulcer_index(data):
+    """Martin ulcer index from Drawdown fraction column: sqrt(mean((dd*100)^2))."""
+    if data is None or data.empty or "Drawdown" not in data.columns:
+        return None
+    drawdown_pct = data["Drawdown"].astype(float) * 100.0
+    if drawdown_pct.empty:
+        return None
+    return float(np.sqrt(np.mean(np.square(drawdown_pct.to_numpy(dtype=float)))))
+
+
+def time_under_water_percent(data):
+    """Percent of bars with Drawdown > 0 (equity below peak)."""
+    if data is None or data.empty or "Drawdown" not in data.columns:
+        return None
+    drawdown = data["Drawdown"].astype(float)
+    if drawdown.empty:
+        return None
+    return float((drawdown > 0).mean() * 100.0)
+
+
+def trades_per_year(trades, n_bars, periods_per_year=252):
+    """Annualized trade rate from bar count."""
+    try:
+        trade_count = float(trades)
+        bars = float(n_bars)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(trade_count) or not math.isfinite(bars) or bars <= 0:
+        return None
+    years = bars / float(periods_per_year)
+    if years <= 0:
+        return None
+    return trade_count / years
+
+
 def compute_aggregate_metrics(data, periods_per_year=252):
     """
     Aggregate backtest metrics for ranking/comparison.
@@ -85,19 +135,26 @@ def compute_aggregate_metrics(data, periods_per_year=252):
     if trades and avg_win and avg_loss:
         kelly = (pct_positive / 100 - ((1 - pct_positive / 100) / (avg_win / (-avg_loss)))) * 100
 
+    max_drawdown = metrics_data['Drawdown'].max() if not metrics_data.empty else None
+    cagr_pct = round(cagr * 100, 2)
+
     return {
         'excluded_year': excluded_year,
         'rolling_pnl': data['RollingPnL'].iloc[-1],
-        'max_drawdown': metrics_data['Drawdown'].max(),
+        'max_drawdown': max_drawdown,
         'trades': trades,
         'pct_positive': pct_positive,
         'avg_win': avg_win,
         'avg_loss': avg_loss,
         'kelly': kelly,
         'cagr_decimal': cagr,
-        'cagr_percent': round(cagr * 100, 2),
+        'cagr_percent': cagr_pct,
         'sharpe': ind.sharpes_ratio(metrics_data, periods_per_year=periods_per_year),
         'sortino': ind.sortino_ratio(metrics_data, periods_per_year=periods_per_year),
+        'calmar': calmar_ratio(cagr_pct, max_drawdown),
+        'ulcer_index': ulcer_index(metrics_data),
+        'time_under_water_percent': time_under_water_percent(metrics_data),
+        'trades_per_year': trades_per_year(trades, len(data), periods_per_year=periods_per_year),
     }
 
 

@@ -383,6 +383,57 @@ class ScanServiceTests(unittest.TestCase):
         self.assertEqual(len(row["condition_snapshot"]), 2)
         self.assertFalse(row["condition_snapshot"][0]["passed"])
         self.assertTrue(row["condition_snapshot"][1]["passed"])
+        self.assertIsNone(row["sell_condition_snapshot"])
+        self.assertIsNone(row["sell_condition_passed_count"])
+        self.assertIsNone(row["sell_condition_total_count"])
+
+    def test_builder_scan_row_includes_sell_condition_snapshot(self):
+        data = pd.DataFrame(
+            {
+                "Date": pd.date_range("2024-01-02", periods=3, freq="B"),
+                "Close": [100.0, 99.0, 102.0],
+                "SMA200": [101.0, 100.5, 99.5],
+                "RSI2": [18.0, 22.0, 85.0],
+            }
+        )
+        strategy = SimpleNamespace(
+            id="s2",
+            name="Entry Exit Strategy",
+            symbol="SPY",
+            direction="long",
+            hold_days=2,
+            profit=1,
+            description="",
+            proxy_symbol=None,
+            confirm_symbols=[],
+            hold_on_buy_signal=False,
+            conditions=[
+                SimpleNamespace(
+                    model_dump=lambda: {"left": "RSI2", "operator": "<=", "right": "30", "logic": "AND"}
+                ),
+            ],
+            sell_conditions=[
+                SimpleNamespace(
+                    model_dump=lambda: {"left": "RSI2", "operator": ">=", "right": "80", "logic": "AND"}
+                ),
+                SimpleNamespace(
+                    model_dump=lambda: {"left": "Close", "operator": ">", "right": "SMA200", "logic": "AND"}
+                ),
+            ],
+        )
+
+        with patch("api.scan_service.execute_saved_strategy") as execute_saved:
+            execute_saved.return_value = _sample_executed(trade_out=False, trade_pnl=0.0)
+            with patch("api.scan_service.list_strategies", return_value=[strategy]):
+                row = _builder_scan_row(strategy, data)
+
+        self.assertEqual(row["sell_condition_total_count"], 2)
+        self.assertEqual(row["sell_condition_passed_count"], 2)
+        self.assertEqual(len(row["sell_condition_snapshot"]), 2)
+        self.assertTrue(row["sell_condition_snapshot"][0]["passed"])
+        self.assertTrue(row["sell_condition_snapshot"][1]["passed"])
+        self.assertEqual(row["condition_total_count"], 1)
+        self.assertFalse(row["condition_snapshot"][0]["passed"])
 
 if __name__ == "__main__":
     unittest.main()

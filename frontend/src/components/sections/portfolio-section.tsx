@@ -1,9 +1,16 @@
 'use client'
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2, Play, Save, Search, Trash2 } from 'lucide-react'
+import { ChevronDown, Loader2, Play, Save, Search, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import type { DetailedResult, PortfolioOverlapMode, SavedPortfolio, SavedStrategy } from '@/api'
+import type {
+  DetailedResult,
+  PortfolioOverlapMode,
+  PortfolioSimulatePayload,
+  SavedPortfolio,
+  SavedStrategy,
+  ScanLane,
+} from '@/api'
 import {
   deletePortfolio,
   getSavedPortfolios,
@@ -27,6 +34,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { LANE_LABELS, SCAN_LANES, resolveScanLane } from '@/lib/scan-board'
 import { compareSymbols } from '@/lib/symbol-order'
 import { cn } from '@/lib/utils'
 
@@ -44,10 +52,27 @@ export type PortfolioInitialState = {
 
 function sortStrategies(strategies: SavedStrategy[]) {
   return [...strategies].sort((a, b) => {
+    const orderDiff = (a.scan_sort_order ?? 0) - (b.scan_sort_order ?? 0)
+    if (orderDiff !== 0) return orderDiff
     const symbolOrder = compareSymbols(a.symbol, b.symbol)
     if (symbolOrder !== 0) return symbolOrder
     return a.name.localeCompare(b.name)
   })
+}
+
+function groupStrategiesByLane(strategies: SavedStrategy[]) {
+  const lanes: Record<ScanLane, SavedStrategy[]> = {
+    active: [],
+    testing: [],
+    archived: [],
+  }
+  for (const strategy of strategies) {
+    lanes[resolveScanLane(strategy)].push(strategy)
+  }
+  return SCAN_LANES.map((lane) => ({
+    lane,
+    strategies: sortStrategies(lanes[lane]),
+  }))
 }
 
 function applyPortfolioSelection(
@@ -78,11 +103,16 @@ export function PortfolioSection({
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
   const [search, setSearch] = useState('')
+  const [expandedLanes, setExpandedLanes] = useState<Set<string>>(
+    () => new Set(['active', 'testing']),
+  )
   const [overlapMode, setOverlapMode] = useState<PortfolioOverlapMode>('first_signal_only')
   const [proxySymbol, setProxySymbol] = useState('')
   const [years, setYears] = useState('25')
   const [portfolioName, setPortfolioName] = useState('')
   const [portfolioDescription, setPortfolioDescription] = useState('')
+  const [lastSimulateRequest, setLastSimulateRequest] =
+    useState<PortfolioSimulatePayload | null>(null)
 
   const mutation = useMutation({
     mutationFn: runPortfolioSimulation,
@@ -144,10 +174,26 @@ export function PortfolioSection({
     )
   }, [search, sortedStrategies])
 
+  const laneGroups = useMemo(
+    () => groupStrategiesByLane(filteredStrategies),
+    [filteredStrategies],
+  )
+
+  const searchActive = search.trim().length > 0
+
   const selectedInOrder = useMemo(
     () => sortedStrategies.filter((strategy) => selectedIds.has(strategy.id)).map((s) => s.id),
     [selectedIds, sortedStrategies],
   )
+
+  function toggleLane(lane: ScanLane) {
+    setExpandedLanes((current) => {
+      const next = new Set(current)
+      if (next.has(lane)) next.delete(lane)
+      else next.add(lane)
+      return next
+    })
+  }
 
   const selectedShort = useMemo(
     () => sortedStrategies.some((strategy) => selectedIds.has(strategy.id) && strategy.direction === 'short'),
@@ -173,12 +219,14 @@ export function PortfolioSection({
 
   const handleSimulate = () => {
     const parsedYears = Number(years)
-    mutation.mutate({
+    const payload: PortfolioSimulatePayload = {
       strategy_ids: selectedInOrder,
       overlap_mode: overlapMode,
       ...(proxySymbol.trim() ? { proxy_symbol: proxySymbol.trim().toUpperCase() } : {}),
       years: Number.isFinite(parsedYears) ? parsedYears : 25,
-    })
+    }
+    setLastSimulateRequest(payload)
+    mutation.mutate(payload)
   }
 
   const handleSave = () => {
@@ -253,49 +301,111 @@ export function PortfolioSection({
         ) : filteredStrategies.length === 0 ? (
           <p className="mt-4 text-sm text-muted-foreground">No strategies match your search.</p>
         ) : (
-          <div className="mt-3 overflow-x-auto rounded-md border border-border/60">
-            <Table>
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead className={cn(compactHead, 'w-10')} />
-                  <TableHead className={cn(compactHead, 'w-20')}>Symbol</TableHead>
-                  <TableHead className={cn(compactHead, 'min-w-[10rem]')}>Name</TableHead>
-                  <TableHead className={compactHead}>Description</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredStrategies.map((strategy) => {
-                  const isShort = strategy.direction === 'short'
-                  const checked = selectedIds.has(strategy.id)
-                  return (
-                    <TableRow key={strategy.id} className={isShort ? 'opacity-60' : undefined}>
-                      <TableCell className={compactCell}>
-                        <Checkbox
-                          checked={checked}
-                          disabled={isShort}
-                          onCheckedChange={(value) => toggleStrategy(strategy, value === true)}
-                          aria-label={`Select ${strategy.name}`}
-                        />
-                      </TableCell>
-                      <TableCell className={cn(compactCell, 'font-mono text-xs')}>
-                        {strategy.symbol}
-                      </TableCell>
-                      <TableCell className={cn(compactCell, 'text-xs font-medium')}>
-                        {strategy.name}
-                        {isShort ? (
-                          <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">
-                            (short — excluded)
-                          </span>
-                        ) : null}
-                      </TableCell>
-                      <TableCell className={cn(compactCell, 'max-w-md text-xs text-muted-foreground')}>
-                        {(strategy.description ?? '').trim() || '—'}
-                      </TableCell>
-                    </TableRow>
-                  )
-                })}
-              </TableBody>
-            </Table>
+          <div className="mt-3 flex flex-col gap-2">
+            {laneGroups
+              .filter(({ strategies: laneStrategies }) => !searchActive || laneStrategies.length > 0)
+              .map(({ lane, strategies: laneStrategies }) => {
+              const expanded = searchActive || expandedLanes.has(lane)
+              const selectedCount = laneStrategies.filter((strategy) =>
+                selectedIds.has(strategy.id),
+              ).length
+              return (
+                <div
+                  key={lane}
+                  className="overflow-hidden rounded-md border border-border/60"
+                >
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 bg-muted/20 px-3 py-2 text-left text-xs hover:bg-muted/30"
+                    onClick={() => {
+                      if (searchActive) return
+                      toggleLane(lane)
+                    }}
+                    aria-expanded={expanded}
+                  >
+                    <ChevronDown
+                      className={cn(
+                        'size-3.5 shrink-0 transition-transform',
+                        !expanded && '-rotate-90',
+                      )}
+                    />
+                    <span className="font-medium">{LANE_LABELS[lane]}</span>
+                    <span className="text-muted-foreground">
+                      {laneStrategies.length} strateg
+                      {laneStrategies.length === 1 ? 'y' : 'ies'}
+                      {selectedCount > 0 ? ` · ${selectedCount} selected` : ''}
+                    </span>
+                  </button>
+                  {expanded ? (
+                    <div className="overflow-x-auto border-t border-border/60">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="hover:bg-transparent">
+                            <TableHead className={cn(compactHead, 'w-10')} />
+                            <TableHead className={cn(compactHead, 'w-20')}>Symbol</TableHead>
+                            <TableHead className={cn(compactHead, 'min-w-[10rem]')}>Name</TableHead>
+                            <TableHead className={compactHead}>Description</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {laneStrategies.length === 0 ? (
+                            <TableRow>
+                              <TableCell
+                                colSpan={4}
+                                className="py-4 text-center text-[11px] text-muted-foreground"
+                              >
+                                No strategies in this category
+                              </TableCell>
+                            </TableRow>
+                          ) : (
+                            laneStrategies.map((strategy) => {
+                              const isShort = strategy.direction === 'short'
+                              const checked = selectedIds.has(strategy.id)
+                              return (
+                                <TableRow
+                                  key={strategy.id}
+                                  className={isShort ? 'opacity-60' : undefined}
+                                >
+                                  <TableCell className={compactCell}>
+                                    <Checkbox
+                                      checked={checked}
+                                      disabled={isShort}
+                                      onCheckedChange={(value) =>
+                                        toggleStrategy(strategy, value === true)
+                                      }
+                                      aria-label={`Select ${strategy.name}`}
+                                    />
+                                  </TableCell>
+                                  <TableCell className={cn(compactCell, 'font-mono text-xs')}>
+                                    {strategy.symbol}
+                                  </TableCell>
+                                  <TableCell className={cn(compactCell, 'text-xs font-medium')}>
+                                    {strategy.name}
+                                    {isShort ? (
+                                      <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">
+                                        (short — excluded)
+                                      </span>
+                                    ) : null}
+                                  </TableCell>
+                                  <TableCell
+                                    className={cn(
+                                      compactCell,
+                                      'max-w-md text-xs text-muted-foreground',
+                                    )}
+                                  >
+                                    {(strategy.description ?? '').trim() || '—'}
+                                  </TableCell>
+                                </TableRow>
+                              )
+                            })
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  ) : null}
+                </div>
+              )
+            })}
           </div>
         )}
       </Card>
@@ -510,7 +620,9 @@ export function PortfolioSection({
         )}
       </Card>
 
-      {result ? <DetailResults result={result} /> : null}
+      {result ? (
+        <DetailResults result={result} shapleyRequest={lastSimulateRequest} />
+      ) : null}
     </div>
   )
 }

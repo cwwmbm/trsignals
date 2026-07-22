@@ -224,6 +224,11 @@ class PortfolioSimulateRequest(BaseModel):
     years: int = Field(default=25, ge=1, le=100)
 
 
+class PortfolioShapleyRequest(PortfolioSimulateRequest):
+    samples: int = Field(default=64, ge=1, le=512)
+    seed: int | None = None
+
+
 class SavedPortfolio(BaseModel):
     id: str
     name: str
@@ -284,4 +289,7 @@ class ScanRowResponse(BaseModel):
     condition_snapshot: list[ConditionSnapshotItem] | None = None
     condition_passed_count: int | None = None
     condition_total_count: int | None = None
+    sell_condition_snapshot: list[ConditionSnapshotItem] | None = None
+    sell_condition_passed_count: int | None = None
+    sell_condition_total_count: int | None = None
     condition_as_of: str | None = None

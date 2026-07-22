@@ -399,6 +399,18 @@ def _builder_scan_row(
         labels=labels,
     )
     passed_count = sum(1 for item in condition_snapshot if item["passed"])
+    sell_conditions = [_condition_dict(condition) for condition in strategy.sell_conditions]
+    sell_condition_snapshot = (
+        evaluate_condition_snapshot(
+            data,
+            sell_conditions,
+            strategy_resolver=get_strategy_by_id,
+            labels=labels,
+        )
+        if sell_conditions
+        else []
+    )
+    sell_passed_count = sum(1 for item in sell_condition_snapshot if item["passed"])
     as_of = data["Date"].iloc[-1] if not data.empty and "Date" in data.columns else None
     if as_of is not None:
         as_of = pd.Timestamp(as_of).strftime("%Y-%m-%d")
@@ -420,6 +432,9 @@ def _builder_scan_row(
         "condition_snapshot": condition_snapshot or None,
         "condition_passed_count": passed_count if condition_snapshot else None,
         "condition_total_count": len(condition_snapshot) if condition_snapshot else None,
+        "sell_condition_snapshot": sell_condition_snapshot or None,
+        "sell_condition_passed_count": sell_passed_count if sell_condition_snapshot else None,
+        "sell_condition_total_count": len(sell_condition_snapshot) if sell_condition_snapshot else None,
         "condition_as_of": as_of,
     }
 
