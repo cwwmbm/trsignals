@@ -109,7 +109,30 @@ export interface DetailedResult {
   equity_curve_total_points?: number;
   equity_curve_shown_points?: number;
   contribution?: StrategyContribution[] | null;
+  market_regime_sharpe?: MarketRegimeSharpe | null;
+  market_regime_current?: MarketRegimeCurrent | null;
+  market_regime_coverage?: MarketRegimeCoverage | null;
 }
+
+export type MarketRegimeCurrent = {
+  as_of: string | null;
+  regimes: Partial<Record<string, string | null>>;
+  readings?: Partial<Record<string, number | null>>;
+};
+
+export type MarketRegimeCoverage = Partial<Record<string, { start: string; end: string } | null>>;
+
+export type RegimeSharpeBucket = {
+  key: string;
+  sharpe: number | null;
+  sortino: number | null;
+  days: number;
+  max_drawdown: number | null;
+  cagr: number | null;
+  calmar: number | null;
+};
+
+export type MarketRegimeSharpe = Partial<Record<string, RegimeSharpeBucket[]>>;
 
 export type MonteCarloMethod = "shuffle" | "bootstrap";
 

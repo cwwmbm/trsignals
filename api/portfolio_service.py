@@ -1173,6 +1173,7 @@ def simulate_portfolio(request) -> dict:
         max_profit,
         description,
         portfolio_equity=mixed_pnl_symbols,
+        years=request.years,
     )
     payload["contribution"] = compute_portfolio_contribution(
         strategies,

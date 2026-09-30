@@ -87,6 +87,10 @@
   --chart-3: oklch(0.55 0.14 230);
   --chart-4: oklch(0.68 0.14 85);
   --chart-5: oklch(0.52 0.01 256);
+  --regime-now-fill: #f4f4f5;
+  --regime-now-stroke: #d4d4d8;
+  --regime-now-pill: #ffffff;
+  --regime-now-ink: #18181b;
   --radius: 0.625rem;
   --sidebar: oklch(0.97 0.003 256);
   --sidebar-foreground: oklch(0.22 0.01 256);
@@ -131,6 +135,10 @@
   --chart-3: oklch(0.7 0.13 230);
   --chart-4: oklch(0.8 0.13 85);
   --chart-5: oklch(0.66 0.01 256);
+  --regime-now-fill: #27272a;
+  --regime-now-stroke: #52525b;
+  --regime-now-pill: #3f3f46;
+  --regime-now-ink: #fafafa;
   --sidebar: oklch(0.195 0.009 256);
   --sidebar-foreground: oklch(0.97 0.003 256);
   --sidebar-primary: oklch(0.72 0.16 158);

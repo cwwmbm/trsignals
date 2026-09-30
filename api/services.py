@@ -108,7 +108,7 @@ def run_single_backtest(request) -> dict:
             data, request.symbol
         )
         executed = bt.execute_strategy(data, days, profit, is_long)
-        return detailed_backtest_payload(executed, days, profit, description)
+        return detailed_backtest_payload(executed, days, profit, description, years=request.years)
 
     return _with_runtime_options(request, _run)
 
@@ -147,7 +147,7 @@ def run_symbol_confirm_detail(request) -> dict:
             request.confirm_symbols,
             years=request.years,
         )
-        return detailed_backtest_payload(data, days, profit, description)
+        return detailed_backtest_payload(data, days, profit, description, years=request.years)
 
     return _with_runtime_options(request, _run)
 
@@ -269,6 +269,7 @@ def run_builder_backtest(request) -> dict:
             final_description,
             periods_per_year=custom_dataset.periods_per_year,
             is_intraday=True,
+            years=request.years,
         )
 
     def _run():
@@ -279,6 +280,7 @@ def run_builder_backtest(request) -> dict:
             strategy.hold_days,
             strategy.profit,
             final_description,
+            years=request.years,
         )
 
     return _with_builder_hold_on_buy(request, custom_dataset, _run)

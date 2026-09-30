@@ -2,16 +2,18 @@ import { memo, useState } from "react";
 import type { DetailedResult, PortfolioSimulatePayload } from "@/api";
 import { ContributionPanel } from "@/components/backtest/contribution-panel";
 import { EquityDrawdownPanel } from "@/components/backtest/equity-drawdown-panel";
+import { MarketRegimesPanel } from "@/components/backtest/market-regimes-panel";
 import { MonteCarloPanel } from "@/components/backtest/monte-carlo-panel";
 import { SeasonalityPanel } from "@/components/backtest/seasonality-panel";
 import { negativeYearRowClass, ResultsTable, tradeRowClass } from "@/components/backtest/results-table";
 import { StatCard, SUMMARY_KEYS, summaryLabel, summaryTone } from "@/components/backtest/stat-card";
 import { formatMetric } from "@/lib/format-metric";
+import { REGIME_TRADE_FIELDS } from "@/lib/market-regimes";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
-type AnalysisTab = "equity-drawdown" | "seasonality" | "monte-carlo";
+type AnalysisTab = "equity-drawdown" | "seasonality" | "market-regimes" | "monte-carlo";
 type ResultsTab = "overview" | "contribution";
 
 export const DetailResults = memo(function DetailResults({
@@ -63,7 +65,14 @@ export const DetailResults = memo(function DetailResults({
         </div>
         <div className="flex flex-col gap-1">
           <h3 className="text-xs font-medium text-muted-foreground">Trades</h3>
-          <ResultsTable compact visibleRows={30} rows={latestTrades} rowClassName={tradeRowClass} sortable={false} />
+          <ResultsTable
+            compact
+            visibleRows={30}
+            rows={latestTrades}
+            hiddenColumns={REGIME_TRADE_FIELDS}
+            rowClassName={tradeRowClass}
+            sortable={false}
+          />
         </div>
       </div>
 
@@ -82,6 +91,9 @@ export const DetailResults = memo(function DetailResults({
             <TabsTrigger value="seasonality" className="h-8 rounded-none px-3 text-xs">
               Seasonality
             </TabsTrigger>
+            <TabsTrigger value="market-regimes" className="h-8 rounded-none px-3 text-xs">
+              Market regimes
+            </TabsTrigger>
             <TabsTrigger value="monte-carlo" className="h-8 rounded-none px-3 text-xs">
               Monte Carlo
             </TabsTrigger>
@@ -97,6 +109,16 @@ export const DetailResults = memo(function DetailResults({
           </TabsContent>
           <TabsContent value="seasonality" className="mt-3">
             {analysisTab === "seasonality" ? <SeasonalityPanel trades={result.trades} /> : null}
+          </TabsContent>
+          <TabsContent value="market-regimes" className="mt-3">
+            {analysisTab === "market-regimes" ? (
+              <MarketRegimesPanel
+                sharpe={result.market_regime_sharpe}
+                trades={result.trades}
+                current={result.market_regime_current}
+                coverage={result.market_regime_coverage}
+              />
+            ) : null}
           </TabsContent>
           <TabsContent value="monte-carlo" className="mt-3">
             {analysisTab === "monte-carlo" ? <MonteCarloPanel trades={result.trades} /> : null}

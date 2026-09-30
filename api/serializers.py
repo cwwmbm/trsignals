@@ -5,6 +5,14 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from api.market_regimes import (
+    atr_regime_from_row,
+    compute_market_regime_sharpe,
+    current_market_regimes,
+    load_regime_calendar,
+    regime_coverage,
+    market_regimes_for_timestamp,
+)
 from stats import compute_aggregate_metrics, monthly_performance, yearly_performance
 
 MAX_EQUITY_CURVE_POINTS = 2000
@@ -137,11 +145,27 @@ def equity_curve_payload(
     return dataframe_records(rows)
 
 
+def _with_regimes(
+    record: dict,
+    entry: pd.Series,
+    *,
+    include_regimes: bool,
+    regime_calendar: pd.DataFrame | None,
+) -> dict:
+    if not include_regimes:
+        return record
+    record.update(market_regimes_for_timestamp(entry["Date"], regime_calendar))
+    record["atr_regime"] = atr_regime_from_row(entry)
+    return record
+
+
 def trade_payload(
     data: pd.DataFrame,
     *,
     is_intraday: bool = False,
     portfolio_equity: bool = False,
+    include_regimes: bool = False,
+    regime_calendar: pd.DataFrame | None = None,
 ) -> list[dict]:
     trades = []
     entry = None
@@ -156,15 +180,20 @@ def trade_payload(
                 entry_price = float(entry["Close"])
                 exit_price = float(row["Close"])
             trades.append(
-                {
-                    "entry_date": _format_timestamp(entry["Date"], is_intraday=is_intraday),
-                    "exit_date": _format_timestamp(row["Date"], is_intraday=is_intraday),
-                    "entry_price": entry_price,
-                    "exit_price": exit_price,
-                    "trade_pnl": float(row["TradePnL"]),
-                    "days_in_trade": int(row.get("DaysInTrade", 0)),
-                    "status": "Closed",
-                }
+                _with_regimes(
+                    {
+                        "entry_date": _format_timestamp(entry["Date"], is_intraday=is_intraday),
+                        "exit_date": _format_timestamp(row["Date"], is_intraday=is_intraday),
+                        "entry_price": entry_price,
+                        "exit_price": exit_price,
+                        "trade_pnl": float(row["TradePnL"]),
+                        "days_in_trade": int(row.get("DaysInTrade", 0)),
+                        "status": "Closed",
+                    },
+                    entry,
+                    include_regimes=include_regimes,
+                    regime_calendar=regime_calendar,
+                )
             )
             entry = None
     if entry is not None and bool(data.iloc[-1].get("HoldLong", False)):
@@ -176,15 +205,20 @@ def trade_payload(
             entry_price = float(entry["Close"])
             exit_price = float(last["Close"])
         trades.append(
-            {
-                "entry_date": _format_timestamp(entry["Date"], is_intraday=is_intraday),
-                "exit_date": "Open",
-                "entry_price": entry_price,
-                "exit_price": exit_price,
-                "trade_pnl": float(last["TradePnL"]),
-                "days_in_trade": int(last.get("DaysInTrade", 0)),
-                "status": "Open",
-            }
+            _with_regimes(
+                {
+                    "entry_date": _format_timestamp(entry["Date"], is_intraday=is_intraday),
+                    "exit_date": "Open",
+                    "entry_price": entry_price,
+                    "exit_price": exit_price,
+                    "trade_pnl": float(last["TradePnL"]),
+                    "days_in_trade": int(last.get("DaysInTrade", 0)),
+                    "status": "Open",
+                },
+                entry,
+                include_regimes=include_regimes,
+                regime_calendar=regime_calendar,
+            )
         )
     return trades
 
@@ -198,10 +232,12 @@ def detailed_backtest_payload(
     periods_per_year: int = 252,
     is_intraday: bool = False,
     portfolio_equity: bool = False,
+    years: int | None = None,
 ) -> dict:
     total_bars = int(data.shape[0])
     equity_curve = equity_curve_payload(data, is_intraday=is_intraday)
-    return {
+    regime_calendar = load_regime_calendar(years) if years is not None else None
+    payload = {
         "summary": summary_payload(
             data,
             days,
@@ -212,7 +248,22 @@ def detailed_backtest_payload(
         "yearly": yearly_payload(data),
         "monthly": monthly_payload(data),
         "equity_curve": equity_curve,
-        "trades": trade_payload(data, is_intraday=is_intraday, portfolio_equity=portfolio_equity),
+        "trades": trade_payload(
+            data,
+            is_intraday=is_intraday,
+            portfolio_equity=portfolio_equity,
+            include_regimes=years is not None,
+            regime_calendar=regime_calendar,
+        ),
         "equity_curve_total_points": total_bars,
         "equity_curve_shown_points": len(equity_curve),
     }
+    if years is not None:
+        payload["market_regime_sharpe"] = compute_market_regime_sharpe(
+            data,
+            regime_calendar,
+            periods_per_year=periods_per_year,
+        )
+        payload["market_regime_current"] = current_market_regimes(data, regime_calendar)
+        payload["market_regime_coverage"] = regime_coverage(data, regime_calendar)
+    return payload
