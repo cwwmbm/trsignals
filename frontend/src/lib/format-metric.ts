@@ -48,3 +48,22 @@ export function formatHoldingPercent(value: unknown, digits = 0): string {
   }
   return `${(value * 100).toFixed(digits)}%`;
 }
+
+/** Format a fractional return as a signed percent, e.g. +1.23% / −0.45%. */
+export function formatSignedPercent(value: unknown, digits = 2): string {
+  if (value === null || value === undefined || typeof value !== "number" || Number.isNaN(value)) {
+    return "—";
+  }
+  const pct = value * 100;
+  const sign = pct > 0 ? "+" : pct < 0 ? "\u2212" : "";
+  return `${sign}${Math.abs(pct).toFixed(digits)}%`;
+}
+
+/** Format a rate that is already in percent units (not a fraction). */
+export function formatSignedPercentPoints(value: unknown, digits = 2): string {
+  if (value === null || value === undefined || typeof value !== "number" || Number.isNaN(value)) {
+    return "—";
+  }
+  const sign = value > 0 ? "+" : value < 0 ? "\u2212" : "";
+  return `${sign}${Math.abs(value).toFixed(digits)}%`;
+}

@@ -72,6 +72,7 @@ export function useScanBoard(initialExpanded: string[] = ['active', 'legacy']) {
   const queryClient = useQueryClient()
   const [query, setQuery] = useState('')
   const [symbolFilter, setSymbolFilter] = useState<string>('all')
+  const [dataSource, setDataSource] = useState<'yahoo' | 'ib'>('yahoo')
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     () => new Set(initialExpanded),
   )
@@ -89,8 +90,8 @@ export function useScanBoard(initialExpanded: string[] = ['active', 'legacy']) {
     error,
     refetch,
   } = useQuery({
-    queryKey: ['scan'],
-    queryFn: getScan,
+    queryKey: ['scan', dataSource],
+    queryFn: () => getScan(dataSource),
   })
   const { data: savedStrategies = [] } = useQuery({
     queryKey: ['strategies'],
@@ -333,6 +334,8 @@ export function useScanBoard(initialExpanded: string[] = ['active', 'legacy']) {
     setQuery,
     symbolFilter,
     setSymbolFilter,
+    dataSource,
+    setDataSource,
     expandedSections,
     toggleSection,
     laneRows,

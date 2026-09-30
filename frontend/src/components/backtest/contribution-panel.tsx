@@ -6,9 +6,11 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import type {
   PortfolioSimulatePayload,
   PortfolioShapleyResult,
+  PortfolioRegimeResult,
   StrategyContribution,
 } from '@/api'
-import { runPortfolioShapley } from '@/api'
+import { runPortfolioShapley, runPortfolioRegimes } from '@/api'
+import { RegimeContributionResults } from '@/components/backtest/regime-contribution-panel'
 import { Button } from '@/components/ui/button'
 import {
   formatHoldingPercent,
@@ -561,9 +563,11 @@ export function ContributionPanel({
   className?: string
 }) {
   const [shapleyResult, setShapleyResult] = useState<PortfolioShapleyResult | null>(null)
+  const [regimeResult, setRegimeResult] = useState<PortfolioRegimeResult | null>(null)
 
   useEffect(() => {
     setShapleyResult(null)
+    setRegimeResult(null)
   }, [rows, shapleyRequest])
 
   const shapleyMutation = useMutation({
@@ -571,11 +575,16 @@ export function ContributionPanel({
     onSuccess: (data) => setShapleyResult(data),
   })
 
+  const regimeMutation = useMutation({
+    mutationFn: runPortfolioRegimes,
+    onSuccess: (data) => setRegimeResult(data),
+  })
+
   if (!rows.length) {
     return <p className="text-xs text-muted-foreground">No contribution data.</p>
   }
 
-  const canRunShapley = Boolean(shapleyRequest?.strategy_ids?.length)
+  const canRunAnalysis = Boolean(shapleyRequest?.strategy_ids?.length)
 
   return (
     <TooltipProvider delay={0}>
@@ -605,7 +614,7 @@ export function ContributionPanel({
                 size="sm"
                 variant="outline"
                 className="h-7 shrink-0 px-2.5 text-[11px]"
-                disabled={!canRunShapley || shapleyMutation.isPending}
+                disabled={!canRunAnalysis || shapleyMutation.isPending}
                 onClick={() => {
                   if (!shapleyRequest) return
                   shapleyMutation.mutate(shapleyRequest)
@@ -641,6 +650,46 @@ export function ContributionPanel({
                 />
               </div>
             ) : null}
+          </div>
+
+          <div className="space-y-2 border-t border-border/60 pt-3">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div className="min-w-0 space-y-0.5">
+                <h3 className="text-xs font-medium">Regime contribution</h3>
+                <p className="text-[11px] text-muted-foreground">
+                  Leave-one-out marginal contribution under SPY trend/volatility and baseline
+                  drawdown/stress conditions.
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 shrink-0 px-2.5 text-[11px]"
+                disabled={!canRunAnalysis || regimeMutation.isPending}
+                onClick={() => {
+                  if (!shapleyRequest) return
+                  regimeMutation.mutate(shapleyRequest)
+                }}
+              >
+                {regimeMutation.isPending ? (
+                  <>
+                    <Loader2 className="size-3.5 animate-spin" />
+                    Calculating…
+                  </>
+                ) : (
+                  'Calculate Regimes'
+                )}
+              </Button>
+            </div>
+            {regimeMutation.isError ? (
+              <p className="text-[11px] text-[var(--loss)]">
+                {regimeMutation.error instanceof Error
+                  ? regimeMutation.error.message
+                  : 'Regime calculation failed.'}
+              </p>
+            ) : null}
+            {regimeResult ? <RegimeContributionResults result={regimeResult} /> : null}
           </div>
         </div>
       </div>

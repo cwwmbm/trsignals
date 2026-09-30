@@ -10,7 +10,7 @@ from numpy import cumsum, log, polyfit, sqrt, std, subtract
 from hurst import compute_Hc
 
 # Bump when computed indicator columns change so disk cache entries are rebuilt.
-INDICATOR_CACHE_VERSION = 1
+INDICATOR_CACHE_VERSION = 2
 
 #Calculate Sharpe Ratio
 def sharpes_ratio(data, risk_free_rate=0, periods_per_year=252):
@@ -208,15 +208,12 @@ def get_cci(data, period=20):
     return cci
 
 #Calculating IBR
-def internal_bar_ratio(row):
-    high = row['High']
-    low = row['Low']
-    close = row['Close']
-
-    if high == low:
-        return 1
-    else:
-        return (close - low) / (high - low)
+def internal_bar_range(high, low, close, period=1):
+    """IBR of an N-bar composite candle: max high, min low, current close."""
+    range_high = high.rolling(window=period).max()
+    range_low = low.rolling(window=period).min()
+    bar_range = range_high - range_low
+    return np.where(bar_range == 0, 1.0, (close - range_low) / bar_range)
 
 def value_charts(data, period=5):
     hl_avg = (data['High'] + data['Low']) / 2
@@ -514,9 +511,9 @@ def add_indicators(data, periods_per_year=252, source_timezone=None):
     high = data['High']
     low = data['Low']
     close = data['Close']
-    data['IBR'] = np.where(high == low, 1, (close - low) / (high - low))
-    data['IBR2'] = data['IBR'].rolling(window=2).mean()
-    data['IBR3'] = data['IBR'].rolling(window=3).mean()
+    data['IBR'] = internal_bar_range(high, low, close, period=1)
+    data['IBR2'] = internal_bar_range(high, low, close, period=2)
+    data['IBR3'] = internal_bar_range(high, low, close, period=3)
     cci = get_cci(data, 20)
     data['CCI'] = cci  # Assign the cci Series to the CCI column in the data DataFrame
     # Calculate SMA(50) and SMA(200)

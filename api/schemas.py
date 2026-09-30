@@ -229,6 +229,11 @@ class PortfolioShapleyRequest(PortfolioSimulateRequest):
     seed: int | None = None
 
 
+class PortfolioRegimeRequest(PortfolioSimulateRequest):
+    """On-demand regime contribution analysis (same inputs as portfolio simulate)."""
+    pass
+
+
 class SavedPortfolio(BaseModel):
     id: str
     name: str
@@ -293,3 +298,20 @@ class ScanRowResponse(BaseModel):
     sell_condition_passed_count: int | None = None
     sell_condition_total_count: int | None = None
     condition_as_of: str | None = None
+
+
+class QuoteSymbolResponse(BaseModel):
+    symbol: str
+    as_of: str | None = None
+    close: float | None = None
+    pct_change: float | None = None
+    ibr: float | None = None
+    rsi2: float | None = None
+    rsi5: float | None = None
+    stoch: float | None = None
+    missing_days: list[str] = Field(default_factory=list)
+
+
+class QuoteResponse(BaseModel):
+    as_of: str | None = None
+    quotes: list[QuoteSymbolResponse] = Field(default_factory=list)

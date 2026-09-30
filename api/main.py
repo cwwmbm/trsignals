@@ -2,7 +2,7 @@ import warn_config  # noqa: F401
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -23,6 +23,8 @@ from api.schemas import (
     SymbolConfirmSweepRequest,
     PortfolioShapleyRequest,
     PortfolioSimulateRequest,
+    PortfolioRegimeRequest,
+    QuoteResponse,
     SavePortfolioRequest,
     UpdatePortfolioRequest,
     UpdateStrategyRequest,
@@ -38,8 +40,10 @@ from api.services import (
     run_hold_days_sweep,
     run_indicator_sweep,
     run_live_scan,
+    run_quotes,
     run_monte_carlo_simulation,
     run_portfolio_shapley,
+    run_portfolio_regimes,
     run_portfolio_simulation,
     run_signal_combo_sweep,
     run_single_backtest,
@@ -223,18 +227,35 @@ def get_saved_strategies() -> list[dict]:
 
 
 @app.get("/api/scan")
-def scan() -> list[dict]:
+def scan(source: str = Query("yahoo", pattern="^(yahoo|ib)$")) -> list[dict]:
     try:
-        return run_live_scan()
+        return run_live_scan(data_source=source)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.get("/scan")
-def scan_page() -> FileResponse:
+@app.get("/api/quote")
+def quote() -> QuoteResponse:
+    try:
+        return run_quotes()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _frontend_index() -> FileResponse:
     if not _FRONTEND_DIST.is_dir():
         raise HTTPException(status_code=404, detail="Frontend not built")
     return FileResponse(_FRONTEND_DIST / "index.html")
+
+
+@app.get("/scan")
+def scan_page() -> FileResponse:
+    return _frontend_index()
+
+
+@app.get("/quote")
+def quote_page() -> FileResponse:
+    return _frontend_index()
 
 
 @app.post("/portfolios/simulate")
@@ -245,6 +266,11 @@ def portfolio_simulate(request: PortfolioSimulateRequest) -> dict:
 @app.post("/portfolios/shapley")
 def portfolio_shapley(request: PortfolioShapleyRequest) -> dict:
     return _handle_errors(run_portfolio_shapley, request)
+
+
+@app.post("/portfolios/regimes")
+def portfolio_regimes(request: PortfolioRegimeRequest) -> dict:
+    return _handle_errors(run_portfolio_regimes, request)
 
 
 @app.get("/portfolios")

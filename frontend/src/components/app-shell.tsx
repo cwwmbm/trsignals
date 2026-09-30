@@ -6,6 +6,7 @@ import {
   CandlestickChart,
   FlaskConical,
   HelpCircle,
+  LineChart,
   ListChecks,
   Menu,
   Radar,
@@ -22,14 +23,16 @@ import { StrategiesSection } from '@/components/sections/strategies-section'
 import { StrategyBuilderSection } from '@/components/sections/strategy-builder-section'
 import { HelpSection } from '@/components/sections/help-section'
 import { PortfolioSection, type PortfolioInitialState } from '@/components/sections/portfolio-section'
+import { QuoteSection } from '@/components/sections/quote-section'
 
-type SectionId = 'backtest' | 'strategies' | 'builder' | 'scan' | 'portfolio' | 'help'
+type SectionId = 'backtest' | 'strategies' | 'builder' | 'scan' | 'quote' | 'portfolio' | 'help'
 
 const NAV: { id: SectionId; label: string; icon: typeof FlaskConical }[] = [
   { id: 'backtest', label: 'Backtest', icon: FlaskConical },
   { id: 'strategies', label: 'All strategies', icon: ListChecks },
   { id: 'builder', label: 'New strategy builder', icon: Wrench },
   { id: 'scan', label: 'Scan', icon: Radar },
+  { id: 'quote', label: 'Quote', icon: LineChart },
   { id: 'portfolio', label: 'Portfolio', icon: Briefcase },
   { id: 'help', label: 'Help', icon: HelpCircle },
 ]
@@ -39,6 +42,7 @@ const TITLES: Record<SectionId, { title: string; subtitle: string }> = {
   strategies: { title: 'All strategies', subtitle: 'Every saved strategy with its key metrics.' },
   builder: { title: 'New strategy builder', subtitle: 'Compose entry rules and save a new signal.' },
   scan: { title: 'Scan', subtitle: 'Latest signal scan across the symbol universe.' },
+  quote: { title: 'Quote', subtitle: 'SPY, QQQ, SOXX, and VIX snapshot with IBR, RSI, Stochastic, and missing-day checks.' },
   portfolio: {
     title: 'Portfolio',
     subtitle: 'Combine saved strategies and simulate shared all-in performance.',
@@ -191,6 +195,7 @@ export function AppShell() {
               }}
             />
           )}
+          {active === 'quote' && <QuoteSection />}
           {active === 'portfolio' && <PortfolioSection initialState={portfolioInitial} />}
           {active === 'help' && <HelpSection />}
         </main>

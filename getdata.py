@@ -206,13 +206,232 @@ def get_full_data(ib, Local = False, years = 1, symbol = ticker):
         data = data.drop_duplicates(subset=['Date'], keep='last')
     return data
 
-def get_bulk_data(symbols, years = 1):
-    today = datetime.datetime.now()
+def default_scan_bulk_csv_path():
+    """Default Scan CSV path; SCAN_BULK_CSV env overrides when set."""
+    import os
+    from pathlib import Path
+
+    env_path = os.environ.get("SCAN_BULK_CSV")
+    if env_path:
+        return Path(env_path)
+    return Path(__file__).resolve().parent / "Alpaca.Market" / "scan_bulk_yf.csv"
+
+
+def load_bulk_csv(path):
+    """Load a yfinance-style MultiIndex OHLCV CSV (Price x Ticker columns, Date index)."""
+    data = pd.read_csv(path, header=[0, 1], index_col=0, parse_dates=True)
+    if not isinstance(data.columns, pd.MultiIndex):
+        raise ValueError(f"Expected MultiIndex columns in bulk CSV: {path}")
+    # Drop empty name row artifacts; keep Price/Ticker level names when present.
+    if data.columns.nlevels >= 2:
+        data.columns = data.columns.set_names(["Price", "Ticker"])
+    data.index = pd.to_datetime(data.index).tz_localize(None)
+    data.index.name = "Date"
+    return data.sort_index()
+
+
+def get_bulk_data(symbols, years=1, csv_path=None):
+    """
+    Download (or load) multi-ticker OHLCV in yfinance MultiIndex shape.
+
+    If csv_path is set, load that CSV instead of calling yfinance.
+    The CSV must already contain the needed symbols.
+    """
+    if csv_path:
+        data = load_bulk_csv(csv_path)
+        if symbols:
+            available = set(data.columns.get_level_values(1))
+            missing = [symbol for symbol in symbols if symbol not in available]
+            if missing:
+                raise ValueError(
+                    f"Bulk CSV missing symbols: {', '.join(missing)} (file={csv_path})"
+                )
+            keep = [col for col in data.columns if col[1] in set(symbols)]
+            data = data.loc[:, keep]
+        return data
+
     end_date = (dtm.now() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
     start_date = (pd.to_datetime("today") - pd.DateOffset(years=years)).strftime("%Y")
     start_date += "-01-01"
     data = yf.download(symbols, start=start_date, end=end_date)
     return data
+
+
+def ib_connection_settings():
+    """Host/port/clientId for TWS/Gateway. Defaults match legacy getdata stubs."""
+    import os
+
+    host = os.environ.get("IB_HOST", "127.0.0.1")
+    port = int(os.environ.get("IB_PORT", "4001"))
+    client_id = int(os.environ.get("IB_CLIENT_ID", "31"))
+    return host, port, client_id
+
+
+def _ensure_ib_event_loop():
+    """
+    ib_insync/eventkit require a thread-local asyncio loop at import and runtime.
+
+    FastAPI runs sync routes in AnyIO worker threads that have no loop by default,
+    which raises: RuntimeError: There is no current event loop in thread ...
+    """
+    import asyncio
+
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            raise RuntimeError("event loop is closed")
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    return loop
+
+
+def ib_canonical_symbol(symbol: str) -> str:
+    value = str(symbol).strip()
+    if value.upper() in {"VIX", "^VIX"}:
+        return "^VIX"
+    return value.upper() if value != "^VIX" else value
+
+
+def ib_contract_for_symbol(symbol: str):
+    """Return (ib_insync contract, canonical ticker used in MultiIndex)."""
+    _ensure_ib_event_loop()
+    from ib_insync import Index, Stock
+
+    canonical = ib_canonical_symbol(symbol)
+    if canonical == "^VIX":
+        return Index("VIX", "CBOE"), canonical
+    return Stock(canonical, "SMART", "USD"), canonical
+
+
+def ib_bars_to_frame(bars) -> pd.DataFrame:
+    """Convert ib_insync BarDataList to OHLCV frame indexed by date."""
+    if not bars:
+        return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
+    rows = []
+    for bar in bars:
+        date = pd.Timestamp(bar.date)
+        if getattr(date, "tz", None) is not None:
+            date = date.tz_convert(None)
+        date = date.normalize()
+        rows.append(
+            {
+                "Date": date,
+                "Open": float(bar.open),
+                "High": float(bar.high),
+                "Low": float(bar.low),
+                "Close": float(bar.close),
+                "Volume": float(bar.volume) if bar.volume is not None else 0.0,
+            }
+        )
+    frame = pd.DataFrame(rows).drop_duplicates(subset=["Date"], keep="last")
+    return frame.set_index("Date").sort_index()
+
+
+def build_bulk_multiindex(symbol_frames: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """Assemble yfinance-shaped MultiIndex OHLCV from {ticker: OHLCV frame}."""
+    pieces = []
+    for symbol, frame in symbol_frames.items():
+        if frame is None or frame.empty:
+            continue
+        part = frame[["Open", "High", "Low", "Close", "Volume"]].copy()
+        part.columns = pd.MultiIndex.from_product(
+            [part.columns, [symbol]], names=["Price", "Ticker"]
+        )
+        pieces.append(part)
+    if not pieces:
+        raise ValueError("No IB bars returned for any requested symbol")
+    bulk = pd.concat(pieces, axis=1).sort_index()
+    price_order = ["Close", "High", "Low", "Open", "Volume"]
+    tickers = list(dict.fromkeys(symbol_frames.keys()))
+    ordered = [
+        (price, ticker)
+        for price in price_order
+        for ticker in tickers
+        if (price, ticker) in bulk.columns
+    ]
+    bulk = bulk.reindex(columns=ordered)
+    bulk.columns = pd.MultiIndex.from_tuples(ordered, names=["Price", "Ticker"])
+    bulk.index.name = "Date"
+    return bulk
+
+
+def _ib_duration_str(years: int = 1) -> str:
+    """
+    IB rejects day-based durations longer than 365 days; use years instead.
+    Scan's years=1 window starts Jan 1 of (today - years), so request 2Y to cover it.
+    """
+    if years <= 1:
+        return "2 Y"
+    return f"{int(years) + 1} Y"
+
+
+def get_bulk_data_ib(symbols, years=1):
+    """
+    Fetch multi-ticker daily OHLCV from IB TWS/Gateway in yfinance MultiIndex shape.
+
+    Requires a running Gateway/TWS. ^VIX is requested as CBOE Index('VIX').
+    """
+    _ensure_ib_event_loop()
+    from ib_insync import IB
+
+    if not symbols:
+        raise ValueError("symbols must be non-empty")
+
+    host, port, client_id = ib_connection_settings()
+    duration = _ib_duration_str(years)
+    ib = IB()
+    symbol_frames: dict[str, pd.DataFrame] = {}
+    try:
+        try:
+            ib.connect(host, port, clientId=client_id, timeout=5)
+        except Exception as exc:  # noqa: BLE001 — surface as ValueError for API 400
+            raise ValueError(
+                f"Could not connect to Interactive Brokers at {host}:{port} "
+                f"(clientId={client_id}). Is Gateway/TWS running? ({exc})"
+            ) from exc
+
+        for raw_symbol in symbols:
+            contract, canonical = ib_contract_for_symbol(raw_symbol)
+            try:
+                qualified = ib.qualifyContracts(contract)
+                if not qualified:
+                    raise ValueError(f"IB could not qualify contract for {canonical}")
+                bars = ib.reqHistoricalData(
+                    qualified[0],
+                    endDateTime="",
+                    durationStr=duration,
+                    barSizeSetting="1 day",
+                    whatToShow="TRADES",
+                    useRTH=True,
+                    formatDate=1,
+                    keepUpToDate=False,
+                )
+                symbol_frames[canonical] = ib_bars_to_frame(bars)
+            except ValueError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                raise ValueError(f"IB historical data failed for {canonical}: {exc}") from exc
+    finally:
+        if ib.isConnected():
+            ib.disconnect()
+
+    missing = [
+        ib_canonical_symbol(symbol)
+        for symbol in symbols
+        if ib_canonical_symbol(symbol) not in symbol_frames
+        or symbol_frames[ib_canonical_symbol(symbol)].empty
+    ]
+    # Deduplicate while preserving order
+    missing = list(dict.fromkeys(missing))
+    if missing:
+        raise ValueError(f"IB returned no bars for: {', '.join(missing)}")
+
+    ordered_frames = {
+        ib_canonical_symbol(symbol): symbol_frames[ib_canonical_symbol(symbol)]
+        for symbol in symbols
+    }
+    return build_bulk_multiindex(ordered_frames)
 
 
 def clean_holidays(data):

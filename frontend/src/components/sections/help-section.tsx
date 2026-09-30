@@ -1,6 +1,6 @@
 'use client'
 
-import { BookOpen, FlaskConical, ListChecks, Radar, Wrench } from 'lucide-react'
+import { BookOpen, FlaskConical, LineChart, ListChecks, Radar, Wrench } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { RUN_MODES } from '@/lib/mock-data'
 import { IndicatorGlossary } from '@/components/sections/indicator-glossary'
@@ -25,6 +25,11 @@ const SECTION_HELP = [
     icon: Radar,
     title: 'Scan',
     body: 'See the latest scan across all symbols and signals. The Signal and Description fields are editable inline so you can refine definitions without leaving the table.',
+  },
+  {
+    icon: LineChart,
+    title: 'Quote',
+    body: 'Yahoo snapshot of SPY, QQQ, SOXX, and VIX: percent change (VIX as level with change in brackets), IBR, RSI2, RSI5, and Stochastic. Weekdays in the last five calendar days with no bar are highlighted; weekends are ignored. Exchange holidays may light up so you can judge them. On a phone, open /quote (the mobile header also links Scan and Quote).',
   },
 ]
 

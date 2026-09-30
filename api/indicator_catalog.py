@@ -296,8 +296,8 @@ INDICATOR_CATALOG: list[IndicatorDef] = [
     # Efficiency / flow
     _entry("ER", "Efficiency ratio", "Efficiency / flow", "momentum", "continuous", typical_range=_range("ER"), description="Kaufman Efficiency Ratio over 10 bars. Near 1 means directional; near 0 means choppy."),
     _entry("IBR", "IBR", "Efficiency / flow", "momentum", "continuous", typical_range=_range("IBR"), description="Internal Bar Range — where close sits within the day's high-low range (0 = at low, 1 = at high)."),
-    _entry("IBR2", "IBR(2)", "Efficiency / flow", "momentum", "continuous", typical_range=_range("IBR2"), description="2-day rolling average of Internal Bar Range."),
-    _entry("IBR3", "IBR(3)", "Efficiency / flow", "momentum", "continuous", typical_range=_range("IBR3"), description="3-day rolling average of Internal Bar Range."),
+    _entry("IBR2", "IBR(2)", "Efficiency / flow", "momentum", "continuous", typical_range=_range("IBR2"), description="IBR of a 2-bar composite candle (max high, min low, current close). 0 = close at the 2-bar low, 1 = at the 2-bar high."),
+    _entry("IBR3", "IBR(3)", "Efficiency / flow", "momentum", "continuous", typical_range=_range("IBR3"), description="IBR of a 3-bar composite candle (max high, min low, current close). 0 = close at the 3-bar low, 1 = at the 3-bar high."),
     _entry("VFI10", "VFI(10)", "Efficiency / flow", "momentum", "continuous", typical_range=_range("VFI10"), description="10-period Volume Flow Indicator — smoothed signed volume relative to its moving average."),
     _entry("VFI20", "VFI(20)", "Efficiency / flow", "momentum", "continuous", typical_range=_range("VFI20"), description="20-period Volume Flow Indicator — smoothed signed volume relative to its moving average."),
     _entry("VFI40", "VFI(40)", "Efficiency / flow", "momentum", "continuous", typical_range=_range("VFI40"), description="40-period Volume Flow Indicator — smoothed signed volume relative to its moving average."),

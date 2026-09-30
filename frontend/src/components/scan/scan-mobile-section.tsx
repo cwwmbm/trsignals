@@ -4,8 +4,10 @@ import { useState } from 'react'
 import { Loader2, RefreshCw, Search } from 'lucide-react'
 import type { SavedPortfolio, SavedStrategy, ScanLane, ScanRow } from '@/api'
 import { Card } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import {
   Select,
   SelectContent,
@@ -160,7 +162,20 @@ export function ScanMobileSection() {
         <p className="text-xs text-muted-foreground">
           {board.symbols.length} symbols · {board.rows.length} rows ·{' '}
           <span className="text-[var(--gain)]">{board.activeSignals} active</span>
+          {board.dataSource === 'ib' ? (
+            <span className="text-muted-foreground"> · IB</span>
+          ) : null}
         </p>
+        <div className="flex items-center justify-between gap-2">
+          <Label htmlFor="scan-ib-source-mobile" className="text-sm text-muted-foreground">
+            Interactive Brokers
+          </Label>
+          <Switch
+            id="scan-ib-source-mobile"
+            checked={board.dataSource === 'ib'}
+            onCheckedChange={(checked) => board.setDataSource(checked ? 'ib' : 'yahoo')}
+          />
+        </div>
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input

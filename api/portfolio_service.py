@@ -1185,3 +1185,95 @@ def simulate_portfolio(request) -> dict:
         strategy_order=strategy_ids,
     )
     return payload
+
+
+def _load_spy_close_for_regimes(*, years: int, use_cache: bool = True) -> pd.Series:
+    """Load SPY adjusted closes for regime labels (always SPY, never traded symbol)."""
+    from api.regime_contribution import SPY_SYMBOL
+
+    dataset = bt.load_symbol_dataset([SPY_SYMBOL], years=years, use_cache=use_cache)
+    if SPY_SYMBOL not in dataset:
+        raise ValueError("SPY market data is required for regime contribution analysis")
+    frame = dataset[SPY_SYMBOL]
+    indexed = frame.set_index(pd.to_datetime(frame["Date"]))
+    return indexed["Close"].astype(float)
+
+
+def simulate_portfolio_regimes(request) -> dict:
+    """Leave-one-out regime contribution analysis (on-demand, mirrors Shapley wiring)."""
+    from api.regime_contribution import compute_regime_contribution
+
+    strategy_ids = list(request.strategy_ids)
+    if not strategy_ids:
+        raise ValueError("At least one strategy is required")
+
+    (
+        strategies,
+        strategy_ids,
+        signals_by_id,
+        overlap_mode,
+        global_proxy,
+        track_changes,
+        close_series,
+    ) = _prepare_portfolio_simulation(
+        request,
+        years=request.years,
+        use_cache=True,
+    )
+
+    full_frame = simulate_portfolio_overlay(
+        strategies,
+        signals_by_id,
+        overlap_mode=overlap_mode,
+        global_proxy=global_proxy,
+        track_changes=track_changes,
+        close_series=close_series,
+        strategy_order=strategy_ids,
+    )
+    master_dates = pd.DatetimeIndex(full_frame["Date"])
+    if len(master_dates) == 0:
+        raise ValueError("No overlapping market data for selected strategies")
+
+    spy_close = _load_spy_close_for_regimes(years=request.years, use_cache=True)
+    full_equity = full_frame["RollingPnL"].to_numpy(dtype=float)
+    full_hold = full_frame["HoldLong"].astype(bool).to_numpy()
+    strategies_by_id = {strategy.id: strategy for strategy in strategies}
+
+    strategy_rows: list[dict[str, Any]] = []
+    for strategy_id in strategy_ids:
+        strategy = strategies_by_id[strategy_id]
+        remaining = [item for item in strategies if item.id != strategy_id]
+        remaining_order = [item_id for item_id in strategy_ids if item_id != strategy_id]
+
+        if remaining:
+            reduced_frame = simulate_portfolio_overlay(
+                remaining,
+                {item.id: signals_by_id[item.id] for item in remaining},
+                overlap_mode=overlap_mode,
+                global_proxy=global_proxy,
+                track_changes=track_changes,
+                close_series=close_series,
+                strategy_order=remaining_order,
+                master_dates=master_dates,
+            )
+        else:
+            reduced_frame = flat_cash_frame(master_dates)
+
+        candidate_hold = _aligned_candidate_hold(signals_by_id[strategy_id], master_dates)
+        strategy_rows.append(
+            {
+                "strategy_id": strategy_id,
+                "strategy_name": strategy.name,
+                "full_equity": full_equity,
+                "baseline_equity": reduced_frame["RollingPnL"].to_numpy(dtype=float),
+                "full_hold": full_hold,
+                "baseline_hold": reduced_frame["HoldLong"].astype(bool).to_numpy(),
+                "candidate_hold": candidate_hold,
+            }
+        )
+
+    return compute_regime_contribution(
+        strategy_rows=strategy_rows,
+        spy_close=spy_close,
+        master_dates=master_dates,
+    )

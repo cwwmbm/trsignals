@@ -1,14 +1,14 @@
 'use client'
 
-import { ScanMobileSection } from '@/components/scan/scan-mobile-section'
+import { QuoteMobileSection } from '@/components/quote/quote-mobile-section'
 import { MobileShellHeader } from '@/components/mobile-shell-header'
 
-export function ScanMobileShell() {
+export function QuoteMobileShell() {
   return (
     <div className="flex min-h-svh flex-col bg-background text-foreground">
       <MobileShellHeader />
       <main className="flex-1 px-4 pt-3">
-        <ScanMobileSection />
+        <QuoteMobileSection />
       </main>
     </div>
   )

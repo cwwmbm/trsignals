@@ -390,6 +390,110 @@ export type PortfolioShapleyResult = {
   shapley: StrategyContribution[];
 };
 
+export type RegimeEvidence = "strong" | "moderate" | "limited" | "insufficient";
+
+export type RegimeDimension =
+  | "spy_trend"
+  | "spy_volatility"
+  | "baseline_drawdown"
+  | "baseline_stress";
+
+export type RegimeStateMetrics = {
+  regime_days: number;
+  regime_share_of_sample: number | null;
+  candidate_active_days: number;
+  effective_contribution_days: number;
+  added_exposure_days: number;
+  added_exposure_percent: number | null;
+  marginal_log_return: number | null;
+  compounded_marginal_return: number | null;
+  mean_marginal_daily_return: number | null;
+  annualized_conditional_contribution_rate: number | null;
+  marginal_return_per_added_exposure_day: number | null;
+  contribution_share: number | null;
+  expected_shortfall_effect: number | null;
+  worst_day_effect: number | null;
+  worst_marginal_day: number | null;
+  downside_deviation_effect: number | null;
+  positive_marginal_day_rate: number | null;
+  positive_effective_day_rate: number | null;
+  sum_positive_marginal_log?: number | null;
+  sum_negative_marginal_log?: number | null;
+  max_abs_marginal?: number | null;
+  mean_abs_marginal?: number | null;
+  fraction_abs_marginal_below_material?: number | null;
+  fraction_abs_marginal_below_display?: number | null;
+  episode_count: number | null;
+  earliest_eligible_date: string | null;
+  latest_eligible_date: string | null;
+  evidence: RegimeEvidence;
+  data_availability: string;
+  unavailable_reason?: string | null;
+  stress_q10?: number | null;
+  largest_episode_share?: number | null;
+  concentration_warning?: boolean;
+  concentration_message?: string | null;
+};
+
+export type BelowSmaEpisode = {
+  start_date: string;
+  end_date: string;
+  status: "open" | "closed";
+  trading_days: number;
+  full_compounded_return: number | null;
+  baseline_compounded_return: number | null;
+  marginal_log_return: number | null;
+  compounded_marginal_return: number | null;
+  max_drawdown_full: number | null;
+  max_drawdown_baseline: number | null;
+  max_drawdown_improvement: number | null;
+  added_exposure_days: number;
+  helped: boolean;
+};
+
+export type BaselineDrawdownEpisode = {
+  start_date: string;
+  trough_date: string;
+  end_date: string;
+  status: "open" | "closed";
+  baseline_peak_equity: number | null;
+  baseline_trough_drawdown: number | null;
+  full_trough_drawdown: number | null;
+  trough_improvement: number | null;
+  baseline_recovery_days: number | null;
+  full_recovery_days: number | null;
+  recovery_acceleration: number | null;
+  marginal_log_return: number | null;
+  compounded_marginal_return: number | null;
+  added_exposure_days: number;
+  improved_trough: boolean;
+  shortened_recovery: boolean;
+  helped: boolean;
+  trading_days: number;
+};
+
+export type RegimeStateRow = RegimeStateMetrics & {
+  dimension: RegimeDimension;
+  state: string;
+  episodes?: BelowSmaEpisode[] | BaselineDrawdownEpisode[];
+};
+
+export type StrategyRegimeContribution = {
+  strategy_id: string;
+  strategy_name: string;
+  total_eligible_days: number;
+  total_marginal_log_return: number | null;
+  regimes: RegimeStateRow[];
+  errors?: Array<{ dimension: string; message: string }>;
+};
+
+export type PortfolioRegimeResult = {
+  parameters: Record<string, unknown>;
+  strategies: StrategyRegimeContribution[];
+};
+
+export type PortfolioRegimePayload = PortfolioSimulatePayload;
+
 export async function getSignals(): Promise<SignalInfo[]> {
   const response = await fetch(`${API_URL}/signals`);
   if (!response.ok) throw new Error(await response.text());
@@ -478,6 +582,12 @@ export function runPortfolioShapley(
   return postJson<PortfolioShapleyResult>("/portfolios/shapley", payload);
 }
 
+export function runPortfolioRegimes(
+  payload: PortfolioRegimePayload,
+): Promise<PortfolioRegimeResult> {
+  return postJson<PortfolioRegimeResult>("/portfolios/regimes", payload);
+}
+
 export function savePortfolio(payload: SavePortfolioPayload): Promise<SavedPortfolio> {
   return postJson<SavedPortfolio>("/portfolios", payload);
 }
@@ -520,8 +630,32 @@ export async function getSavedStrategies(): Promise<SavedStrategy[]> {
   return response.json();
 }
 
-export async function getScan(): Promise<ScanRow[]> {
-  const response = await fetch(`${API_URL}/api/scan`);
+export async function getScan(source: "yahoo" | "ib" = "yahoo"): Promise<ScanRow[]> {
+  const params = new URLSearchParams({ source });
+  const response = await fetch(`${API_URL}/api/scan?${params}`);
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}
+
+export type QuoteSymbol = {
+  symbol: string;
+  as_of: string | null;
+  close: number | null;
+  pct_change: number | null;
+  ibr: number | null;
+  rsi2: number | null;
+  rsi5: number | null;
+  stoch: number | null;
+  missing_days: string[];
+};
+
+export type QuoteSnapshot = {
+  as_of: string | null;
+  quotes: QuoteSymbol[];
+};
+
+export async function getQuote(): Promise<QuoteSnapshot> {
+  const response = await fetch(`${API_URL}/api/quote`);
   if (!response.ok) throw new Error(await response.text());
   return response.json();
 }

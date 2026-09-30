@@ -871,8 +871,35 @@ def list_saved_strategies() -> list[dict]:
     return [_model_dump(strategy) for strategy in list_strategies()]
 
 
-def run_live_scan() -> list[dict]:
+def run_live_scan(*, data_source: str = "yahoo") -> list[dict]:
+    """
+    Run Scan against live Yahoo (`yahoo`) or Interactive Brokers (`ib`).
+
+    IB requires a running TWS/Gateway (see IB_HOST / IB_PORT / IB_CLIENT_ID).
+    """
+    import getdata as dt
+    from api.scan_service import _scan_download_symbols, _yf_symbol
+
+    source = (data_source or "yahoo").strip().lower()
+    if source not in {"yahoo", "ib"}:
+        raise ValueError("data_source must be 'yahoo' or 'ib'")
+
+    if source == "ib":
+        strategies = list_strategies()
+        portfolios = list_portfolios()
+        download_symbols = _scan_download_symbols(strategies, portfolios)
+        # Keep Scan's internal symbol names (^VIX, SPY, …); IB maps contracts inside get_bulk_data_ib.
+        yf_symbols = [_yf_symbol(symbol) for symbol in download_symbols]
+        full_data = dt.get_bulk_data_ib(yf_symbols, years=1)
+        return run_scan(full_data=full_data)
+
     return run_scan()
+
+
+def run_quotes() -> dict:
+    from api.quote_service import build_quote_snapshot
+
+    return build_quote_snapshot()
 
 
 def run_portfolio_simulation(request) -> dict:
@@ -885,6 +912,12 @@ def run_portfolio_shapley(request) -> dict:
     from api.portfolio_service import simulate_portfolio_shapley
 
     return simulate_portfolio_shapley(request)
+
+
+def run_portfolio_regimes(request) -> dict:
+    from api.portfolio_service import simulate_portfolio_regimes
+
+    return simulate_portfolio_regimes(request)
 
 
 def save_portfolio(request) -> dict:

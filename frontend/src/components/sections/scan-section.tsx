@@ -27,8 +27,10 @@ import {
 import type { SavedPortfolio, SavedStrategy, ScanLane, ScanRow } from '@/api'
 import type { PortfolioInitialState } from '@/components/sections/portfolio-section'
 import { Card } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import {
   Select,
   SelectContent,
@@ -438,8 +440,22 @@ export function ScanSection({
         <p className="text-xs text-muted-foreground">
           {board.symbols.length} symbols · {board.rows.length} rows ·{' '}
           <span className="text-[var(--gain)]">{board.activeSignals} active</span>
+          {board.dataSource === 'ib' ? (
+            <span className="text-muted-foreground"> · IB</span>
+          ) : null}
         </p>
         <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor="scan-ib-source" className="text-xs text-muted-foreground">
+              Interactive Brokers
+            </Label>
+            <Switch
+              id="scan-ib-source"
+              size="sm"
+              checked={board.dataSource === 'ib'}
+              onCheckedChange={(checked) => board.setDataSource(checked ? 'ib' : 'yahoo')}
+            />
+          </div>
           <div className="relative min-w-[180px] flex-1 sm:max-w-xs">
             <Search className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
