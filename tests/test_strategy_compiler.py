@@ -5,6 +5,7 @@ import pandas as pd
 
 from api.strategy_compiler import (
     compile_buy_mask,
+    compile_entry_ready_mask,
     compile_sell_mask,
     evaluate_condition_snapshot,
     format_condition_preview,
@@ -246,6 +247,26 @@ class StrategyCompilerTests(unittest.TestCase):
             [{"left": "RSI2", "operator": "crosses above", "right": "20", "logic": "AND"}],
         )
         self.assertTrue(snapshot_cross[0]["passed"])
+
+    def test_entry_ready_waits_for_listed_inputs(self):
+        data = pd.DataFrame(
+            {
+                "Close": [10.0, 10.0, 10.0, 10.0],
+                "SMA200": [float("nan"), 9.0, 9.0, 9.0],
+                "Regime_vix_le_15": [0, 0, 1, -1],
+            }
+        )
+        both = [
+            {"left": "Close", "operator": ">", "right": "SMA200", "logic": "AND"},
+            {"left": "Regime_vix_le_15", "operator": "is true", "right": "", "logic": "AND"},
+        ]
+        either = [
+            {"left": "Close", "operator": ">", "right": "SMA200", "logic": "AND"},
+            {"left": "Regime_vix_le_15", "operator": "is true", "right": "", "logic": "OR"},
+        ]
+        self.assertEqual(compile_entry_ready_mask(data, both).tolist(), [False, False, True, True])
+        self.assertEqual(compile_entry_ready_mask(data, either).tolist(), [False, True, True, True])
+        self.assertEqual(compile_buy_mask(data, both).tolist(), [False, False, True, False])
 
 
 if __name__ == "__main__":

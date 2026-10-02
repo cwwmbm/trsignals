@@ -53,6 +53,11 @@ export const DetailResults = memo(function DetailResults({
           {description}
         </p>
       ) : null}
+      {typeof result.summary.metrics_start === "string" && result.summary.metrics_start ? (
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          Performance starts {result.summary.metrics_start}, the first day the entry conditions could be evaluated.
+        </p>
+      ) : null}
 
       <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-3">
         <div className="flex flex-col gap-1">

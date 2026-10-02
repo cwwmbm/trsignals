@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Briefcase,
   CandlestickChart,
@@ -24,6 +24,7 @@ import { StrategyBuilderSection } from '@/components/sections/strategy-builder-s
 import { HelpSection } from '@/components/sections/help-section'
 import { PortfolioSection, type PortfolioInitialState } from '@/components/sections/portfolio-section'
 import { QuoteSection } from '@/components/sections/quote-section'
+import { subscribeRegimeConditionRequests } from '@/lib/regime-condition'
 
 type SectionId = 'backtest' | 'strategies' | 'builder' | 'scan' | 'quote' | 'portfolio' | 'help'
 
@@ -55,6 +56,13 @@ export function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [builderInitialStrategy, setBuilderInitialStrategy] = useState<SavedStrategy | undefined>()
   const [portfolioInitial, setPortfolioInitial] = useState<PortfolioInitialState | undefined>()
+
+  useEffect(() => {
+    return subscribeRegimeConditionRequests(() => {
+      setActive('builder')
+      setMobileOpen(false)
+    })
+  }, [])
 
   const goTo = (id: SectionId) => {
     if (id === 'builder') {

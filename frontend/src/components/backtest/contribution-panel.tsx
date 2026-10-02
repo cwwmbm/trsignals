@@ -590,7 +590,7 @@ export function ContributionPanel({
     <TooltipProvider delay={0}>
       <div
         className={cn(
-          'min-h-0 overflow-auto rounded-md border border-border/60',
+          'min-h-0 overflow-auto rounded-md border border-border/60 @container',
           className,
         )}
       >
@@ -601,7 +601,7 @@ export function ContributionPanel({
           </div>
 
           <div className="space-y-2 border-t border-border/60 pt-3">
-            <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="sticky left-0 flex w-[100cqw] max-w-full flex-wrap items-start justify-between gap-2 bg-background">
               <div className="min-w-0 space-y-0.5">
                 <h3 className="text-xs font-medium">Shapley analysis</h3>
                 <p className="text-[11px] text-muted-foreground">
@@ -653,12 +653,12 @@ export function ContributionPanel({
           </div>
 
           <div className="space-y-2 border-t border-border/60 pt-3">
-            <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="sticky left-0 flex w-[100cqw] max-w-full flex-wrap items-start justify-between gap-2 bg-background">
               <div className="min-w-0 space-y-0.5">
-                <h3 className="text-xs font-medium">Regime contribution</h3>
+                <h3 className="text-xs font-medium">Regime analysis</h3>
                 <p className="text-[11px] text-muted-foreground">
-                  Leave-one-out marginal contribution under SPY trend/volatility and baseline
-                  drawdown/stress conditions.
+                  Quality is how a strategy trades in each market regime. Contribution is how
+                  the portfolio changes when that strategy is included.
                 </p>
               </div>
               <Button

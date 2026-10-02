@@ -291,6 +291,7 @@ def execute_saved_strategy(
         if confirm_symbols:
             from api.builder_strategy import (
                 apply_primary_entry_filters,
+                attach_strategy_entry_ready,
                 builder_signal_callable,
                 _confirm_strategy_for_cross_symbol,
             )
@@ -321,6 +322,12 @@ def execute_saved_strategy(
                 confirm_symbols,
                 symbol_data,
             )
+            attach_strategy_entry_ready(
+                frame,
+                confirm_strategy,
+                strategy_resolver=get_strategy_by_id,
+                symbol_data=symbol_data,
+            )
             frame = apply_primary_entry_filters(
                 frame,
                 primary_filters,
@@ -337,7 +344,7 @@ def execute_saved_strategy(
             )
 
         conditions = [_condition_dict(condition) for condition in strategy.conditions]
-        from api.builder_strategy import _compile_strategy_masks
+        from api.builder_strategy import _compile_strategy_masks, attach_strategy_entry_ready
 
         buy, sell = _compile_strategy_masks(
             data,
@@ -349,6 +356,11 @@ def execute_saved_strategy(
         frame = data.copy()
         frame["Buy"] = buy
         frame["Sell"] = sell
+        attach_strategy_entry_ready(
+            frame,
+            strategy,
+            strategy_resolver=get_strategy_by_id,
+        )
         return execute_with_proxy(
             frame,
             strategy,

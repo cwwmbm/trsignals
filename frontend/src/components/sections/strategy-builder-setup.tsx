@@ -37,6 +37,7 @@ import { cn } from '@/lib/utils'
 import { isFlagIndicator } from '@/lib/strategy-builder'
 import { csv } from '@/lib/backtest-form'
 import { updateStrategyBuilderDraftPreview } from '@/lib/strategy-builder-draft-store'
+import { consumeRegimeCondition, useRegimeConditionRequest } from '@/lib/regime-condition'
 import { CollapsibleSection } from '@/components/strategy-builder/collapsible-section'
 import {
   AddConditionButton,
@@ -124,11 +125,16 @@ function buildPayload(
   eodExit = true,
   backtestAllData = false,
   holdOnBuySignal = false,
+  years = '25',
 ) {
   const parsedHoldDays = Number(holdDays)
   const parsedProfit = Number(profitableCloses)
+  const parsedYears = Number(years)
   const holdLabel = customDatasetId ? 'Hold bars' : 'Hold days'
   if (!symbol.trim()) throw new Error('Primary symbol is required')
+  if (!Number.isInteger(parsedYears) || parsedYears < 1 || parsedYears > 100) {
+    throw new Error('Years must be a whole number from 1 to 100')
+  }
   if (!Number.isFinite(parsedHoldDays) || parsedHoldDays < 1) {
     throw new Error(`${holdLabel} must be at least 1`)
   }
@@ -152,7 +158,7 @@ function buildPayload(
 
   return {
     symbol: primary,
-    years: 25,
+    years: parsedYears,
     direction: direction === 'short' ? 'short' : 'long',
     hold_days: parsedHoldDays,
     profit: parsedProfit,
@@ -322,6 +328,7 @@ type StrategyBuilderSetupProps = {
   onRunBacktest: (payload: BuilderBacktestPayload) => void
   onSave: (payload: SaveStrategyPayload) => void
   onReset?: () => void
+  onConditionNotice?: (message: string) => void
   isBacktestRunning: boolean
   isSaving: boolean
 }
@@ -339,16 +346,19 @@ export const StrategyBuilderSetup = forwardRef<
     onRunBacktest,
     onSave,
     onReset,
+    onConditionNotice,
     isBacktestRunning,
     isSaving,
   },
   ref,
 ) {
+  const regimeCondition = useRegimeConditionRequest()
   const [validationError, setValidationError] = useState<string | null>(null)
   const [entryOpen, setEntryOpen] = useState(true)
   const [exitOpen, setExitOpen] = useState(false)
   const [name, setName] = useState('')
   const [symbol, setSymbol] = useState('SPY')
+  const [years, setYears] = useState('25')
   const [direction, setDirection] = useState('long')
   const [holdDays, setHoldDays] = useState('2')
   const [profitableCloses, setProfitableCloses] = useState('1')
@@ -512,6 +522,7 @@ export const StrategyBuilderSetup = forwardRef<
     setValidationError(null)
     setName('')
     setSymbol('SPY')
+    setYears('25')
     setDirection('long')
     setHoldDays('2')
     setProfitableCloses('1')
@@ -561,6 +572,28 @@ export const StrategyBuilderSetup = forwardRef<
     setExitOpen(exitRows.length > 0)
   }, [initialStrategy])
 
+  useEffect(() => {
+    if (!regimeCondition) return
+    const rowId = `regime-${regimeCondition.id}`
+    const row: ConditionRow = {
+      id: rowId,
+      left: regimeCondition.left,
+      operator: regimeCondition.operator,
+      right: '',
+      logic: 'AND',
+    }
+    setEntryConditions((prev) => {
+      if (prev.some((item) => item.id === rowId)) return prev
+      return appendConditionRow(prev, row, builderIndicators, 1)
+    })
+    setEntryOpen(true)
+    onConditionNotice?.(`Added ${regimeCondition.label} ${regimeCondition.operator} to entry.`)
+    consumeRegimeCondition(regimeCondition.id)
+    requestAnimationFrame(() => {
+      document.getElementById('entry-conditions')?.scrollIntoView({ block: 'center' })
+    })
+  }, [regimeCondition, builderIndicators, onConditionNotice])
+
   useImperativeHandle(
     ref,
     () => ({
@@ -583,6 +616,7 @@ export const StrategyBuilderSetup = forwardRef<
           eodExit,
           backtestAllData,
           holdOnBuySignal,
+          years,
         ),
       buildSavePayload: () =>
         buildSavePayload(
@@ -603,6 +637,7 @@ export const StrategyBuilderSetup = forwardRef<
           eodExit,
           backtestAllData,
           holdOnBuySignal,
+          years,
         ),
       buildRefineDraft: () =>
         buildPayload(
@@ -623,6 +658,7 @@ export const StrategyBuilderSetup = forwardRef<
           eodExit,
           backtestAllData,
           holdOnBuySignal,
+          years,
         ),
       addFromSweepRow: (row: Record<string, unknown>) => {
         if (isHoldDaysSweepRow(row)) {
@@ -682,6 +718,7 @@ export const StrategyBuilderSetup = forwardRef<
       eodExit,
       backtestAllData,
       holdOnBuySignal,
+      years,
     ],
   )
 
@@ -707,6 +744,7 @@ export const StrategyBuilderSetup = forwardRef<
           eodExit,
           backtestAllData,
           holdOnBuySignal,
+          years,
         ),
       )
     } catch (error) {
@@ -829,7 +867,7 @@ export const StrategyBuilderSetup = forwardRef<
           </div>
         ) : null}
 
-        <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3">
+        <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-4">
           <Field label="Name" htmlFor="strat-name" className="col-span-2 sm:col-span-1">
             <Input
               id="strat-name"
@@ -844,6 +882,16 @@ export const StrategyBuilderSetup = forwardRef<
               id="strat-symbol"
               value={symbol}
               onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+              className="h-8 font-mono text-sm"
+            />
+          </Field>
+          <Field label="Years" htmlFor="strat-years">
+            <Input
+              id="strat-years"
+              inputMode="numeric"
+              value={years}
+              onChange={(e) => setYears(e.target.value)}
+              disabled={Boolean(customDataset)}
               className="h-8 font-mono text-sm"
             />
           </Field>
@@ -945,7 +993,7 @@ export const StrategyBuilderSetup = forwardRef<
           </div>
         ) : null}
 
-        <div className="mt-3 space-y-2">
+        <div id="entry-conditions" className="mt-3 space-y-2">
           <CollapsibleSection
             title="Entry conditions"
             summary={entryPreview || '—'}

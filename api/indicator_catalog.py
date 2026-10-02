@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Literal, TypedDict
 
+from api.market_regimes import REGIME_INDICATOR_SPECS
+
 
 IndicatorKind = Literal[
     "price",
@@ -443,6 +445,18 @@ INDICATOR_CATALOG: list[IndicatorDef] = [
     _entry("AdjustedChange", "Adjusted change", "Internal", "volatility", "percent", builder_eligible=False),
 ]
 
+INDICATOR_CATALOG.extend(
+    _entry(
+        spec.id,
+        spec.label,
+        "Market regimes",
+        "signal_flag",
+        "flag",
+        description=spec.description,
+    )
+    for spec in REGIME_INDICATOR_SPECS
+)
+
 for _item in INDICATOR_CATALOG:
     _CATALOG_BY_ID[_item["id"]] = _item
 
@@ -457,6 +471,7 @@ _CATEGORY_ORDER = [
     "VWAP / fair value",
     "Pattern / signal flags",
     "Breadth RSI",
+    "Market regimes",
     "Internal",
 ]
 
@@ -635,6 +650,7 @@ _MARKET_WIDE_INDICATOR_IDS = frozenset(
         "Vix",
         "SPYBull",
         *(item["id"] for item in INDICATOR_CATALOG if item.get("kind") == "breadth"),
+        *(spec.id for spec in REGIME_INDICATOR_SPECS if spec.market_wide),
     }
 )
 

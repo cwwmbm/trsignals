@@ -130,6 +130,11 @@ export type RegimeSharpeBucket = {
   max_drawdown: number | null;
   cagr: number | null;
   calmar: number | null;
+  regime_score: number | null;
+  regime_score_sortino: number | null;
+  regime_score_return: number | null;
+  regime_score_drawdown: number | null;
+  regime_score_robustness: number | null;
 };
 
 export type MarketRegimeSharpe = Partial<Record<string, RegimeSharpeBucket[]>>;
@@ -413,106 +418,53 @@ export type PortfolioShapleyResult = {
   shapley: StrategyContribution[];
 };
 
-export type RegimeEvidence = "strong" | "moderate" | "limited" | "insufficient";
-
-export type RegimeDimension =
-  | "spy_trend"
-  | "spy_volatility"
-  | "baseline_drawdown"
-  | "baseline_stress";
-
-export type RegimeStateMetrics = {
-  regime_days: number;
-  regime_share_of_sample: number | null;
-  candidate_active_days: number;
-  effective_contribution_days: number;
-  added_exposure_days: number;
-  added_exposure_percent: number | null;
-  marginal_log_return: number | null;
-  compounded_marginal_return: number | null;
-  mean_marginal_daily_return: number | null;
-  annualized_conditional_contribution_rate: number | null;
-  marginal_return_per_added_exposure_day: number | null;
-  contribution_share: number | null;
-  expected_shortfall_effect: number | null;
-  worst_day_effect: number | null;
-  worst_marginal_day: number | null;
-  downside_deviation_effect: number | null;
-  positive_marginal_day_rate: number | null;
-  positive_effective_day_rate: number | null;
-  sum_positive_marginal_log?: number | null;
-  sum_negative_marginal_log?: number | null;
-  max_abs_marginal?: number | null;
-  mean_abs_marginal?: number | null;
-  fraction_abs_marginal_below_material?: number | null;
-  fraction_abs_marginal_below_display?: number | null;
-  episode_count: number | null;
-  earliest_eligible_date: string | null;
-  latest_eligible_date: string | null;
-  evidence: RegimeEvidence;
-  data_availability: string;
-  unavailable_reason?: string | null;
-  stress_q10?: number | null;
-  largest_episode_share?: number | null;
-  concentration_warning?: boolean;
-  concentration_message?: string | null;
+export type RegimeBookMetrics = {
+  regime_score: number | null;
+  sortino: number | null;
+  avg_trade_return: number | null;
+  max_drawdown: number | null;
+  robustness: number | null;
+  exposure: number | null;
+  cagr: number | null;
+  trades: number;
 };
 
-export type BelowSmaEpisode = {
-  start_date: string;
-  end_date: string;
-  status: "open" | "closed";
-  trading_days: number;
-  full_compounded_return: number | null;
-  baseline_compounded_return: number | null;
-  marginal_log_return: number | null;
-  compounded_marginal_return: number | null;
-  max_drawdown_full: number | null;
-  max_drawdown_baseline: number | null;
-  max_drawdown_improvement: number | null;
-  added_exposure_days: number;
-  helped: boolean;
+export type RegimeMetricDelta = {
+  regime_score: number | null;
+  sortino: number | null;
+  avg_trade_return: number | null;
+  max_drawdown: number | null;
+  robustness: number | null;
+  exposure: number | null;
+  cagr: number | null;
 };
 
-export type BaselineDrawdownEpisode = {
-  start_date: string;
-  trough_date: string;
-  end_date: string;
-  status: "open" | "closed";
-  baseline_peak_equity: number | null;
-  baseline_trough_drawdown: number | null;
-  full_trough_drawdown: number | null;
-  trough_improvement: number | null;
-  baseline_recovery_days: number | null;
-  full_recovery_days: number | null;
-  recovery_acceleration: number | null;
-  marginal_log_return: number | null;
-  compounded_marginal_return: number | null;
-  added_exposure_days: number;
-  improved_trough: boolean;
-  shortened_recovery: boolean;
-  helped: boolean;
-  trading_days: number;
+export type RegimeBook = {
+  base: RegimeBookMetrics;
+  regimes: Record<string, Record<string, RegimeBookMetrics>>;
 };
 
-export type RegimeStateRow = RegimeStateMetrics & {
-  dimension: RegimeDimension;
-  state: string;
-  episodes?: BelowSmaEpisode[] | BaselineDrawdownEpisode[];
+export type RegimeContributionCell = {
+  delta: RegimeMetricDelta;
+  with: RegimeBookMetrics;
+  without: RegimeBookMetrics;
 };
 
-export type StrategyRegimeContribution = {
+export type RegimeContributionBook = {
+  base: RegimeContributionCell;
+  regimes: Record<string, Record<string, RegimeContributionCell>>;
+};
+
+export type StrategyRegimeAnalysis = {
   strategy_id: string;
   strategy_name: string;
-  total_eligible_days: number;
-  total_marginal_log_return: number | null;
-  regimes: RegimeStateRow[];
-  errors?: Array<{ dimension: string; message: string }>;
+  quality: RegimeBook;
+  contribution: RegimeContributionBook;
 };
 
 export type PortfolioRegimeResult = {
-  parameters: Record<string, unknown>;
-  strategies: StrategyRegimeContribution[];
+  portfolio: RegimeBook;
+  strategies: StrategyRegimeAnalysis[];
 };
 
 export type PortfolioRegimePayload = PortfolioSimulatePayload;

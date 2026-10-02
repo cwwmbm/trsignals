@@ -14,6 +14,7 @@ from api.schemas import BuilderBacktestRequest, BuilderCondition, SavedStrategy
 from api.session_masks import last_rth_bar_mask, regular_trading_hours_mask
 from api.strategy_compiler import (
     compile_buy_mask,
+    compile_entry_ready_mask,
     compile_sell_mask,
     format_condition_preview,
     split_entry_conditions_for_confirm,
@@ -116,6 +117,80 @@ def _clone_strategy_with_conditions(strategy: SavedStrategy, conditions) -> Save
     return strategy.copy(update={"conditions": normalized})
 
 
+def entry_ready_series(
+    data: pd.DataFrame,
+    strategy: SavedStrategy,
+    *,
+    strategy_resolver: StrategyResolver | None = None,
+) -> pd.Series:
+    return compile_entry_ready_mask(
+        data,
+        [_model_dump(condition) for condition in strategy.conditions],
+        strategy_resolver=strategy_resolver,
+    )
+
+
+def assign_entry_ready(frame: pd.DataFrame, ready: pd.Series, *, how: str = "replace") -> None:
+    """Mark bars where an entry could be evaluated. how combines with an existing column."""
+    aligned = pd.Series(ready).reindex(frame.index).fillna(False).astype(bool)
+    if how == "replace" or "EntryReady" not in frame.columns:
+        frame["EntryReady"] = aligned.to_numpy()
+        return
+    current = frame["EntryReady"].reindex(frame.index).fillna(False).astype(bool)
+    if how == "and":
+        frame["EntryReady"] = (current & aligned).to_numpy()
+    elif how == "or":
+        frame["EntryReady"] = (current | aligned).to_numpy()
+    else:
+        raise ValueError(f"Unsupported entry-ready combination: {how}")
+
+
+def _align_ready_to_frame(frame: pd.DataFrame, source: pd.DataFrame, ready: pd.Series) -> pd.Series:
+    by_date = pd.Series(ready.fillna(False).astype(bool).to_numpy(), index=pd.to_datetime(source["Date"]))
+    by_date = by_date[~by_date.index.duplicated(keep="last")]
+    aligned = by_date.reindex(pd.to_datetime(frame["Date"])).fillna(False)
+    aligned.index = frame.index
+    return aligned.astype(bool)
+
+
+def attach_strategy_entry_ready(
+    frame: pd.DataFrame,
+    strategy: SavedStrategy,
+    *,
+    strategy_resolver: StrategyResolver | None = None,
+    symbol_data: dict | None = None,
+    how: str = "replace",
+) -> None:
+    """Stamp EntryReady from the conditions that can block an entry.
+
+    Confirm-symbol inputs are aligned by date. Market-wide filters applied afterwards
+    should AND their own readiness in apply_primary_entry_filters.
+    """
+    confirm_strategy, _filters = _confirm_strategy_for_cross_symbol(strategy)
+    ready = entry_ready_series(frame, confirm_strategy, strategy_resolver=strategy_resolver)
+    primary = strategy.symbol.strip().upper()
+    for symbol in strategy.confirm_symbols or []:
+        if symbol_data is None or symbol == primary or symbol not in symbol_data:
+            continue
+        source = symbol_data[symbol]
+        sec_ready = entry_ready_series(source, confirm_strategy, strategy_resolver=strategy_resolver)
+        ready = ready.reindex(frame.index).fillna(False).astype(bool) & _align_ready_to_frame(
+            frame, source, sec_ready
+        )
+    assign_entry_ready(frame, ready, how=how)
+
+
+def merge_strategy_entry_ready(
+    frame: pd.DataFrame,
+    strategy: SavedStrategy,
+    *,
+    mode: str,
+    strategy_resolver: StrategyResolver | None = None,
+) -> None:
+    ready = entry_ready_series(frame, strategy, strategy_resolver=strategy_resolver)
+    assign_entry_ready(frame, ready, how="and" if mode == "and" else "or")
+
+
 def apply_primary_entry_filters(
     data: pd.DataFrame,
     conditions: list[dict],
@@ -125,8 +200,10 @@ def apply_primary_entry_filters(
     if not conditions:
         return data
     buy_filter = compile_buy_mask(data, conditions, strategy_resolver=strategy_resolver)
+    ready = compile_entry_ready_mask(data, conditions, strategy_resolver=strategy_resolver)
     data = data.copy()
     data["Buy"] = data["Buy"] & buy_filter
+    assign_entry_ready(data, ready, how="and")
     return data
 
 
@@ -154,12 +231,16 @@ def combine_builder_buy_masks(
 
     p_buy, p_sell = _compile_strategy_masks(data, primary, strategy_resolver=strategy_resolver)
     s_buy, _ = _compile_strategy_masks(data, secondary, strategy_resolver=strategy_resolver)
+    p_ready = entry_ready_series(data, primary, strategy_resolver=strategy_resolver)
+    s_ready = entry_ready_series(data, secondary, strategy_resolver=strategy_resolver)
 
     if mode == "and":
         buy = p_buy & s_buy
+        assign_entry_ready(data, p_ready & s_ready, how="replace")
         join = " AND "
     else:
         buy = p_buy | s_buy
+        assign_entry_ready(data, p_ready | s_ready, how="replace")
         join = " OR "
 
     p_desc = _strategy_description(primary, labels=labels)
@@ -229,6 +310,12 @@ def prepare_builder_refine_frame(
             confirm_symbols,
             symbol_data,
         )
+        attach_strategy_entry_ready(
+            data,
+            confirm_strategy,
+            strategy_resolver=strategy_resolver,
+            symbol_data=symbol_data,
+        )
         data = apply_primary_entry_filters(
             data,
             primary_filters,
@@ -247,6 +334,7 @@ def prepare_builder_refine_frame(
         data = data.copy()
         data["Buy"] = buy
         data["Sell"] = sell
+        attach_strategy_entry_ready(data, strategy, strategy_resolver=strategy_resolver)
         days = strategy.hold_days
         profit = strategy.profit
         is_long = strategy.direction == "long"
@@ -687,6 +775,12 @@ def backtest_builder_signal_sweep(
                 buy = p_buy & s_buy if mode == "and" else p_buy | s_buy
                 data_copy["Buy"] = buy
                 data_copy["Sell"] = p_sell
+                merge_strategy_entry_ready(
+                    data_copy,
+                    secondary,
+                    mode=mode,
+                    strategy_resolver=strategy_resolver,
+                )
             else:
                 buy, sell, days, profit, _, _, is_long, _ = combine_builder_buy_masks(
                     primary,

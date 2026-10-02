@@ -11,6 +11,7 @@ from api.indicator_catalog import (
     is_primary_only_indicator,
     validate_compare_target,
 )
+from api.market_regimes import REGIME_INDICATOR_IDS, ensure_regime_indicator_columns
 
 
 VALID_OPERATORS = {"<", "<=", ">", ">=", "=", "crosses above", "crosses below", "is true", "is false"}
@@ -83,13 +84,112 @@ def _compare(left: pd.Series, operator: str, right) -> pd.Series:
     return result.fillna(False)
 
 
-def _compile_strategy_indicator(
+def _indicator_ready(data: pd.DataFrame, indicator_id: str) -> pd.Series:
+    """True once this input exists. Regime 0 is unlabeled, so it is not ready."""
+    numeric = pd.to_numeric(data[indicator_id], errors="coerce")
+    ready = numeric.notna()
+    if indicator_id in REGIME_INDICATOR_IDS:
+        ready = ready & (numeric != 0)
+    return ready
+
+
+def _operand_ready(data: pd.DataFrame, value: str) -> pd.Series:
+    if value in _INDICATOR_IDS:
+        if value not in data.columns:
+            raise ValueError(f"Indicator column not found in data: {value}")
+        return _indicator_ready(data, value)
+    try:
+        float(value)
+    except ValueError as exc:
+        raise ValueError(f"Right operand must be an indicator id or numeric literal: {value}") from exc
+    return pd.Series(True, index=data.index)
+
+
+def _ready_with_prior(ready: pd.Series) -> pd.Series:
+    prior = ready.shift(1)
+    prior = prior.where(prior.notna(), False).astype(bool)
+    return ready & prior
+
+
+def _compile_condition_state(
+    data: pd.DataFrame,
+    conditions: list[dict],
+    *,
+    strategy_resolver: StrategyResolver | None = None,
+    seen_strategy_ids: set[str] | None = None,
+) -> tuple[pd.Series, pd.Series]:
+    """Return (condition is true, inputs exist so a trade could be taken)."""
+    if not conditions:
+        raise ValueError("At least one condition is required")
+
+    ensure_regime_indicator_columns(data, conditions)
+    seen_strategy_ids = seen_strategy_ids or set()
+    mask: pd.Series | None = None
+    ready: pd.Series | None = None
+    for condition in conditions:
+        left_id = condition["left"]
+        operator = condition["operator"]
+        right_value = condition["right"]
+        logic = condition.get("logic", "AND")
+
+        if operator not in VALID_OPERATORS:
+            raise ValueError(f"Unsupported operator: {operator}")
+
+        if is_strategy_indicator(left_id):
+            part, part_ready = _compile_strategy_indicator_state(
+                data,
+                left_id,
+                operator,
+                strategy_resolver,
+                seen_strategy_ids,
+            )
+        elif left_id not in _INDICATOR_IDS:
+            raise ValueError(f"Unknown left indicator: {left_id}")
+        elif left_id not in data.columns:
+            raise ValueError(f"Indicator column not found in data: {left_id}")
+        else:
+            left_series = data[left_id]
+            part_ready = _indicator_ready(data, left_id)
+            if operator in FLAG_OPERATORS:
+                part = left_series == (1 if operator == "is true" else -1)
+            else:
+                validate_compare_target(left_id, right_value)
+                right_operand = _resolve_operand(data, right_value)
+                part = _compare(left_series, operator, right_operand)
+                right_ready = _operand_ready(data, right_value)
+                if operator in {"crosses above", "crosses below"}:
+                    part_ready = _ready_with_prior(part_ready)
+                    if right_value in _INDICATOR_IDS:
+                        right_ready = _ready_with_prior(right_ready)
+                part_ready = part_ready & right_ready
+        part = part.fillna(False)
+        part_ready = part_ready.fillna(False)
+
+        if mask is None:
+            mask = part
+            ready = part_ready
+            continue
+
+        if logic == "AND":
+            mask = mask & part
+            ready = ready & part_ready
+        elif logic == "OR":
+            mask = mask | part
+            ready = ready | part_ready
+        else:
+            raise ValueError(f"Unsupported logic: {logic}")
+
+    assert mask is not None and ready is not None
+    return mask, ready
+
+
+def _compile_strategy_indicator_state(
     data: pd.DataFrame,
     left_id: str,
     operator: str,
     strategy_resolver: StrategyResolver | None,
     seen_strategy_ids: set[str],
-) -> pd.Series:
+) -> tuple[pd.Series, pd.Series]:
     if operator not in FLAG_OPERATORS:
         raise ValueError("Saved strategy indicators only support flag operators")
     if strategy_resolver is None:
@@ -106,13 +206,14 @@ def _compile_strategy_indicator(
         raise ValueError(f"Unknown saved strategy: {strategy_id}")
 
     next_seen = {*seen_strategy_ids, strategy_id}
-    nested = compile_condition_mask(
+    nested, nested_ready = _compile_condition_state(
         data,
         _condition_dicts(strategy.conditions),
         strategy_resolver=strategy_resolver,
         seen_strategy_ids=next_seen,
     )
-    return nested if operator == "is true" else ~nested
+    part = nested if operator == "is true" else ~nested
+    return part, nested_ready
 
 
 def compile_condition_mask(
@@ -122,55 +223,35 @@ def compile_condition_mask(
     strategy_resolver: StrategyResolver | None = None,
     seen_strategy_ids: set[str] | None = None,
 ) -> pd.Series:
-    if not conditions:
-        raise ValueError("At least one condition is required")
-
-    seen_strategy_ids = seen_strategy_ids or set()
-    mask: pd.Series | None = None
-    for index, condition in enumerate(conditions):
-        left_id = condition["left"]
-        operator = condition["operator"]
-        right_value = condition["right"]
-        logic = condition.get("logic", "AND")
-
-        if operator not in VALID_OPERATORS:
-            raise ValueError(f"Unsupported operator: {operator}")
-
-        if is_strategy_indicator(left_id):
-            part = _compile_strategy_indicator(
-                data,
-                left_id,
-                operator,
-                strategy_resolver,
-                seen_strategy_ids,
-            )
-        elif left_id not in _INDICATOR_IDS:
-            raise ValueError(f"Unknown left indicator: {left_id}")
-        elif left_id not in data.columns:
-            raise ValueError(f"Indicator column not found in data: {left_id}")
-        else:
-            left_series = data[left_id]
-            if operator in FLAG_OPERATORS:
-                part = left_series == (1 if operator == "is true" else -1)
-            else:
-                validate_compare_target(left_id, right_value)
-                right_operand = _resolve_operand(data, right_value)
-                part = _compare(left_series, operator, right_operand)
-        part = part.fillna(False)
-
-        if mask is None:
-            mask = part
-            continue
-
-        if logic == "AND":
-            mask = mask & part
-        elif logic == "OR":
-            mask = mask | part
-        else:
-            raise ValueError(f"Unsupported logic: {logic}")
-
-    assert mask is not None
+    mask, _ready = _compile_condition_state(
+        data,
+        conditions,
+        strategy_resolver=strategy_resolver,
+        seen_strategy_ids=seen_strategy_ids,
+    )
     return mask
+
+
+def compile_entry_ready_mask(
+    data: pd.DataFrame,
+    conditions: list[dict],
+    *,
+    strategy_resolver: StrategyResolver | None = None,
+    seen_strategy_ids: set[str] | None = None,
+) -> pd.Series:
+    """True on bars where every required entry input exists, whether or not it passes.
+
+    Leading False bars are the stretch before a trade could be taken: an instrument
+    is not listed yet, a regime day is unlabeled, or an indicator is still missing.
+    A later False signal on a complete input stays True here.
+    """
+    _mask, ready = _compile_condition_state(
+        data,
+        conditions,
+        strategy_resolver=strategy_resolver,
+        seen_strategy_ids=seen_strategy_ids,
+    )
+    return ready
 
 
 def compile_buy_mask(

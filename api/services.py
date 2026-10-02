@@ -11,6 +11,7 @@ from api.builder_strategy import (
     builder_signal_callable,
     combine_builder_buy_masks,
     draft_to_saved_strategy,
+    merge_strategy_entry_ready,
     prepare_builder_refine_frame,
 )
 from api.indicator_catalog import is_market_wide_indicator, list_indicators
@@ -531,6 +532,12 @@ def _evaluate_refine_row_metrics(
             )
             buy = data_copy["Buy"] & s_buy if combo_mode == "and" else data_copy["Buy"] | s_buy
             data_copy["Buy"] = buy
+            merge_strategy_entry_ready(
+                data_copy,
+                secondary,
+                mode=combo_mode,
+                strategy_resolver=get_strategy_by_id,
+            )
             executed = bt.execute_strategy(
                 data_copy,
                 days,

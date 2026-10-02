@@ -10,6 +10,7 @@ export const INDICATOR_CATEGORY_ORDER = [
   'VWAP / fair value',
   'Pattern / signal flags',
   'Breadth RSI',
+  'Market regimes',
 ] as const
 
 /** Short category blurbs for the Help → Indicator glossary. */
@@ -29,6 +30,8 @@ export const INDICATOR_CATEGORY_INTROS: Partial<
     'Boolean flags for Donchian/Keltner/PSAR breakouts, BB/Keltner squeeze, EMA crosses, and close-pattern signals. Use is true / is false in the builder.',
   'Breadth RSI':
     'RSI applied to sector/style participation ratios — market, semis, financials, energy, and more.',
+  'Market regimes':
+    'True/false flags for each market-regime bucket. Is true keeps only that bucket. Is false keeps every other defined day. Days before the series exists match neither.',
 }
 
 export function sortIndicatorCategories(categories: Iterable<string>): string[] {

@@ -111,20 +111,55 @@ def trades_per_year(trades, n_bars, periods_per_year=252):
     return trade_count / years
 
 
+def performance_frame(data):
+    """Drop bars before the first day an entry could be evaluated.
+
+    EntryReady is false while a required input is missing (unlisted instrument,
+    unlabeled regime, or an indicator that is not computed yet). Later flat periods
+    stay, including years the strategy was live but took no trade.
+    Frames without the column are unchanged.
+    """
+    if data is None or data.empty or "EntryReady" not in data.columns:
+        return data
+    ready = data["EntryReady"].fillna(False).astype(bool).to_numpy()
+    if not ready.any():
+        return data
+    first = int(np.argmax(ready))
+    if first <= 0:
+        return data
+    return data.iloc[first:].copy()
+
+
+def metrics_start_label(data) -> str | None:
+    """First date included in the ratios, when a leading unavailable stretch was dropped."""
+    if data is None or data.empty or "Date" not in data.columns or "EntryReady" not in data.columns:
+        return None
+    ready = data["EntryReady"].fillna(False).astype(bool).to_numpy()
+    if not ready.any():
+        return None
+    first = int(np.argmax(ready))
+    if first <= 0:
+        return None
+    return pd.to_datetime(data["Date"].iloc[first]).strftime("%Y-%m-%d")
+
+
 def compute_aggregate_metrics(data, periods_per_year=252):
     """
     Aggregate backtest metrics for ranking/comparison.
     Excludes the single best-return year from CAGR, Sharpe, Sortino, and max drawdown
     when ExcludeBestReturnYear is True.
+    Also drops the leading stretch before entry conditions could be evaluated.
     Trade statistics always reflect the full backtest run.
     Total PnL always reflects the full run.
     """
+    full = data
+    data = performance_frame(data)
     returns = yearly_returns(data) if ExcludeBestReturnYear else None
     excluded_year = best_return_year_to_exclude(data, returns) if ExcludeBestReturnYear else None
     metrics_data = exclude_best_return_year(data, excluded_year)
     cagr = cagr_decimal(data, returns, excluded_year, periods_per_year)
 
-    trade_out = data[data['LongTradeOut']]
+    trade_out = full[full['LongTradeOut']]
     trades = trade_out.shape[0]
     positive = (trade_out['TradePnL'] > 0).sum()
     pct_positive = (positive / trades * 100) if trades else 0
@@ -137,6 +172,13 @@ def compute_aggregate_metrics(data, periods_per_year=252):
 
     max_drawdown = metrics_data['Drawdown'].max() if not metrics_data.empty else None
     cagr_pct = round(cagr * 100, 2)
+    # Dropping the only positive year leaves no bars. Ratios are undefined then.
+    if metrics_data.empty:
+        sharpe = None
+        sortino = None
+    else:
+        sharpe = ind.sharpes_ratio(metrics_data, periods_per_year=periods_per_year)
+        sortino = ind.sortino_ratio(metrics_data, periods_per_year=periods_per_year)
 
     return {
         'excluded_year': excluded_year,
@@ -149,8 +191,8 @@ def compute_aggregate_metrics(data, periods_per_year=252):
         'kelly': kelly,
         'cagr_decimal': cagr,
         'cagr_percent': cagr_pct,
-        'sharpe': ind.sharpes_ratio(metrics_data, periods_per_year=periods_per_year),
-        'sortino': ind.sortino_ratio(metrics_data, periods_per_year=periods_per_year),
+        'sharpe': sharpe,
+        'sortino': sortino,
         'calmar': calmar_ratio(cagr_pct, max_drawdown),
         'ulcer_index': ulcer_index(metrics_data),
         'time_under_water_percent': time_under_water_percent(metrics_data),

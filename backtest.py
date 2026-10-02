@@ -4,7 +4,7 @@ import numpy as np
 from config import *
 import getdata as dt
 from itertools import combinations
-from stats import compute_aggregate_metrics, yearly_performance
+from stats import compute_aggregate_metrics, performance_frame, yearly_performance
 from contextlib import contextmanager
 from time import perf_counter
 import os
@@ -77,7 +77,7 @@ def _ranking_metrics(data, include_yearly=True):
         'Sortino': m['sortino'],
     }
     if include_yearly:
-        metrics['Yearly'] = _yearly_records(data)
+        metrics['Yearly'] = _yearly_records(performance_frame(data))
     return metrics
 
 

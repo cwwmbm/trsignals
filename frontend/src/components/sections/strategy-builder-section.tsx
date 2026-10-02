@@ -259,6 +259,7 @@ export function StrategyBuilderSection({
         onRunBacktest={handleRunBacktest}
         onSave={handleSave}
         onReset={handleReset}
+        onConditionNotice={setAddMessage}
         isBacktestRunning={mutation.isPending}
         isSaving={saveMutation.isPending}
       />

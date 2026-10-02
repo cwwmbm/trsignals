@@ -13,7 +13,7 @@ from api.market_regimes import (
     regime_coverage,
     market_regimes_for_timestamp,
 )
-from stats import compute_aggregate_metrics, monthly_performance, yearly_performance
+from stats import compute_aggregate_metrics, metrics_start_label, monthly_performance, performance_frame, yearly_performance
 
 MAX_EQUITY_CURVE_POINTS = 2000
 
@@ -70,7 +70,7 @@ def summary_payload(
     periods_per_year: int = 252,
 ) -> dict:
     metrics = compute_aggregate_metrics(data, periods_per_year=periods_per_year)
-    return {
+    payload = {
         "description": description,
         "days": days,
         "profit": profit,
@@ -87,6 +87,10 @@ def summary_payload(
         "sharpe": metrics["sharpe"],
         "sortino": metrics["sortino"],
     }
+    started = metrics_start_label(data)
+    if started:
+        payload["metrics_start"] = started
+    return payload
 
 
 def yearly_payload(data: pd.DataFrame) -> list[dict]:
@@ -234,8 +238,9 @@ def detailed_backtest_payload(
     portfolio_equity: bool = False,
     years: int | None = None,
 ) -> dict:
-    total_bars = int(data.shape[0])
-    equity_curve = equity_curve_payload(data, is_intraday=is_intraday)
+    scored = performance_frame(data)
+    total_bars = int(scored.shape[0])
+    equity_curve = equity_curve_payload(scored, is_intraday=is_intraday)
     regime_calendar = load_regime_calendar(years) if years is not None else None
     payload = {
         "summary": summary_payload(
@@ -245,8 +250,8 @@ def detailed_backtest_payload(
             description,
             periods_per_year=periods_per_year,
         ),
-        "yearly": yearly_payload(data),
-        "monthly": monthly_payload(data),
+        "yearly": yearly_payload(scored),
+        "monthly": monthly_payload(scored),
         "equity_curve": equity_curve,
         "trades": trade_payload(
             data,
@@ -260,10 +265,10 @@ def detailed_backtest_payload(
     }
     if years is not None:
         payload["market_regime_sharpe"] = compute_market_regime_sharpe(
-            data,
+            scored,
             regime_calendar,
             periods_per_year=periods_per_year,
         )
         payload["market_regime_current"] = current_market_regimes(data, regime_calendar)
-        payload["market_regime_coverage"] = regime_coverage(data, regime_calendar)
+        payload["market_regime_coverage"] = regime_coverage(scored, regime_calendar)
     return payload

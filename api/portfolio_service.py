@@ -37,6 +37,7 @@ class StrategySignals:
     long_trade_in: np.ndarray
     hold_long: np.ndarray
     long_trade_out: np.ndarray
+    executed: pd.DataFrame | None = None
 
 
 def _normalize_proxy(value: str | None) -> str | None:
@@ -350,6 +351,7 @@ def _load_strategy_signals(
     bulk_data: pd.DataFrame | None,
     symbol_dataset: dict[str, pd.DataFrame],
     use_cache: bool = True,
+    keep_executed: bool = False,
 ) -> StrategySignals:
     symbol = strategy.symbol.strip().upper()
     if symbol not in symbol_dataset:
@@ -372,6 +374,7 @@ def _load_strategy_signals(
         long_trade_in=executed["LongTradeIn"].to_numpy(dtype=bool),
         hold_long=executed["HoldLong"].to_numpy(dtype=bool),
         long_trade_out=executed["LongTradeOut"].to_numpy(dtype=bool),
+        executed=executed if keep_executed else None,
     )
 
 
@@ -410,6 +413,7 @@ def _prepare_portfolio_simulation(
     use_cache: bool = True,
     symbol_dataset: dict[str, pd.DataFrame] | None = None,
     bulk_data: pd.DataFrame | None = None,
+    keep_executed: bool = False,
 ) -> tuple[list, list[str], dict[str, StrategySignals], str, str | None, dict[str, pd.Series], dict[str, pd.Series]]:
     strategy_ids = list(portfolio.strategy_ids)
     strategies = _resolve_portfolio_strategies(strategy_ids)
@@ -433,6 +437,7 @@ def _prepare_portfolio_simulation(
             bulk_data=bulk_data,
             symbol_dataset=symbol_dataset,
             use_cache=use_cache,
+            keep_executed=keep_executed,
         )
 
     return (
@@ -1188,21 +1193,56 @@ def simulate_portfolio(request) -> dict:
     return payload
 
 
-def _load_spy_close_for_regimes(*, years: int, use_cache: bool = True) -> pd.Series:
-    """Load SPY adjusted closes for regime labels (always SPY, never traded symbol)."""
-    from api.regime_contribution import SPY_SYMBOL
+def _portfolio_atr_symbol(strategies: list, global_proxy: str | None) -> str | None:
+    """Symbol whose ATR labels the portfolio book.
 
-    dataset = bt.load_symbol_dataset([SPY_SYMBOL], years=years, use_cache=use_cache)
-    if SPY_SYMBOL not in dataset:
-        raise ValueError("SPY market data is required for regime contribution analysis")
-    frame = dataset[SPY_SYMBOL]
-    indexed = frame.set_index(pd.to_datetime(frame["Date"]))
-    return indexed["Close"].astype(float)
+    A global proxy is that symbol. Otherwise every strategy must book PnL on
+    the same symbol. Mixed symbols have no single ATR.
+    """
+    if global_proxy:
+        return global_proxy
+    symbols = {_strategy_pnl_symbol(strategy, None) for strategy in strategies}
+    if len(symbols) == 1:
+        return next(iter(symbols))
+    return None
+
+
+def _atr_by_day(symbol: str, *, years: int) -> pd.DataFrame | None:
+    dataset = bt.load_symbol_dataset([symbol], years=years, use_cache=True)
+    data = dataset.get(symbol)
+    if data is None or "ATR20" not in data.columns or "ATR50" not in data.columns or "Date" not in data.columns:
+        return None
+    frame = data.copy()
+    frame["_day"] = pd.to_datetime(frame["Date"], errors="coerce")
+    if getattr(frame["_day"].dt, "tz", None) is not None:
+        frame["_day"] = frame["_day"].dt.tz_localize(None)
+    frame["_day"] = frame["_day"].dt.normalize()
+    frame = frame.dropna(subset=["_day"]).drop_duplicates("_day").set_index("_day")
+    return pd.DataFrame(
+        {
+            "ATR20": pd.to_numeric(frame["ATR20"], errors="coerce"),
+            "ATR50": pd.to_numeric(frame["ATR50"], errors="coerce"),
+        }
+    )
+
+
+def _with_symbol_atr(frame: pd.DataFrame, atr: pd.DataFrame | None) -> pd.DataFrame:
+    if atr is None:
+        return frame
+    out = frame.copy()
+    days = pd.to_datetime(out["Date"], errors="coerce")
+    if getattr(days.dt, "tz", None) is not None:
+        days = days.dt.tz_localize(None)
+    days = days.dt.normalize()
+    aligned = atr.reindex(pd.DatetimeIndex(days))
+    out["ATR20"] = aligned["ATR20"].to_numpy(dtype=float)
+    out["ATR50"] = aligned["ATR50"].to_numpy(dtype=float)
+    return out
 
 
 def simulate_portfolio_regimes(request) -> dict:
-    """Leave-one-out regime contribution analysis (on-demand, mirrors Shapley wiring)."""
-    from api.regime_contribution import compute_regime_contribution
+    """Market-regime quality and leave-one-out contribution. Computed only when asked."""
+    from api.market_regimes import build_regime_comparison, load_regime_calendar, score_regime_book
 
     strategy_ids = list(request.strategy_ids)
     if not strategy_ids:
@@ -1220,6 +1260,7 @@ def simulate_portfolio_regimes(request) -> dict:
         request,
         years=request.years,
         use_cache=True,
+        keep_executed=True,
     )
 
     full_frame = simulate_portfolio_overlay(
@@ -1235,17 +1276,21 @@ def simulate_portfolio_regimes(request) -> dict:
     if len(master_dates) == 0:
         raise ValueError("No overlapping market data for selected strategies")
 
-    spy_close = _load_spy_close_for_regimes(years=request.years, use_cache=True)
-    full_equity = full_frame["RollingPnL"].to_numpy(dtype=float)
-    full_hold = full_frame["HoldLong"].astype(bool).to_numpy()
+    calendar = load_regime_calendar(request.years)
+    atr_symbol = _portfolio_atr_symbol(strategies, global_proxy)
+    atr = _atr_by_day(atr_symbol, years=request.years) if atr_symbol else None
+    full_frame = _with_symbol_atr(full_frame, atr)
+    portfolio_book = score_regime_book(full_frame, calendar)
     strategies_by_id = {strategy.id: strategy for strategy in strategies}
 
     strategy_rows: list[dict[str, Any]] = []
     for strategy_id in strategy_ids:
         strategy = strategies_by_id[strategy_id]
+        executed = signals_by_id[strategy_id].executed
+        if executed is None:
+            raise ValueError(f"Missing backtest for strategy: {strategy.name}")
         remaining = [item for item in strategies if item.id != strategy_id]
         remaining_order = [item_id for item_id in strategy_ids if item_id != strategy_id]
-
         if remaining:
             reduced_frame = simulate_portfolio_overlay(
                 remaining,
@@ -1259,22 +1304,17 @@ def simulate_portfolio_regimes(request) -> dict:
             )
         else:
             reduced_frame = flat_cash_frame(master_dates)
-
-        candidate_hold = _aligned_candidate_hold(signals_by_id[strategy_id], master_dates)
+        reduced_frame = _with_symbol_atr(reduced_frame, atr)
         strategy_rows.append(
             {
                 "strategy_id": strategy_id,
                 "strategy_name": strategy.name,
-                "full_equity": full_equity,
-                "baseline_equity": reduced_frame["RollingPnL"].to_numpy(dtype=float),
-                "full_hold": full_hold,
-                "baseline_hold": reduced_frame["HoldLong"].astype(bool).to_numpy(),
-                "candidate_hold": candidate_hold,
+                "quality": score_regime_book(executed, calendar),
+                "contribution": build_regime_comparison(
+                    portfolio_book,
+                    score_regime_book(reduced_frame, calendar),
+                ),
             }
         )
 
-    return compute_regime_contribution(
-        strategy_rows=strategy_rows,
-        spy_close=spy_close,
-        master_dates=master_dates,
-    )
+    return {"portfolio": portfolio_book, "strategies": strategy_rows}

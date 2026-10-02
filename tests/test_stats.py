@@ -4,7 +4,7 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 
-from stats import compute_aggregate_metrics
+from stats import compute_aggregate_metrics, metrics_start_label, performance_frame, yearly_returns
 
 
 def _backtest_frame(*, years=(2018, 2019, 2020), trades_per_year=(2, 2, 5)) -> pd.DataFrame:
@@ -60,6 +60,38 @@ class ComputeAggregateMetricsTests(unittest.TestCase):
             metrics["sharpe"],
             __import__("indicators").sharpes_ratio(excluded),
         )
+
+    @patch("stats.ExcludeBestReturnYear", True)
+    def test_ratios_skip_the_stretch_before_an_entry_is_possible(self):
+        def block(year, ready, end_pnl):
+            dates = pd.bdate_range(f"{year}-01-02", periods=20)
+            rows = []
+            for index, date in enumerate(dates):
+                rows.append(
+                    {
+                        "Date": date,
+                        "RollingPnL": end_pnl if index == len(dates) - 1 else 10_000.0,
+                        "Drawdown": 0.0,
+                        "LongTradeOut": index == 10 and ready,
+                        "TradePnL": 0.1 if index == 10 and ready else 0.0,
+                        "EntryReady": ready,
+                    }
+                )
+            return rows
+
+        data = pd.DataFrame(block(2018, False, 10_000.0) + block(2019, True, 10_000.0) + block(2020, True, 12_000.0))
+        scored = performance_frame(data)
+        self.assertEqual(scored["Date"].dt.year.min(), 2019)
+        self.assertIn(2019, yearly_returns(scored))
+        self.assertNotIn(2018, yearly_returns(scored))
+
+        metrics = compute_aggregate_metrics(data)
+        expected = compute_aggregate_metrics(scored.drop(columns=["EntryReady"]))
+        self.assertEqual(metrics_start_label(data), "2019-01-02")
+        self.assertAlmostEqual(metrics["sharpe"], expected["sharpe"])
+        self.assertAlmostEqual(metrics["cagr_decimal"], expected["cagr_decimal"])
+        self.assertEqual(metrics["trades"], 2)
+        self.assertEqual(metrics["rolling_pnl"], 12_000.0)
 
 
 if __name__ == "__main__":

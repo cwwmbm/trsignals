@@ -3,8 +3,7 @@ export type RegimeField =
   | "vxn_regime"
   | "atr_regime"
   | "spy_regime"
-  | "breadth_new_regime"
-  | "breadth_old_regime"
+  | "market_breadth_regime"
   | "semis_breadth_regime"
   | "equity_risk_breadth_regime"
   | "credit_risk_breadth_regime"
@@ -13,7 +12,16 @@ export type RegimeField =
   | "copper_gold_regime"
   | "materials_breadth_regime"
   | "sector_breadth_50_regime"
-  | "sector_breadth_200_regime";
+  | "sector_breadth_200_regime"
+  | "sector_trend_50_regime"
+  | "rate_shock_regime"
+  | "curve_10y3m_regime"
+  | "curve_change_20_regime"
+  | "rate_curve_regime"
+  | "dollar_shock_regime"
+  | "dollar_rates_regime"
+  | "inflation_regime"
+  | "inflation_yield_regime";
 
 export type RegimeBucketDef = {
   key: string;
@@ -37,6 +45,11 @@ export type RegimeSharpeBucket = {
   max_drawdown?: number | null;
   cagr?: number | null;
   calmar?: number | null;
+  regime_score?: number | null;
+  regime_score_sortino?: number | null;
+  regime_score_return?: number | null;
+  regime_score_drawdown?: number | null;
+  regime_score_robustness?: number | null;
 };
 
 export type RegimeTradeRow = Record<string, number | string | null>;
@@ -56,9 +69,21 @@ export type RegimeChartPoint = {
   pctPositive: number | null;
   avgReturnPct: number | null;
   avgTradeReturnPct: number | null;
+  regimeScore: number | null;
+  regimeScoreSortino: number | null;
+  regimeScoreReturn: number | null;
+  regimeScoreDrawdown: number | null;
+  regimeScoreRobustness: number | null;
 };
 
-export type RegimeYMetric = "sharpe" | "sortino" | "calmar" | "avg_return" | "avg_trade_return" | "max_drawdown";
+export type RegimeYMetric =
+  | "regime_score"
+  | "sharpe"
+  | "sortino"
+  | "calmar"
+  | "avg_return"
+  | "avg_trade_return"
+  | "max_drawdown";
 
 const VOL_BUCKETS: RegimeBucketDef[] = [
   { key: "le_15", label: "≤ 15" },
@@ -74,6 +99,41 @@ const SECTOR_BREADTH_BUCKETS: RegimeBucketDef[] = [
   { key: "gt_75", label: "> 75%" },
 ];
 
+const SECTOR_TREND_BUCKETS: RegimeBucketDef[] = [
+  { key: "lt_neg_5", label: "< -5%" },
+  { key: "neg_5_to_0", label: "-5% to 0%" },
+  { key: "zero_to_pos_5", label: "0% to +5%" },
+  { key: "gt_pos_5", label: "> +5%" },
+];
+
+const DOLLAR_RATES_BUCKETS: RegimeBucketDef[] = [
+  { key: "tnx_nonpos_dollar_nonpos", label: "≤ 0, ≤ 0" },
+  { key: "tnx_nonpos_dollar_pos", label: "≤ 0, > 0" },
+  { key: "tnx_pos_dollar_nonpos", label: "> 0, ≤ 0" },
+  { key: "tnx_pos_dollar_pos", label: "> 0, > 0" },
+];
+
+const INFLATION_YIELD_BUCKETS: RegimeBucketDef[] = [
+  { key: "tnx_rising_inflation_rising", label: "> 0, > 0" },
+  { key: "tnx_rising_inflation_falling", label: "> 0, ≤ 0" },
+  { key: "tnx_falling_inflation_rising", label: "≤ 0, > 0" },
+  { key: "tnx_falling_inflation_falling", label: "≤ 0, ≤ 0" },
+];
+
+const SHOCK_BUCKETS: RegimeBucketDef[] = [
+  { key: "lt_neg_1", label: "< -1" },
+  { key: "neg_1_to_1", label: "-1 to 1" },
+  { key: "gt_1", label: "> 1" },
+];
+
+const CURVE_CHANGE_BUCKETS: RegimeBucketDef[] = [
+  { key: "le_neg_50", label: "≤ -50 bp" },
+  { key: "neg_50_neg_10", label: "-50 to -10" },
+  { key: "neg_10_pos_10", label: "-10 to +10" },
+  { key: "pos_10_pos_50", label: "+10 to +50" },
+  { key: "ge_pos_50", label: "≥ +50 bp" },
+];
+
 const BREADTH_BUCKETS: RegimeBucketDef[] = [
   { key: "lt_40", label: "< 40" },
   { key: "40_50", label: "40–50" },
@@ -86,8 +146,7 @@ export const REGIME_TRADE_FIELDS: RegimeField[] = [
   "vxn_regime",
   "atr_regime",
   "spy_regime",
-  "breadth_new_regime",
-  "breadth_old_regime",
+  "market_breadth_regime",
   "semis_breadth_regime",
   "equity_risk_breadth_regime",
   "credit_risk_breadth_regime",
@@ -97,6 +156,15 @@ export const REGIME_TRADE_FIELDS: RegimeField[] = [
   "materials_breadth_regime",
   "sector_breadth_50_regime",
   "sector_breadth_200_regime",
+  "sector_trend_50_regime",
+  "rate_shock_regime",
+  "curve_10y3m_regime",
+  "curve_change_20_regime",
+  "rate_curve_regime",
+  "dollar_shock_regime",
+  "dollar_rates_regime",
+  "inflation_regime",
+  "inflation_yield_regime",
 ];
 
 export const REGIME_DIMENSIONS: RegimeDimension[] = [
@@ -139,18 +207,10 @@ export const REGIME_DIMENSIONS: RegimeDimension[] = [
     unavailableWhenEmpty: false,
   },
   {
-    id: "breadth_new",
-    title: "New market breadth",
-    hint: "RSI(14) of log(RSP / SPY)",
-    field: "breadth_new_regime",
-    buckets: BREADTH_BUCKETS,
-    unavailableWhenEmpty: false,
-  },
-  {
-    id: "breadth_old",
-    title: "Old market breadth",
+    id: "market_breadth",
+    title: "Market breadth",
     hint: "RSI(14) of RSP / SPY",
-    field: "breadth_old_regime",
+    field: "market_breadth_regime",
     buckets: BREADTH_BUCKETS,
     unavailableWhenEmpty: false,
   },
@@ -226,6 +286,89 @@ export const REGIME_DIMENSIONS: RegimeDimension[] = [
     buckets: SECTOR_BREADTH_BUCKETS,
     unavailableWhenEmpty: false,
   },
+  {
+    id: "sector_trend_50",
+    title: "Sector deviation from SMA50",
+    hint: "Mean of log(close / SMA50) across XLY, XLP, XLE, XLF, XLV, XLI, XLB, XLK, XLU. −0.05 is −5%",
+    field: "sector_trend_50_regime",
+    buckets: SECTOR_TREND_BUCKETS,
+    unavailableWhenEmpty: false,
+  },
+  {
+    id: "rate_shock",
+    title: "Rate shock",
+    hint: "20-day ^TNX change divided by the 63-day standard deviation of daily changes, times √20",
+    field: "rate_shock_regime",
+    buckets: SHOCK_BUCKETS,
+    unavailableWhenEmpty: false,
+  },
+  {
+    id: "curve_10y3m",
+    title: "10Y–3M curve",
+    hint: "^TNX minus ^IRX. Below 0 is inverted",
+    field: "curve_10y3m_regime",
+    buckets: [
+      { key: "inverted", label: "Inverted" },
+      { key: "normal", label: "Normal" },
+    ],
+    unavailableWhenEmpty: false,
+  },
+  {
+    id: "curve_change_20",
+    title: "10Y–3M curve change",
+    hint: "20-day change in ^TNX minus ^IRX. 0.10 is 10 bp",
+    field: "curve_change_20_regime",
+    buckets: CURVE_CHANGE_BUCKETS,
+    unavailableWhenEmpty: false,
+  },
+  {
+    id: "rate_curve",
+    title: "Rate shock × curve",
+    hint: "Rate shock, then the 20-day curve change. A curve change of 0 counts as ≤ 0. A rate shock of 0 is left out",
+    field: "rate_curve_regime",
+    buckets: [
+      { key: "shock_pos_curve_pos", label: "> 0, > 0" },
+      { key: "shock_pos_curve_nonpos", label: "> 0, ≤ 0" },
+      { key: "shock_neg_curve_pos", label: "< 0, > 0" },
+      { key: "shock_neg_curve_nonpos", label: "< 0, ≤ 0" },
+    ],
+    unavailableWhenEmpty: false,
+  },
+  {
+    id: "dollar_shock",
+    title: "Dollar shock",
+    hint: "20-day UUP change divided by the 63-day standard deviation of daily changes, times √20",
+    field: "dollar_shock_regime",
+    buckets: SHOCK_BUCKETS,
+    unavailableWhenEmpty: false,
+  },
+  {
+    id: "dollar_rates",
+    title: "Dollar + rates",
+    hint: "Rate shock, then the dollar shock. A value of 0 counts as ≤ 0",
+    field: "dollar_rates_regime",
+    buckets: DOLLAR_RATES_BUCKETS,
+    unavailableWhenEmpty: false,
+  },
+  {
+    id: "inflation",
+    title: "Inflation trend",
+    hint: "SMA(log(TIP / IEF), 20) minus SMA(log(TIP / IEF), 100). At or below 0 is the lower bucket",
+    field: "inflation_regime",
+    buckets: [
+      { key: "nonpos", label: "≤ 0" },
+      { key: "pos", label: "> 0" },
+    ],
+    unavailableWhenEmpty: false,
+  },
+  {
+    id: "inflation_yield",
+    title: "Inflation and yield",
+    hint: "Rate shock, then the inflation trend. Above 0 is rising. Zero counts as falling",
+    field: "inflation_yield_regime",
+    buckets: INFLATION_YIELD_BUCKETS,
+    unavailableWhenEmpty: false,
+  },
 ];
 
 const MIN_REGIME_TRADES = 20;
@@ -262,12 +405,13 @@ export function regimeChartPoints(
   dimension: RegimeDimension,
   sharpe: MarketRegimeSharpe | null | undefined,
   trades: RegimeTradeRow[] = [],
+  includeSmallSamples = false,
 ): RegimeChartPoint[] {
   const rows = new Map((sharpe?.[dimension.id] ?? []).map((row) => [row.key, row]));
   return dimension.buckets.map((bucket) => {
     const row = rows.get(bucket.key);
     const tradeStats = closedTradeStats(trades, dimension.field, bucket.key);
-    const enough = tradeStats.trades >= MIN_REGIME_TRADES;
+    const enough = includeSmallSamples || tradeStats.trades >= MIN_REGIME_TRADES;
     return {
       key: bucket.key,
       label: bucket.label,
@@ -281,11 +425,25 @@ export function regimeChartPoints(
       pctPositive: enough ? tradeStats.pctPositive : null,
       avgReturnPct: enough ? tradeStats.avgReturnPct : null,
       avgTradeReturnPct: enough ? tradeStats.avgTradeReturnPct : null,
+      regimeScore: enough ? (row?.regime_score ?? null) : null,
+      regimeScoreSortino: enough ? (row?.regime_score_sortino ?? null) : null,
+      regimeScoreReturn: enough ? (row?.regime_score_return ?? null) : null,
+      regimeScoreDrawdown: enough ? (row?.regime_score_drawdown ?? null) : null,
+      regimeScoreRobustness: enough ? (row?.regime_score_robustness ?? null) : null,
     };
   });
 }
 
+export function regimeIndicatorId(dimensionId: string, bucketKey: string) {
+  return `Regime_${dimensionId}_${bucketKey}`;
+}
+
+export function regimeIndicatorLabel(title: string, bucketLabel: string) {
+  return `${title} · ${bucketLabel}`;
+}
+
 export function regimeYValue(point: RegimeChartPoint, metric: RegimeYMetric): number | null {
+  if (metric === "regime_score") return point.regimeScore;
   if (metric === "sharpe") return point.sharpe;
   if (metric === "sortino") return point.sortino;
   if (metric === "calmar") return point.calmar;
