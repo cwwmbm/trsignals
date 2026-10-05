@@ -2,11 +2,11 @@
 
 Regime flags are a separate indicator category. They are attached only when a
 compiled strategy references them. Existing Breadth and SPYBull columns are unchanged.
-Market breadth is RSI(14) of RSP/SPY. Semis breadth is RSI(14) of log(SMH/SPY).
-Equity risk breadth is RSI(14) of log(XLY/XLP). Credit quality breadth is RSI(14) of log(HYG/LQD).
-Credit risk on is RSI(14) of log(HYG/TLT). Bond duration is RSI(14) of log(TLT/SHY).
-Copper/gold is RSI(14) of log(HG=F/GC=F). Sensitive materials breadth is RSI(14) of log(XLB/SPY).
-Rate shock is the 20-day ^TNX change divided by 63-day daily-change volatility times √20.
+Market breadth, semis, equity risk, credit quality, credit risk-on, bond duration,
+copper/gold, materials, housing strength, and housing versus utilities are shocks
+of a log price ratio: the 20-day change in the log ratio divided by 63-day
+daily-change volatility times √20.
+Rate shock is that same formula on ^TNX.
 The 10Y–3M curve is ^TNX minus ^IRX, and curve change is that spread's 20-day difference.
 Rate shock × curve crosses the sign of rate shock with the sign of that 20-day curve change.
 Sector breadth is the share of nine
@@ -30,14 +30,12 @@ from zoneinfo import ZoneInfo
 import indicators as ind
 import numpy as np
 import pandas as pd
-import ta
 
 from stats import compute_aggregate_metrics, yearly_returns
 
 logger = logging.getLogger(__name__)
 
 EASTERN = ZoneInfo("America/New_York")
-BREADTH_RSI_WINDOW = 14
 SPY_SMA_FAST = 50
 SPY_SMA_SLOW = 200
 SECTOR_SYMBOLS = ("XLY", "XLP", "XLE", "XLF", "XLV", "XLI", "XLB", "XLK", "XLU")
@@ -45,12 +43,14 @@ CREDIT_SYMBOLS = ("HYG", "LQD")
 RATIO_SYMBOLS = ("TLT", "SHY", "HG=F", "GC=F")
 YIELD_SYMBOLS = ("^TNX", "^IRX")
 DOLLAR_INFLATION_SYMBOLS = ("UUP", "TIP", "IEF")
+HOUSING_SYMBOL = "^HGX"
 REGIME_SYMBOLS = (
     "^VIX",
     "^VXN",
     "SPY",
     "RSP",
     "SMH",
+    HOUSING_SYMBOL,
     *SECTOR_SYMBOLS,
     *CREDIT_SYMBOLS,
     *RATIO_SYMBOLS,
@@ -63,7 +63,6 @@ CURVE_CHANGE_HORIZON = 20
 
 VIX_KEYS = ("le_15", "15_20", "20_30", "gt_30")
 VXN_KEYS = VIX_KEYS
-BREADTH_KEYS = ("lt_40", "40_50", "50_60", "gt_60")
 SECTOR_BREADTH_KEYS = ("le_25", "25_50", "50_75", "gt_75")
 ATR_EXPANDING = "expanding"
 ATR_CONTRACTING = "contracting"
@@ -107,6 +106,8 @@ MARKET_REGIME_KEYS = (
     "bond_duration_regime",
     "copper_gold_regime",
     "materials_breadth_regime",
+    "housing_strength_regime",
+    "housing_defensive_regime",
     "sector_breadth_50_regime",
     "sector_breadth_200_regime",
     "sector_trend_50_regime",
@@ -174,11 +175,6 @@ def classify_vix(value) -> str | None:
 def classify_vxn(value) -> str | None:
     """Same buckets as VIX: <= 15, 15–20, 20–30, > 30."""
     return classify_vix(value)
-
-
-def classify_breadth(value) -> str | None:
-    """< 40, 40–50, 50–60, > 60. Shared edges belong to the lower bucket."""
-    return _classify_upper_inclusive(value, (40, 50, 60), BREADTH_KEYS, first_inclusive=False)
 
 
 def classify_sector_breadth(value) -> str | None:
@@ -358,23 +354,6 @@ def _as_day_series(series: pd.Series) -> pd.Series:
     return out[~out.index.duplicated(keep="last")].sort_index()
 
 
-def _rsi(series: pd.Series, window: int = BREADTH_RSI_WINDOW) -> pd.Series:
-    """RSI on the series' own real observations.
-
-    Leading gaps (a symbol that lists later) are dropped before the window, so
-    they stay blank instead of coming back as 100. The first ``window - 1``
-    real observations are warmup and stay blank too.
-    """
-    values = pd.to_numeric(series, errors="coerce").astype(float).replace([np.inf, -np.inf], np.nan)
-    clean = values.dropna()
-    out = pd.Series(np.nan, index=series.index, dtype=float)
-    if len(clean) < window:
-        return out
-    rsi = ta.momentum.RSIIndicator(clean, window=window).rsi().copy()
-    rsi.iloc[: window - 1] = np.nan
-    return rsi.reindex(series.index)
-
-
 def _sector_breadth(closes: list[pd.Series], index: pd.Index, window: int) -> pd.Series:
     """Share of sectors with close > SMA(close, window). Denominator is always 9.
 
@@ -431,20 +410,6 @@ def _sector_sma_deviation(closes: list[pd.Series], index: pd.Index, window: int)
     return pd.Series(mean, index=index, dtype=float)
 
 
-def _log_ratio_rsi(
-    numerator: pd.Series | None,
-    denominator: pd.Series | None,
-    index: pd.Index,
-) -> pd.Series:
-    """RSI(14) of log(numerator / denominator), aligned to the regime calendar."""
-    if numerator is None or denominator is None:
-        return pd.Series(np.nan, index=index, dtype=float)
-    num = _as_day_series(numerator).reindex(index)
-    den = _as_day_series(denominator).reindex(index)
-    ratio = num / den
-    return _rsi(pd.Series(np.log(ratio.where(ratio > 0)), index=index))
-
-
 def _own_closes(series: pd.Series | None) -> pd.Series:
     if series is None:
         return pd.Series(dtype=float)
@@ -463,20 +428,44 @@ def _paired_yield_curve(tnx: pd.Series | None, irx: pd.Series | None) -> pd.Seri
     return paired["tnx"] - paired["irx"]
 
 
-def _rate_shock(tnx: pd.Series | None, index: pd.Index) -> pd.Series:
-    """20-day ^TNX change divided by 63-day daily-change volatility scaled by √20.
+def _shock(level: pd.Series, index: pd.Index) -> pd.Series:
+    """20-day change divided by 63-day daily-change volatility times √20.
 
-    Computed on ^TNX's own closes, then aligned to the regime calendar. A zero
-    volatility window stays blank.
+    ``level`` is the series' own observations. A zero volatility window stays
+    blank. The result is aligned to ``index``.
     """
     blank = pd.Series(np.nan, index=index, dtype=float)
-    closes = _own_closes(tnx)
-    if len(closes) <= RATE_SHOCK_VOL_WINDOW:
+    level = level.replace([np.inf, -np.inf], np.nan).dropna()
+    if len(level) <= RATE_SHOCK_VOL_WINDOW:
         return blank
-    daily = closes.diff()
+    daily = level.diff()
     vol = daily.rolling(RATE_SHOCK_VOL_WINDOW).std(ddof=1)
-    shock = (closes - closes.shift(RATE_SHOCK_HORIZON)) / (vol * math.sqrt(RATE_SHOCK_HORIZON))
+    shock = (level - level.shift(RATE_SHOCK_HORIZON)) / (vol * math.sqrt(RATE_SHOCK_HORIZON))
     return shock.replace([np.inf, -np.inf], np.nan).reindex(index)
+
+
+def _rate_shock(tnx: pd.Series | None, index: pd.Index) -> pd.Series:
+    """20-day ^TNX change divided by 63-day daily-change volatility scaled by √20."""
+    return _shock(_own_closes(tnx), index)
+
+
+def _log_ratio_shock(
+    numerator: pd.Series | None,
+    denominator: pd.Series | None,
+    index: pd.Index,
+) -> pd.Series:
+    """Shock of log(numerator / denominator) on sessions where both closes printed."""
+    blank = pd.Series(np.nan, index=index, dtype=float)
+    left = _own_closes(numerator)
+    right = _own_closes(denominator)
+    if left.empty or right.empty:
+        return blank
+    paired = pd.concat({"num": left, "den": right}, axis=1).dropna()
+    if paired.empty:
+        return blank
+    ratio = paired["num"] / paired["den"]
+    logged = pd.Series(np.log(ratio.where(ratio > 0)), index=paired.index)
+    return _shock(logged, index)
 
 
 def _curve_10y3m(tnx: pd.Series | None, irx: pd.Series | None, index: pd.Index) -> pd.Series:
@@ -535,8 +524,10 @@ def build_regime_calendar(
     uup: pd.Series | None = None,
     tip: pd.Series | None = None,
     ief: pd.Series | None = None,
+    hgx: pd.Series | None = None,
+    xlu: pd.Series | None = None,
 ) -> pd.DataFrame:
-    """Daily VIX, VXN, SPY SMA(50/200), and market-breadth RSI, indexed by session date."""
+    """Daily VIX, VXN, SPY SMA(50/200), and ratio shocks, indexed by session date."""
     # Drop sessions with no SPY close (Yahoo inserts holiday rows as NaN in a
     # multi-ticker download). A NaN inside the rolling window would blank SMA
     # for the next 200 sessions.
@@ -544,21 +535,22 @@ def build_regime_calendar(
     vix_close = _as_day_series(vix).reindex(spy_close.index)
     vxn_close = _as_day_series(vxn).reindex(spy_close.index)
     rsp_close = _as_day_series(rsp).reindex(spy_close.index)
-    ratio = rsp_close / spy_close
     frame = pd.DataFrame(
         {
             "vix": vix_close,
             "vxn": vxn_close,
             "spy_sma50": spy_close.rolling(SPY_SMA_FAST).mean(),
             "spy_sma200": spy_close.rolling(SPY_SMA_SLOW).mean(),
-            "breadth": _rsi(ratio),
-            "breadth_semis": _log_ratio_rsi(smh, spy_close, spy_close.index),
-            "breadth_equity_risk": _log_ratio_rsi(xly, xlp, spy_close.index),
-            "breadth_credit_risk": _log_ratio_rsi(hyg, lqd, spy_close.index),
-            "breadth_credit_risk_on": _log_ratio_rsi(hyg, tlt, spy_close.index),
-            "breadth_bond_duration": _log_ratio_rsi(tlt, shy, spy_close.index),
-            "breadth_copper_gold": _log_ratio_rsi(copper, gold, spy_close.index),
-            "breadth_materials": _log_ratio_rsi(xlb, spy_close, spy_close.index),
+            "breadth": _log_ratio_shock(rsp_close, spy_close, spy_close.index),
+            "breadth_semis": _log_ratio_shock(smh, spy_close, spy_close.index),
+            "breadth_equity_risk": _log_ratio_shock(xly, xlp, spy_close.index),
+            "breadth_credit_risk": _log_ratio_shock(hyg, lqd, spy_close.index),
+            "breadth_credit_risk_on": _log_ratio_shock(hyg, tlt, spy_close.index),
+            "breadth_bond_duration": _log_ratio_shock(tlt, shy, spy_close.index),
+            "breadth_copper_gold": _log_ratio_shock(copper, gold, spy_close.index),
+            "breadth_materials": _log_ratio_shock(xlb, spy_close, spy_close.index),
+            "breadth_housing": _log_ratio_shock(hgx, spy_close, spy_close.index),
+            "breadth_housing_defensive": _log_ratio_shock(hgx, xlu, spy_close.index),
             "sector_breadth_50": _sector_breadth(sector_closes or [], spy_close.index, SPY_SMA_FAST),
             "sector_breadth_200": _sector_breadth(sector_closes or [], spy_close.index, SPY_SMA_SLOW),
             "sector_trend_50": _sector_sma_deviation(sector_closes or [], spy_close.index, SPY_SMA_FAST),
@@ -592,14 +584,16 @@ def market_regimes_for_timestamp(value, calendar: pd.DataFrame | None) -> dict[s
         "vix_regime": classify_vix(row.get("vix")),
         "vxn_regime": classify_vxn(row.get("vxn")),
         "spy_regime": classify_spy(row.get("spy_sma50"), row.get("spy_sma200")),
-        "market_breadth_regime": classify_breadth(row.get("breadth")),
-        "semis_breadth_regime": classify_breadth(row.get("breadth_semis")),
-        "equity_risk_breadth_regime": classify_breadth(row.get("breadth_equity_risk")),
-        "credit_risk_breadth_regime": classify_breadth(row.get("breadth_credit_risk")),
-        "credit_risk_on_regime": classify_breadth(row.get("breadth_credit_risk_on")),
-        "bond_duration_regime": classify_breadth(row.get("breadth_bond_duration")),
-        "copper_gold_regime": classify_breadth(row.get("breadth_copper_gold")),
-        "materials_breadth_regime": classify_breadth(row.get("breadth_materials")),
+        "market_breadth_regime": classify_rate_shock(row.get("breadth")),
+        "semis_breadth_regime": classify_rate_shock(row.get("breadth_semis")),
+        "equity_risk_breadth_regime": classify_rate_shock(row.get("breadth_equity_risk")),
+        "credit_risk_breadth_regime": classify_rate_shock(row.get("breadth_credit_risk")),
+        "credit_risk_on_regime": classify_rate_shock(row.get("breadth_credit_risk_on")),
+        "bond_duration_regime": classify_rate_shock(row.get("breadth_bond_duration")),
+        "copper_gold_regime": classify_rate_shock(row.get("breadth_copper_gold")),
+        "materials_breadth_regime": classify_rate_shock(row.get("breadth_materials")),
+        "housing_strength_regime": classify_rate_shock(row.get("breadth_housing")),
+        "housing_defensive_regime": classify_rate_shock(row.get("breadth_housing_defensive")),
         "sector_breadth_50_regime": classify_sector_breadth(row.get("sector_breadth_50")),
         "sector_breadth_200_regime": classify_sector_breadth(row.get("sector_breadth_200")),
         "sector_trend_50_regime": classify_sector_trend(row.get("sector_trend_50")),
@@ -619,14 +613,16 @@ _SHARPE_BUCKETS: dict[str, tuple[str, ...]] = {
     "vxn": VXN_KEYS,
     "atr": (ATR_EXPANDING, ATR_CONTRACTING),
     "spy": (SPY_BULL, SPY_BEAR),
-    "market_breadth": BREADTH_KEYS,
-    "semis_breadth": BREADTH_KEYS,
-    "equity_risk_breadth": BREADTH_KEYS,
-    "credit_risk_breadth": BREADTH_KEYS,
-    "credit_risk_on": BREADTH_KEYS,
-    "bond_duration": BREADTH_KEYS,
-    "copper_gold": BREADTH_KEYS,
-    "materials_breadth": BREADTH_KEYS,
+    "market_breadth": RATE_SHOCK_KEYS,
+    "semis_breadth": RATE_SHOCK_KEYS,
+    "equity_risk_breadth": RATE_SHOCK_KEYS,
+    "credit_risk_breadth": RATE_SHOCK_KEYS,
+    "credit_risk_on": RATE_SHOCK_KEYS,
+    "bond_duration": RATE_SHOCK_KEYS,
+    "copper_gold": RATE_SHOCK_KEYS,
+    "materials_breadth": RATE_SHOCK_KEYS,
+    "housing_strength": RATE_SHOCK_KEYS,
+    "housing_defensive": RATE_SHOCK_KEYS,
     "sector_breadth_50": SECTOR_BREADTH_KEYS,
     "sector_breadth_200": SECTOR_BREADTH_KEYS,
     "sector_trend_50": SECTOR_TREND_KEYS,
@@ -641,7 +637,7 @@ _SHARPE_BUCKETS: dict[str, tuple[str, ...]] = {
 }
 
 _VIX_BUCKET_LABELS = {"le_15": "≤ 15", "15_20": "15–20", "20_30": "20–30", "gt_30": "> 30"}
-_BREADTH_BUCKET_LABELS = {"lt_40": "< 40", "40_50": "40–50", "50_60": "50–60", "gt_60": "> 60"}
+_SHOCK_BUCKET_LABELS = {"lt_neg_1": "< -1", "neg_1_to_1": "-1 to 1", "gt_1": "> 1"}
 _SECTOR_BUCKET_LABELS = {"le_25": "≤ 25%", "25_50": "25–50%", "50_75": "50–75%", "gt_75": "> 75%"}
 _RATE_CURVE_LABELS = {
     "shock_pos_curve_pos": "> 0, > 0",
@@ -675,6 +671,19 @@ _CURVE_CHANGE_LABELS = {
     "ge_pos_50": "≥ +50 bp",
 }
 
+
+def _log_ratio_hint(pair: str, high: str | None = None, low: str | None = None) -> str:
+    """Formula for a log-ratio shock, plus what the outer buckets mean."""
+    hint = (
+        f"20-day change in log({pair}), divided by the 63-day standard deviation "
+        "of daily changes, times √20"
+    )
+    if high:
+        hint += f". > 1 — {high}"
+    if low:
+        hint += f". < -1 — {low}"
+    return hint
+
 # Titles and hints match the regime charts. market_wide flags use the shared calendar.
 # ATR is the traded symbol, so it stays on each confirm symbol.
 _REGIME_DIMENSION_META: tuple[dict[str, Any], ...] = (
@@ -694,14 +703,88 @@ _REGIME_DIMENSION_META: tuple[dict[str, Any], ...] = (
         "labels": {SPY_BULL: "Bull", SPY_BEAR: "Bear"},
         "market_wide": True,
     },
-    {"id": "market_breadth", "title": "Market breadth", "hint": "RSI(14) of RSP / SPY", "labels": _BREADTH_BUCKET_LABELS, "market_wide": True},
-    {"id": "semis_breadth", "title": "Semis breadth", "hint": "RSI(14) of log(SMH / SPY)", "labels": _BREADTH_BUCKET_LABELS, "market_wide": True},
-    {"id": "equity_risk_breadth", "title": "Equity Risk Breadth", "hint": "RSI(14) of log(XLY / XLP)", "labels": _BREADTH_BUCKET_LABELS, "market_wide": True},
-    {"id": "credit_risk_breadth", "title": "Credit Quality Breadth", "hint": "RSI(14) of log(HYG / LQD)", "labels": _BREADTH_BUCKET_LABELS, "market_wide": True},
-    {"id": "credit_risk_on", "title": "Credit Risk On", "hint": "RSI(14) of log(HYG / TLT)", "labels": _BREADTH_BUCKET_LABELS, "market_wide": True},
-    {"id": "bond_duration", "title": "Bond Duration Regime", "hint": "RSI(14) of log(TLT / SHY)", "labels": _BREADTH_BUCKET_LABELS, "market_wide": True},
-    {"id": "copper_gold", "title": "Copper/Gold", "hint": "RSI(14) of log(HG=F / GC=F)", "labels": _BREADTH_BUCKET_LABELS, "market_wide": True},
-    {"id": "materials_breadth", "title": "Sensitive Materials Breadth", "hint": "RSI(14) of log(XLB / SPY)", "labels": _BREADTH_BUCKET_LABELS, "market_wide": True},
+    {"id": "market_breadth", "title": "Market breadth", "hint": "20-day change in log(RSP / SPY), divided by the 63-day standard deviation of daily changes, times √20", "labels": _SHOCK_BUCKET_LABELS, "market_wide": True},
+    {
+        "id": "semis_breadth",
+        "title": "Semis breadth",
+        "hint": _log_ratio_hint(
+            "SMH / SPY",
+            "strong Semis overperformance compared to SPY",
+            "strong Semis underperformance compared to SPY",
+        ),
+        "labels": _SHOCK_BUCKET_LABELS,
+        "market_wide": True,
+    },
+    {
+        "id": "equity_risk_breadth",
+        "title": "Equity Risk Breadth",
+        "hint": _log_ratio_hint(
+            "XLY / XLP",
+            "strong shift toward risk-on (XLY) / cyclical equities",
+            "strong shift toward defensive equities (XLP)",
+        ),
+        "labels": _SHOCK_BUCKET_LABELS,
+        "market_wide": True,
+    },
+    {
+        "id": "credit_risk_breadth",
+        "title": "Credit Quality Breadth",
+        "hint": _log_ratio_hint(
+            "HYG / LQD",
+            "unusually strong shift toward lower-quality/high-yield credit → increasing credit risk appetite",
+            "unusually strong shift toward higher-quality credit → defensive / risk-off credit behavior",
+        ),
+        "labels": _SHOCK_BUCKET_LABELS,
+        "market_wide": True,
+    },
+    {
+        "id": "credit_risk_on",
+        "title": "Credit Risk On",
+        "hint": _log_ratio_hint(
+            "HYG / TLT",
+            "unusually strong move toward credit/risk assets",
+            "unusually strong move toward long-term Treasuries / defensive positioning",
+        ),
+        "labels": _SHOCK_BUCKET_LABELS,
+        "market_wide": True,
+    },
+    {
+        "id": "bond_duration",
+        "title": "Bond Duration Regime",
+        "hint": _log_ratio_hint(
+            "TLT / SHY",
+            "long-duration Treasuries are unusually strong relative to short-duration bonds, generally associated with falling long-term yields",
+            "long-duration Treasuries are unusually weak, generally associated with rising long-term yields",
+        ),
+        "labels": _SHOCK_BUCKET_LABELS,
+        "market_wide": True,
+    },
+    {"id": "copper_gold", "title": "Copper/Gold", "hint": "20-day change in log(HG=F / GC=F), divided by the 63-day standard deviation of daily changes, times √20", "labels": _SHOCK_BUCKET_LABELS, "market_wide": True},
+    {
+        "id": "materials_breadth",
+        "title": "Materials Relative Strength",
+        "hint": _log_ratio_hint(
+            "XLB / SPY",
+            "unusually strong materials/cyclical leadership",
+            "unusually strong materials underperformance, consistent with weaker cyclical positioning",
+        ),
+        "labels": _SHOCK_BUCKET_LABELS,
+        "market_wide": True,
+    },
+    {
+        "id": "housing_strength",
+        "title": "Housing Strength",
+        "hint": _log_ratio_hint("HGX / SPY"),
+        "labels": _SHOCK_BUCKET_LABELS,
+        "market_wide": True,
+    },
+    {
+        "id": "housing_defensive",
+        "title": "Housing vs defensive strength",
+        "hint": _log_ratio_hint("HGX / XLU"),
+        "labels": _SHOCK_BUCKET_LABELS,
+        "market_wide": True,
+    },
     {
         "id": "sector_breadth_50",
         "title": "Sector breadth 50",
@@ -727,7 +810,7 @@ _REGIME_DIMENSION_META: tuple[dict[str, Any], ...] = (
         "id": "rate_shock",
         "title": "Rate shock",
         "hint": "20-day ^TNX change divided by the 63-day standard deviation of daily changes, times √20",
-        "labels": {"lt_neg_1": "< -1", "neg_1_to_1": "-1 to 1", "gt_1": "> 1"},
+        "labels": _SHOCK_BUCKET_LABELS,
         "market_wide": True,
     },
     {
@@ -755,7 +838,7 @@ _REGIME_DIMENSION_META: tuple[dict[str, Any], ...] = (
         "id": "dollar_shock",
         "title": "Dollar shock",
         "hint": "20-day UUP change divided by the 63-day standard deviation of daily changes, times √20",
-        "labels": {"lt_neg_1": "< -1", "neg_1_to_1": "-1 to 1", "gt_1": "> 1"},
+        "labels": _SHOCK_BUCKET_LABELS,
         "market_wide": True,
     },
     {
@@ -793,8 +876,11 @@ class RegimeIndicatorSpec:
         self.market_wide = market_wide
         self.id = regime_indicator_id(dimension, key)
         self.label = f"{title} · {bucket_label}"
+        prose = hint.rstrip()
+        if not prose.endswith("."):
+            prose += "."
         self.description = (
-            f"{hint}. Flag (1) on days in this bucket, −1 on other defined days, "
+            f"{prose} Flag (1) on days in this bucket, −1 on other defined days, "
             "and 0 before the series exists."
         )
 
@@ -1108,14 +1194,16 @@ def _regime_label_sets(data: pd.DataFrame, calendar: pd.DataFrame | None) -> dic
         "vix": _calendar_label_series(dates, calendar, "vix", classify_vix),
         "vxn": _calendar_label_series(dates, calendar, "vxn", classify_vxn),
         "spy": _spy_labels(dates, calendar),
-        "market_breadth": _calendar_label_series(dates, calendar, "breadth", classify_breadth),
-        "semis_breadth": _calendar_label_series(dates, calendar, "breadth_semis", classify_breadth),
-        "equity_risk_breadth": _calendar_label_series(dates, calendar, "breadth_equity_risk", classify_breadth),
-        "credit_risk_breadth": _calendar_label_series(dates, calendar, "breadth_credit_risk", classify_breadth),
-        "credit_risk_on": _calendar_label_series(dates, calendar, "breadth_credit_risk_on", classify_breadth),
-        "bond_duration": _calendar_label_series(dates, calendar, "breadth_bond_duration", classify_breadth),
-        "copper_gold": _calendar_label_series(dates, calendar, "breadth_copper_gold", classify_breadth),
-        "materials_breadth": _calendar_label_series(dates, calendar, "breadth_materials", classify_breadth),
+        "market_breadth": _calendar_label_series(dates, calendar, "breadth", classify_rate_shock),
+        "semis_breadth": _calendar_label_series(dates, calendar, "breadth_semis", classify_rate_shock),
+        "equity_risk_breadth": _calendar_label_series(dates, calendar, "breadth_equity_risk", classify_rate_shock),
+        "credit_risk_breadth": _calendar_label_series(dates, calendar, "breadth_credit_risk", classify_rate_shock),
+        "credit_risk_on": _calendar_label_series(dates, calendar, "breadth_credit_risk_on", classify_rate_shock),
+        "bond_duration": _calendar_label_series(dates, calendar, "breadth_bond_duration", classify_rate_shock),
+        "copper_gold": _calendar_label_series(dates, calendar, "breadth_copper_gold", classify_rate_shock),
+        "materials_breadth": _calendar_label_series(dates, calendar, "breadth_materials", classify_rate_shock),
+        "housing_strength": _calendar_label_series(dates, calendar, "breadth_housing", classify_rate_shock),
+        "housing_defensive": _calendar_label_series(dates, calendar, "breadth_housing_defensive", classify_rate_shock),
         "sector_breadth_50": _calendar_label_series(dates, calendar, "sector_breadth_50", classify_sector_breadth),
         "sector_breadth_200": _calendar_label_series(dates, calendar, "sector_breadth_200", classify_sector_breadth),
         "sector_trend_50": _calendar_label_series(dates, calendar, "sector_trend_50", classify_sector_trend),
@@ -1168,6 +1256,8 @@ _READING_COLUMN = {
     "bond_duration": "breadth_bond_duration",
     "copper_gold": "breadth_copper_gold",
     "materials_breadth": "breadth_materials",
+    "housing_strength": "breadth_housing",
+    "housing_defensive": "breadth_housing_defensive",
     "sector_breadth_50": "sector_breadth_50",
     "sector_breadth_200": "sector_breadth_200",
     "sector_trend_50": "sector_trend_50",
@@ -1586,6 +1676,8 @@ def _fetch_regime_calendar(years: int) -> pd.DataFrame:
         dt._bulk_close(bulk, "UUP"),
         dt._bulk_close(bulk, "TIP"),
         dt._bulk_close(bulk, "IEF"),
+        dt._bulk_close(bulk, HOUSING_SYMBOL),
+        dt._bulk_close(bulk, "XLU"),
     )
 
 

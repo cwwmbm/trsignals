@@ -17,7 +17,6 @@ from api.market_regimes import (
     SPY_BULL,
     build_regime_calendar,
     classify_atr,
-    classify_breadth,
     classify_curve_10y3m,
     classify_curve_change,
     classify_dollar_rates,
@@ -72,16 +71,6 @@ class BucketEdgeTests(unittest.TestCase):
         self.assertEqual(classify_vxn(20), "15_20")
         self.assertEqual(classify_vxn(30), "20_30")
         self.assertEqual(classify_vxn(30.01), "gt_30")
-
-    def test_breadth_edges_belong_to_the_lower_bucket(self):
-        self.assertEqual(classify_breadth(39.99), "lt_40")
-        self.assertEqual(classify_breadth(40), "40_50")
-        self.assertEqual(classify_breadth(50), "40_50")
-        self.assertEqual(classify_breadth(50.01), "50_60")
-        self.assertEqual(classify_breadth(60), "50_60")
-        self.assertEqual(classify_breadth(60.01), "gt_60")
-        self.assertEqual(classify_breadth(70), "gt_60")
-        self.assertEqual(classify_breadth(70.01), "gt_60")
 
     def test_sector_breadth_edges_belong_to_the_lower_bucket(self):
         self.assertIsNone(classify_sector_breadth(None))
@@ -199,18 +188,20 @@ class BucketEdgeTests(unittest.TestCase):
 
 
 class CalendarTests(unittest.TestCase):
-    def test_market_breadth_is_rsi_of_the_raw_rsp_spy_ratio(self):
-        from api.market_regimes import _rsi
-
+    def test_market_breadth_is_shock_of_log_rsp_over_spy(self):
         vix, vxn, spy, rsp, _idx = _calendar_inputs()
         frame = build_regime_calendar(vix, vxn, spy, rsp)
-        ratio = (rsp / spy).reindex(frame.index)
-        expected = _rsi(ratio).dropna()
-        breadth = frame["breadth"].dropna()
-        self.assertGreater(len(breadth), 0)
-        self.assertTrue(np.allclose(breadth.to_numpy(), expected.reindex(breadth.index).to_numpy()))
-        logged = _rsi(pd.Series(np.log(ratio.where(ratio > 0)), index=frame.index)).reindex(breadth.index)
-        self.assertFalse(np.allclose(breadth.to_numpy(), logged.to_numpy()))
+        logged = np.log((rsp / spy).where((rsp / spy) > 0))
+        daily = logged.diff()
+        vol = daily.rolling(63).std(ddof=1)
+        expected = (logged - logged.shift(20)) / (vol * np.sqrt(20))
+        both = pd.concat({"got": frame["breadth"], "expected": expected}, axis=1).dropna()
+        self.assertGreater(len(both), 0)
+        self.assertTrue(np.allclose(both["got"], both["expected"]))
+        raw = rsp / spy
+        raw_shock = (raw - raw.shift(20)) / (raw.diff().rolling(63).std(ddof=1) * np.sqrt(20))
+        raw_both = pd.concat({"got": frame["breadth"], "raw": raw_shock}, axis=1).dropna()
+        self.assertFalse(np.allclose(raw_both["got"], raw_both["raw"]))
 
     def test_flat_spy_sma_equality_is_bull(self):
         vix, vxn, spy, rsp, _idx = _calendar_inputs()
@@ -251,46 +242,65 @@ class CalendarTests(unittest.TestCase):
         self.assertTrue(pd.isna(frame["sector_breadth_200"].iloc[-1]))
         self.assertTrue(pd.isna(frame["sector_breadth_50"].iloc[48]))
 
-    def test_semis_breadth_is_rsi_of_log_smh_over_spy(self):
-        idx = pd.bdate_range("2020-01-02", periods=40)
+    def _log_ratio_shock(self, numerator, denominator):
+        logged = np.log((numerator / denominator).where((numerator / denominator) > 0))
+        daily = logged.diff()
+        vol = daily.rolling(63).std(ddof=1)
+        return (logged - logged.shift(20)) / (vol * np.sqrt(20))
+
+    def test_semis_breadth_is_shock_of_log_smh_over_spy(self):
+        idx = pd.bdate_range("2020-01-02", periods=90)
+        rng = np.random.default_rng(4)
         spy = pd.Series(100.0, index=idx)
-        smh = pd.Series(np.linspace(40, 90, 40), index=idx)
+        steps = rng.normal(0.0, 0.01, len(idx) - 1)
+        smh = pd.Series(np.r_[40.0, 40.0 * np.exp(np.cumsum(steps))], index=idx)
         frame = build_regime_calendar(spy, spy, spy, spy, smh=smh)
-        last = frame["breadth_semis"].dropna().iloc[-1]
-        self.assertGreater(last, 70)
-        self.assertEqual(classify_breadth(last), "gt_60")
+        expected = self._log_ratio_shock(smh, spy)
+        both = pd.concat({"got": frame["breadth_semis"], "expected": expected}, axis=1).dropna()
+        self.assertGreater(len(both), 0)
+        self.assertTrue(np.allclose(both["got"], both["expected"]))
+        self.assertEqual(classify_rate_shock(both["got"].iloc[-1]), classify_rate_shock(both["expected"].iloc[-1]))
         blank = build_regime_calendar(spy, spy, spy, spy)
         self.assertTrue(blank["breadth_semis"].isna().all())
 
-    def test_equity_and_credit_risk_use_log_ratio_rsi(self):
-        idx = pd.bdate_range("2020-01-02", periods=40)
+    def test_equity_and_credit_risk_use_log_ratio_shock(self):
+        idx = pd.bdate_range("2020-01-02", periods=90)
+        rng = np.random.default_rng(5)
         flat = pd.Series(100.0, index=idx)
-        rising = pd.Series(np.linspace(40, 90, 40), index=idx)
+        steps = rng.normal(0.0, 0.01, len(idx) - 1)
+        rising = pd.Series(np.r_[40.0, 40.0 * np.exp(np.cumsum(steps))], index=idx)
         frame = build_regime_calendar(flat, flat, flat, flat, xly=rising, xlp=flat, hyg=rising, lqd=flat)
-        equity = frame["breadth_equity_risk"].dropna().iloc[-1]
-        credit = frame["breadth_credit_risk"].dropna().iloc[-1]
-        self.assertGreater(equity, 70)
-        self.assertGreater(credit, 70)
-        self.assertEqual(classify_breadth(equity), "gt_60")
-        self.assertEqual(classify_breadth(credit), "gt_60")
+        for column, numerator in (
+            ("breadth_equity_risk", rising),
+            ("breadth_credit_risk", rising),
+        ):
+            expected = self._log_ratio_shock(numerator, flat)
+            both = pd.concat({"got": frame[column], "expected": expected}, axis=1).dropna()
+            self.assertGreater(len(both), 0, column)
+            self.assertTrue(np.allclose(both["got"], both["expected"]), column)
 
-    def test_added_ratio_regimes_are_log_rsi(self):
-        idx = pd.bdate_range("2020-01-02", periods=40)
+    def test_added_ratio_regimes_are_log_shocks(self):
+        idx = pd.bdate_range("2020-01-02", periods=90)
+        rng = np.random.default_rng(6)
         flat = pd.Series(100.0, index=idx)
-        rising = pd.Series(np.linspace(40, 90, 40), index=idx)
+        steps = rng.normal(0.0, 0.01, len(idx) - 1)
+        rising = pd.Series(np.r_[40.0, 40.0 * np.exp(np.cumsum(steps))], index=idx)
         cases = (
-            ("breadth_credit_risk_on", {"hyg": rising, "tlt": flat}),
-            ("breadth_bond_duration", {"tlt": rising, "shy": flat}),
-            ("breadth_copper_gold", {"copper": rising, "gold": flat}),
-            ("breadth_materials", {"xlb": rising}),
+            ("breadth_credit_risk_on", {"hyg": rising, "tlt": flat}, rising, flat),
+            ("breadth_bond_duration", {"tlt": rising, "shy": flat}, rising, flat),
+            ("breadth_copper_gold", {"copper": rising, "gold": flat}, rising, flat),
+            ("breadth_materials", {"xlb": rising}, rising, flat),
+            ("breadth_housing", {"hgx": rising}, rising, flat),
+            ("breadth_housing_defensive", {"hgx": rising, "xlu": flat}, rising, flat),
         )
-        for column, kwargs in cases:
+        for column, kwargs, numerator, denominator in cases:
             frame = build_regime_calendar(flat, flat, flat, flat, **kwargs)
-            last = frame[column].dropna().iloc[-1]
-            self.assertGreater(last, 70, column)
-            self.assertEqual(classify_breadth(last), "gt_60", column)
+            expected = self._log_ratio_shock(numerator, denominator)
+            both = pd.concat({"got": frame[column], "expected": expected}, axis=1).dropna()
+            self.assertGreater(len(both), 0, column)
+            self.assertTrue(np.allclose(both["got"], both["expected"]), column)
         blank = build_regime_calendar(flat, flat, flat, flat)
-        for column, _kwargs in cases:
+        for column, _kwargs, _numerator, _denominator in cases:
             self.assertTrue(blank[column].isna().all(), column)
 
     def test_rate_shock_scales_the_20_day_move_by_63_day_vol(self):
@@ -328,16 +338,18 @@ class CalendarTests(unittest.TestCase):
         self.assertEqual(classify_curve_10y3m(inverted["curve_10y3m"].iloc[0]), "inverted")
 
     def test_credit_breadth_is_blank_until_hyg_is_listed(self):
-        idx = pd.bdate_range("2020-01-02", periods=40)
+        idx = pd.bdate_range("2020-01-02", periods=100)
         flat = pd.Series(100.0, index=idx)
-        hyg = pd.Series(np.linspace(40, 90, 20), index=idx[20:])
+        rng = np.random.default_rng(3)
+        steps = rng.normal(0.0, 0.01, 79)
+        hyg = pd.Series(np.r_[40.0, 40.0 * np.exp(np.cumsum(steps))], index=idx[20:])
         frame = build_regime_calendar(flat, flat, flat, flat, hyg=hyg, lqd=flat)
-        self.assertTrue(frame["breadth_credit_risk"].iloc[:33].isna().all())
-        self.assertTrue(pd.notna(frame["breadth_credit_risk"].iloc[33]))
+        self.assertTrue(frame["breadth_credit_risk"].iloc[:83].isna().all())
+        self.assertTrue(pd.notna(frame["breadth_credit_risk"].iloc[83]))
         before = market_regimes_for_timestamp(idx[10], frame)
         self.assertIsNone(before["credit_risk_breadth_regime"])
-        after = market_regimes_for_timestamp(idx[33], frame)
-        self.assertEqual(after["credit_risk_breadth_regime"], "gt_60")
+        after = market_regimes_for_timestamp(idx[83], frame)
+        self.assertEqual(after["credit_risk_breadth_regime"], classify_rate_shock(frame["breadth_credit_risk"].iloc[83]))
 
     def test_sector_breadth_waits_until_every_sector_is_listed(self):
         idx = pd.bdate_range("2020-01-02", periods=100)
@@ -414,7 +426,7 @@ class CalendarTests(unittest.TestCase):
                 "vxn": [18.0, 22.0, 46.0, 28.0, 33.0],
                 "spy_sma50": [10, 10, 9, 10, 10],
                 "spy_sma200": [10, 10, 10, 10, 10],
-                "breadth": [20, 40, 60, 80, 81],
+                "breadth": [-2.0, -1.0, 0.0, 1.0, 1.5],
             },
             index=idx,
         )
@@ -422,7 +434,7 @@ class CalendarTests(unittest.TestCase):
         self.assertEqual(labels["vix_regime"], "gt_30")
         self.assertEqual(labels["vxn_regime"], "gt_30")
         self.assertEqual(labels["spy_regime"], SPY_BEAR)
-        self.assertEqual(labels["market_breadth_regime"], "50_60")
+        self.assertEqual(labels["market_breadth_regime"], "neg_1_to_1")
         missing = market_regimes_for_timestamp("2024-02-01", frame)
         self.assertTrue(all(value is None for value in missing.values()))
 
@@ -527,7 +539,7 @@ class RegimeSharpeTests(unittest.TestCase):
                 "vxn": [18.0, 18.0, 18.0, 18.0, 18.0, 18.0],
                 "spy_sma50": [2.0, 2.0, 2.0, 2.0, 2.0, 2.0],
                 "spy_sma200": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
-                "breadth": [10.0, 10.0, 10.0, 90.0, 90.0, 90.0],
+                "breadth": [-2.0, -2.0, -2.0, 2.0, 2.0, 2.0],
             },
             index=dates,
         )
@@ -547,8 +559,8 @@ class RegimeSharpeTests(unittest.TestCase):
         self.assertTrue(all(row["days"] == 0 for row in result["atr"] if row["key"] not in {"expanding", "contracting"}))
 
         breadth = {row["key"]: row for row in result["market_breadth"]}
-        self.assertEqual(breadth["lt_40"]["days"], 2)
-        self.assertEqual(breadth["gt_60"]["days"], 3)
+        self.assertEqual(breadth["lt_neg_1"]["days"], 2)
+        self.assertEqual(breadth["gt_1"]["days"], 3)
 
     def test_max_drawdown_follows_the_entry_regime_through_the_trade(self):
         # Trade 1 is entered while VIX <= 15, then held on VIX > 30 days and loses 10%.
@@ -633,7 +645,7 @@ class RegimeSharpeTests(unittest.TestCase):
                 "vxn": [18.0, 18.0, 18.0],
                 "spy_sma50": [2.0, 2.0, 1.0],
                 "spy_sma200": [1.0, 1.0, 2.0],
-                "breadth": [50.0, 50.0, 75.0],
+                "breadth": [0.0, 0.0, 1.5],
             },
             index=dates,
         )
@@ -641,10 +653,10 @@ class RegimeSharpeTests(unittest.TestCase):
         self.assertEqual(current["as_of"], "2024-01-04")
         self.assertEqual(current["regimes"]["vix"], "gt_30")
         self.assertEqual(current["regimes"]["spy"], "bear")
-        self.assertEqual(current["regimes"]["market_breadth"], "gt_60")
+        self.assertEqual(current["regimes"]["market_breadth"], "gt_1")
         self.assertEqual(current["regimes"]["atr"], "expanding")
         self.assertEqual(current["readings"]["vix"], 40.0)
-        self.assertEqual(current["readings"]["market_breadth"], 75.0)
+        self.assertEqual(current["readings"]["market_breadth"], 1.5)
         self.assertEqual(current["readings"]["atr"], 2.0)
         self.assertIsNone(current["readings"]["spy"])
 
@@ -681,7 +693,7 @@ class TradeLabelTests(unittest.TestCase):
                 "vxn": [45.0],
                 "spy_sma50": [100.0],
                 "spy_sma200": [100.0],
-                "breadth": [20.0],
+                "breadth": [-1.5],
             },
             index=pd.to_datetime(["2024-01-02"]),
         )
@@ -691,7 +703,7 @@ class TradeLabelTests(unittest.TestCase):
         self.assertEqual(closed["vix_regime"], "le_15")
         self.assertEqual(closed["vxn_regime"], "gt_30")
         self.assertEqual(closed["spy_regime"], SPY_BULL)
-        self.assertEqual(closed["market_breadth_regime"], "lt_40")
+        self.assertEqual(closed["market_breadth_regime"], "lt_neg_1")
         self.assertEqual(closed["atr_regime"], ATR_EXPANDING)
 
     def test_missing_atr_columns_leave_atr_empty(self):
@@ -756,6 +768,27 @@ class RegimeIndicatorTests(unittest.TestCase):
         self.assertEqual(vix["label"], "VIX · 15–20")
         self.assertEqual(vix["valueType"], "flag")
         self.assertEqual(vix["compareMode"], "none")
+        equity_high = listed["Regime_equity_risk_breadth_gt_1"]
+        self.assertIn("strong shift toward risk-on (XLY) / cyclical equities", equity_high["description"])
+        equity_low = listed["Regime_equity_risk_breadth_lt_neg_1"]
+        self.assertIn("strong shift toward defensive equities (XLP)", equity_low["description"])
+        semis_high = listed["Regime_semis_breadth_gt_1"]
+        self.assertIn("strong Semis overperformance compared to SPY", semis_high["description"])
+        credit = listed["Regime_credit_risk_breadth_gt_1"]
+        self.assertIn("increasing credit risk appetite", credit["description"])
+        credit_on = listed["Regime_credit_risk_on_lt_neg_1"]
+        self.assertIn("long-term Treasuries / defensive positioning", credit_on["description"])
+        duration = listed["Regime_bond_duration_gt_1"]
+        self.assertIn("falling long-term yields", duration["description"])
+        materials = listed["Regime_materials_breadth_gt_1"]
+        self.assertEqual(materials["label"], "Materials Relative Strength · > 1")
+        self.assertIn("materials/cyclical leadership", materials["description"])
+        housing = listed["Regime_housing_strength_gt_1"]
+        self.assertEqual(housing["label"], "Housing Strength · > 1")
+        self.assertIn("log(HGX / SPY)", housing["description"])
+        housing_defensive = listed["Regime_housing_defensive_lt_neg_1"]
+        self.assertEqual(housing_defensive["label"], "Housing vs defensive strength · < -1")
+        self.assertIn("log(HGX / XLU)", housing_defensive["description"])
 
     def test_flags_and_compiled_condition_follow_the_bucket(self):
         dates = pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"])

@@ -260,6 +260,16 @@ function nowCaption(dimensionId: string, regimeKey: string | null, reading: numb
   if (
     dimensionId === "rate_shock" ||
     dimensionId === "dollar_shock" ||
+    dimensionId === "market_breadth" ||
+    dimensionId === "semis_breadth" ||
+    dimensionId === "equity_risk_breadth" ||
+    dimensionId === "credit_risk_breadth" ||
+    dimensionId === "credit_risk_on" ||
+    dimensionId === "bond_duration" ||
+    dimensionId === "copper_gold" ||
+    dimensionId === "materials_breadth" ||
+    dimensionId === "housing_strength" ||
+    dimensionId === "housing_defensive" ||
     dimensionId === "curve_10y3m" ||
     dimensionId === "curve_change_20"
   ) {
@@ -442,7 +452,7 @@ function RegimeBarChart({
     <div className="flex min-w-0 flex-col gap-2">
       <div>
         <h4 className="text-xs font-medium text-muted-foreground">{dimension.title}</h4>
-        <p className="text-[10px] text-muted-foreground">{dimension.hint}</p>
+        <p className="text-[10px] leading-snug text-muted-foreground">{dimension.hint}</p>
       </div>
       <div ref={chartRef}>
       <ChartContainer config={chartConfig} className="h-[220px] w-full">

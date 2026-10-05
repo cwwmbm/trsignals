@@ -11,6 +11,8 @@ export type RegimeField =
   | "bond_duration_regime"
   | "copper_gold_regime"
   | "materials_breadth_regime"
+  | "housing_strength_regime"
+  | "housing_defensive_regime"
   | "sector_breadth_50_regime"
   | "sector_breadth_200_regime"
   | "sector_trend_50_regime"
@@ -126,19 +128,19 @@ const SHOCK_BUCKETS: RegimeBucketDef[] = [
   { key: "gt_1", label: "> 1" },
 ];
 
+function logRatioHint(pair: string, high?: string, low?: string) {
+  let hint = `20-day change in log(${pair}), divided by the 63-day standard deviation of daily changes, times √20`;
+  if (high) hint += `. > 1 — ${high}`;
+  if (low) hint += `. < -1 — ${low}`;
+  return hint;
+}
+
 const CURVE_CHANGE_BUCKETS: RegimeBucketDef[] = [
   { key: "le_neg_50", label: "≤ -50 bp" },
   { key: "neg_50_neg_10", label: "-50 to -10" },
   { key: "neg_10_pos_10", label: "-10 to +10" },
   { key: "pos_10_pos_50", label: "+10 to +50" },
   { key: "ge_pos_50", label: "≥ +50 bp" },
-];
-
-const BREADTH_BUCKETS: RegimeBucketDef[] = [
-  { key: "lt_40", label: "< 40" },
-  { key: "40_50", label: "40–50" },
-  { key: "50_60", label: "50–60" },
-  { key: "gt_60", label: "> 60" },
 ];
 
 export const REGIME_TRADE_FIELDS: RegimeField[] = [
@@ -154,6 +156,8 @@ export const REGIME_TRADE_FIELDS: RegimeField[] = [
   "bond_duration_regime",
   "copper_gold_regime",
   "materials_breadth_regime",
+  "housing_strength_regime",
+  "housing_defensive_regime",
   "sector_breadth_50_regime",
   "sector_breadth_200_regime",
   "sector_trend_50_regime",
@@ -209,65 +213,105 @@ export const REGIME_DIMENSIONS: RegimeDimension[] = [
   {
     id: "market_breadth",
     title: "Market breadth",
-    hint: "RSI(14) of RSP / SPY",
+    hint: "20-day change in log(RSP / SPY), divided by the 63-day standard deviation of daily changes, times √20",
     field: "market_breadth_regime",
-    buckets: BREADTH_BUCKETS,
+    buckets: SHOCK_BUCKETS,
     unavailableWhenEmpty: false,
   },
   {
     id: "semis_breadth",
     title: "Semis breadth",
-    hint: "RSI(14) of log(SMH / SPY)",
+    hint: logRatioHint(
+      "SMH / SPY",
+      "strong Semis overperformance compared to SPY",
+      "strong Semis underperformance compared to SPY",
+    ),
     field: "semis_breadth_regime",
-    buckets: BREADTH_BUCKETS,
+    buckets: SHOCK_BUCKETS,
     unavailableWhenEmpty: false,
   },
   {
     id: "equity_risk_breadth",
     title: "Equity Risk Breadth",
-    hint: "RSI(14) of log(XLY / XLP)",
+    hint: logRatioHint(
+      "XLY / XLP",
+      "strong shift toward risk-on (XLY) / cyclical equities",
+      "strong shift toward defensive equities (XLP)",
+    ),
     field: "equity_risk_breadth_regime",
-    buckets: BREADTH_BUCKETS,
+    buckets: SHOCK_BUCKETS,
     unavailableWhenEmpty: false,
   },
   {
     id: "credit_risk_breadth",
     title: "Credit Quality Breadth",
-    hint: "RSI(14) of log(HYG / LQD)",
+    hint: logRatioHint(
+      "HYG / LQD",
+      "unusually strong shift toward lower-quality/high-yield credit → increasing credit risk appetite",
+      "unusually strong shift toward higher-quality credit → defensive / risk-off credit behavior",
+    ),
     field: "credit_risk_breadth_regime",
-    buckets: BREADTH_BUCKETS,
+    buckets: SHOCK_BUCKETS,
     unavailableWhenEmpty: false,
   },
   {
     id: "credit_risk_on",
     title: "Credit Risk On",
-    hint: "RSI(14) of log(HYG / TLT)",
+    hint: logRatioHint(
+      "HYG / TLT",
+      "unusually strong move toward credit/risk assets",
+      "unusually strong move toward long-term Treasuries / defensive positioning",
+    ),
     field: "credit_risk_on_regime",
-    buckets: BREADTH_BUCKETS,
+    buckets: SHOCK_BUCKETS,
     unavailableWhenEmpty: false,
   },
   {
     id: "bond_duration",
     title: "Bond Duration Regime",
-    hint: "RSI(14) of log(TLT / SHY)",
+    hint: logRatioHint(
+      "TLT / SHY",
+      "long-duration Treasuries are unusually strong relative to short-duration bonds, generally associated with falling long-term yields",
+      "long-duration Treasuries are unusually weak, generally associated with rising long-term yields",
+    ),
     field: "bond_duration_regime",
-    buckets: BREADTH_BUCKETS,
+    buckets: SHOCK_BUCKETS,
     unavailableWhenEmpty: false,
   },
   {
     id: "copper_gold",
     title: "Copper/Gold",
-    hint: "RSI(14) of log(HG=F / GC=F)",
+    hint: "20-day change in log(HG=F / GC=F), divided by the 63-day standard deviation of daily changes, times √20",
     field: "copper_gold_regime",
-    buckets: BREADTH_BUCKETS,
+    buckets: SHOCK_BUCKETS,
     unavailableWhenEmpty: false,
   },
   {
     id: "materials_breadth",
-    title: "Sensitive Materials Breadth",
-    hint: "RSI(14) of log(XLB / SPY)",
+    title: "Materials Relative Strength",
+    hint: logRatioHint(
+      "XLB / SPY",
+      "unusually strong materials/cyclical leadership",
+      "unusually strong materials underperformance, consistent with weaker cyclical positioning",
+    ),
     field: "materials_breadth_regime",
-    buckets: BREADTH_BUCKETS,
+    buckets: SHOCK_BUCKETS,
+    unavailableWhenEmpty: false,
+  },
+  {
+    id: "housing_strength",
+    title: "Housing Strength",
+    hint: logRatioHint("HGX / SPY"),
+    field: "housing_strength_regime",
+    buckets: SHOCK_BUCKETS,
+    unavailableWhenEmpty: false,
+  },
+  {
+    id: "housing_defensive",
+    title: "Housing vs defensive strength",
+    hint: logRatioHint("HGX / XLU"),
+    field: "housing_defensive_regime",
+    buckets: SHOCK_BUCKETS,
     unavailableWhenEmpty: false,
   },
   {
