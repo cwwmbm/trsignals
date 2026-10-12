@@ -3,6 +3,7 @@
 import { memo, useEffect, useState } from "react";
 import type {
   DetailedResult,
+  RegimeSource,
   SweepMeta,
   SweepResult,
   SweepResultResponse,
@@ -51,7 +52,9 @@ const ResultsBody = memo(function ResultsBody({
   onAddRow,
   canAddRow,
   addRowLabel,
+  regimeSource,
 }: {
+  regimeSource?: RegimeSource | null;
   result: DetailedResult | SweepResult | SweepResultResponse | undefined;
   selectedSweepRow: Record<string, unknown> | undefined;
   onSelectSweepRow: (row: Record<string, unknown>) => void;
@@ -64,7 +67,7 @@ const ResultsBody = memo(function ResultsBody({
     return <p className="py-6 text-center text-xs text-muted-foreground">{emptyMessage}</p>;
   }
   if (isDetailedResult(result)) {
-    return <DetailResults result={result} embedded />;
+    return <DetailResults result={result} embedded regimeSource={regimeSource} />;
   }
   const rows = sweepRows(result);
   if (!rows) {
@@ -87,6 +90,7 @@ const ResultsBody = memo(function ResultsBody({
 type StrategyBuilderResultsPaneProps = {
   builderResult: DetailedResult | SweepResult | undefined;
   builderResultsVersion: number;
+  builderRegimeSource?: RegimeSource | null;
   builderSelectedSweepRow: Record<string, unknown> | undefined;
   onBuilderSelectSweepRow: (row: Record<string, unknown>) => void;
   refineResult: DetailedResult | SweepResult | SweepResultResponse | undefined;
@@ -103,6 +107,7 @@ type StrategyBuilderResultsPaneProps = {
 function StrategyBuilderResultsPane({
   builderResult,
   builderResultsVersion,
+  builderRegimeSource,
   builderSelectedSweepRow,
   onBuilderSelectSweepRow,
   refineResult,
@@ -160,6 +165,7 @@ function StrategyBuilderResultsPane({
           {activeTab === "results" ? (
             <ResultsBody
               result={builderResult}
+              regimeSource={builderRegimeSource}
               selectedSweepRow={builderSelectedSweepRow}
               onSelectSweepRow={onBuilderSelectSweepRow}
               emptyMessage="Run Backtest above to see strategy results."

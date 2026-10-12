@@ -10,6 +10,10 @@ import pandas as pd
 
 from api.indicator_catalog import list_indicators
 from api.market_regimes import (
+    SHOCK_GRANULAR_KEYS,
+    analyze_market_regime,
+    analyze_strategy_regime,
+    classify_shock_granular,
     ATR_CONTRACTING,
     ATR_EXPANDING,
     REGIME_INDICATOR_SPECS,
@@ -39,7 +43,7 @@ from api.market_regimes import (
     market_regimes_for_timestamp,
     sharpe_ratio,
 )
-from api.serializers import detailed_backtest_payload, trade_payload
+from api.serializers import detailed_backtest_payload, regime_request_payload, trade_payload
 from api.strategy_compiler import compile_buy_mask
 from stats import compute_aggregate_metrics
 
@@ -854,3 +858,214 @@ class RegimeIndicatorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _two_year_calendar():
+    # 2023: 3 sessions at VIX <= 15, then 2 above 30, then back (2 changes).
+    # 2024: opens in the state 2023 ended on (no change), then one move.
+    dates = pd.to_datetime(
+        ["2023-12-27", "2023-12-28", "2023-12-29", "2024-01-02", "2024-01-03", "2024-01-04"]
+    )
+    return pd.DataFrame(
+        {
+            "vix": [10.0, 40.0, 10.0, 10.0, 10.0, 40.0],
+            "breadth": [-3.0, -0.5, 0.0, 0.5, 1.5, 2.5],
+        },
+        index=dates,
+    )
+
+
+class GranularShockTests(unittest.TestCase):
+    def test_edges(self):
+        cases = {
+            -3: "lt_neg_2",
+            -2: "neg_2_neg_15",
+            -1.51: "neg_2_neg_15",
+            -1.5: "neg_15_neg_1",
+            -1.01: "neg_15_neg_1",
+            -1: "neg_1_neg_05",
+            -0.51: "neg_1_neg_05",
+            -0.5: "neg_05_0",
+            -0.0001: "neg_05_0",
+            0: "0_pos_05",
+            0.5: "0_pos_05",
+            0.51: "pos_05_pos_1",
+            1: "pos_05_pos_1",
+            1.01: "pos_1_pos_15",
+            1.5: "pos_1_pos_15",
+            1.51: "pos_15_pos_2",
+            2: "pos_15_pos_2",
+            2.01: "gt_2",
+        }
+        for value, key in cases.items():
+            self.assertEqual(classify_shock_granular(value), key, value)
+        self.assertIsNone(classify_shock_granular(None))
+        self.assertIsNone(classify_shock_granular(float("nan")))
+
+    def test_every_fine_bucket_sits_inside_one_shock_bucket(self):
+        parents: dict[str, set[str]] = {}
+        for value in np.linspace(-4, 4, 1601):
+            parents.setdefault(classify_shock_granular(value), set()).add(classify_rate_shock(value))
+        self.assertEqual(set(parents), set(SHOCK_GRANULAR_KEYS))
+        self.assertTrue(all(len(found) == 1 for found in parents.values()))
+
+
+class MarketRegimeAnalysisTests(unittest.TestCase):
+    def test_days_and_changes_per_year(self):
+        result = analyze_market_regime("vix", _two_year_calendar())
+        rows = {row["year"]: row for row in result["rows"]}
+        self.assertEqual(rows[2023]["days"], {"le_15": 2, "15_20": 0, "20_30": 0, "gt_30": 1})
+        self.assertEqual(rows[2023]["total_days"], 3)
+        # The first labeled session starts the series, so only two moves count.
+        self.assertEqual(rows[2023]["changes"], 2)
+        # 2024 opens in the same state 2023 ended on. Only the last session moves.
+        self.assertEqual(rows[2024]["days"]["le_15"], 2)
+        self.assertEqual(rows[2024]["days"]["gt_30"], 1)
+        self.assertEqual(rows[2024]["changes"], 1)
+        self.assertEqual([state["key"] for state in result["states"]], ["le_15", "15_20", "20_30", "gt_30"])
+        self.assertEqual(result["coverage"], {"start": "2023-12-27", "end": "2024-01-04"})
+
+    def test_a_change_on_the_first_session_of_a_year_belongs_to_that_year(self):
+        calendar = pd.DataFrame(
+            {"vix": [10.0, 40.0]}, index=pd.to_datetime(["2023-12-29", "2024-01-02"])
+        )
+        rows = {row["year"]: row for row in analyze_market_regime("vix", calendar)["rows"]}
+        self.assertEqual(rows[2023]["changes"], 0)
+        self.assertEqual(rows[2024]["changes"], 1)
+
+    def test_unlabeled_sessions_are_skipped_not_counted_as_a_change(self):
+        calendar = pd.DataFrame(
+            {"vix": [10.0, np.nan, 10.0, 40.0]},
+            index=pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"]),
+        )
+        row = analyze_market_regime("vix", calendar)["rows"][0]
+        self.assertEqual(row["total_days"], 3)
+        self.assertEqual(row["changes"], 1)
+
+    def test_atr_has_no_market_wide_history_and_unknown_ids_are_rejected(self):
+        with self.assertRaises(ValueError):
+            analyze_market_regime("atr", _two_year_calendar())
+        with self.assertRaises(ValueError):
+            analyze_market_regime("nope", _two_year_calendar())
+        with self.assertRaises(ValueError):
+            analyze_market_regime("vix", None)
+
+
+def _two_year_strategy_frame():
+    dates = pd.to_datetime(
+        ["2023-12-27", "2023-12-28", "2023-12-29", "2024-01-02", "2024-01-03", "2024-01-04"]
+    )
+    return pd.DataFrame(
+        {
+            "Date": dates,
+            "Close": [100.0, 101.0, 102.0, 103.0, 104.0, 105.0],
+            # Trade 1 enters 12-27 (VIX <= 15) and wins. Trade 2 enters 12-29
+            # (VIX <= 15) and loses. Trade 3 enters 01-03 (VIX <= 15) and wins.
+            "LongTradeIn": [True, False, True, False, True, False],
+            "HoldLong": [False, True, False, True, False, True],
+            "LongTradeOut": [False, True, False, True, False, True],
+            "TradePnL": [0.0, 0.01, 0.0, -0.02, 0.0, 0.03],
+            "DaysInTrade": [0, 1, 0, 1, 0, 1],
+            "RollingPnL": [1.0, 1.01, 1.01, 0.99, 0.99, 1.02],
+            "Drawdown": [0.0, 0.0, 0.0, 0.02, 0.02, 0.0],
+        }
+    )
+
+
+class StrategyRegimeAnalysisTests(unittest.TestCase):
+    def test_trades_are_counted_in_their_entry_state_and_entry_year(self):
+        result = analyze_strategy_regime(
+            _two_year_strategy_frame(), _two_year_calendar(), "vix"
+        )
+        rows = {row["year"]: row for row in result["rows"]}
+        self.assertEqual(rows[2023]["total_trades"], 2)
+        self.assertEqual(rows[2023]["profitable_trades"], 1)
+        self.assertEqual(rows[2023]["trades"]["le_15"], {"trades": 2, "profitable": 1})
+        # Entered 12-29, closed 01-02: belongs to 2023 and to the entry state.
+        self.assertEqual(rows[2024]["total_trades"], 1)
+        self.assertEqual(rows[2024]["trades"]["le_15"], {"trades": 1, "profitable": 1})
+        self.assertEqual(rows[2024]["trades"]["gt_30"], {"trades": 0, "profitable": 0})
+        self.assertEqual(rows[2023]["days"]["le_15"], 2)
+        self.assertEqual(rows[2024]["changes"], 1)
+        # Return for the year comes from first and last equity of that year.
+        self.assertAlmostEqual(rows[2023]["return"], 1.01 / 1.0 - 1)
+        self.assertAlmostEqual(rows[2024]["return"], 1.02 / 0.99 - 1)
+        self.assertEqual(result["period"], {"start": "2023-12-27", "end": "2024-01-04"})
+
+    def test_shock_regimes_get_ten_states_and_others_keep_their_own(self):
+        shock = analyze_strategy_regime(_two_year_strategy_frame(), _two_year_calendar(), "market_breadth")
+        granular = shock["granular"]
+        self.assertTrue(granular["refined"])
+        self.assertEqual([state["key"] for state in granular["states"]], list(SHOCK_GRANULAR_KEYS))
+        days = {state["key"]: state["days"] for state in granular["states"]}
+        self.assertEqual(days["lt_neg_2"], 1)
+        self.assertEqual(days["neg_05_0"], 1)
+        # 0.0 and 0.5 both sit in 0 to 0.5, which includes its upper edge.
+        self.assertEqual(days["0_pos_05"], 2)
+        self.assertEqual(days["pos_1_pos_15"], 1)
+        self.assertEqual(days["gt_2"], 1)
+        # The three-state table is unchanged by the finer split.
+        self.assertEqual([state["key"] for state in shock["states"]], ["lt_neg_1", "neg_1_to_1", "gt_1"])
+        trades = {state["key"]: state["trades"] for state in granular["states"]}
+        self.assertEqual(trades["lt_neg_2"], 1)
+        self.assertEqual(trades["0_pos_05"], 1)
+
+        other = analyze_strategy_regime(_two_year_strategy_frame(), _two_year_calendar(), "vix")
+        self.assertFalse(other["granular"]["refined"])
+        self.assertEqual(
+            [state["key"] for state in other["granular"]["states"]],
+            ["le_15", "15_20", "20_30", "gt_30"],
+        )
+
+    def test_finer_states_get_their_own_year_rows_and_trade_metrics(self):
+        granular = analyze_strategy_regime(
+            _two_year_strategy_frame(), _two_year_calendar(), "market_breadth"
+        )["granular"]
+        rows = {row["year"]: row for row in granular["rows"]}
+        self.assertEqual(list(rows[2023]["days"]), list(SHOCK_GRANULAR_KEYS))
+        self.assertEqual(rows[2023]["days"]["lt_neg_2"], 1)
+        self.assertEqual(rows[2023]["changes"], 2)
+        # 2024 opens in 0 to 0.5, the state 2023 ended on, so only two moves count.
+        self.assertEqual(rows[2024]["changes"], 2)
+        self.assertEqual(rows[2023]["trades"]["lt_neg_2"], {"trades": 1, "profitable": 1})
+        self.assertEqual(rows[2023]["trades"]["0_pos_05"], {"trades": 1, "profitable": 0})
+        self.assertEqual(rows[2024]["trades"]["pos_1_pos_15"], {"trades": 1, "profitable": 1})
+        self.assertEqual(rows[2023]["total_trades"], 2)
+
+        states = {state["key"]: state for state in granular["states"]}
+        self.assertAlmostEqual(states["lt_neg_2"]["avg_trade_return"], 0.01)
+        self.assertAlmostEqual(states["lt_neg_2"]["exposure"], 0.01)
+        self.assertAlmostEqual(states["0_pos_05"]["avg_trade_return"], -0.02)
+        self.assertIsNone(states["gt_2"]["avg_trade_return"])
+        self.assertIsNone(states["gt_2"]["exposure"])
+
+        # Regimes without a finer split reuse the broad rows.
+        other = analyze_strategy_regime(_two_year_strategy_frame(), _two_year_calendar(), "vix")
+        self.assertEqual(other["granular"]["rows"], other["rows"])
+
+    def test_atr_days_come_from_the_traded_symbol(self):
+        frame = _two_year_strategy_frame()
+        frame["ATR20"] = [2.0, 2.0, 1.0, 1.0, 1.0, 1.0]
+        frame["ATR50"] = [1.0, 1.0, 2.0, 2.0, 2.0, 2.0]
+        result = analyze_strategy_regime(frame, None, "atr")
+        rows = {row["year"]: row for row in result["rows"]}
+        self.assertEqual(rows[2023]["days"], {"expanding": 2, "contracting": 1})
+        self.assertEqual(rows[2023]["changes"], 1)
+        self.assertEqual(rows[2024]["changes"], 0)
+
+    def test_request_payload_modes(self):
+        frame = _two_year_strategy_frame()
+        with patch("api.serializers.load_regime_calendar", return_value=_two_year_calendar()) as load:
+            overview = regime_request_payload(frame, mode="overview", regime_id=None, years=7)
+            analysis = regime_request_payload(frame, mode="analyze", regime_id="vix", years=7)
+        load.assert_called_with(7)
+        self.assertEqual(
+            set(overview), {"market_regime_sharpe", "market_regime_current", "market_regime_coverage", "trades"}
+        )
+        self.assertEqual(overview["trades"][0]["vix_regime"], "le_15")
+        self.assertEqual(set(analysis), {"regime_analysis"})
+        with patch("api.serializers.load_regime_calendar", return_value=_two_year_calendar()):
+            with self.assertRaises(ValueError):
+                regime_request_payload(frame, mode="analyze", regime_id="nope", years=7)
+            with self.assertRaises(ValueError):
+                regime_request_payload(frame, mode="bogus", regime_id=None, years=7)

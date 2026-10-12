@@ -36,8 +36,10 @@ import {
 import { cn } from '@/lib/utils'
 import { isFlagIndicator } from '@/lib/strategy-builder'
 import { csv } from '@/lib/backtest-form'
+import { compareSymbols } from '@/lib/symbol-order'
 import { updateStrategyBuilderDraftPreview } from '@/lib/strategy-builder-draft-store'
 import { consumeRegimeCondition, useRegimeConditionRequest } from '@/lib/regime-condition'
+import { isRegimeIndicatorId, regimeConditionLabel } from '@/lib/market-regimes'
 import { CollapsibleSection } from '@/components/strategy-builder/collapsible-section'
 import {
   AddConditionButton,
@@ -50,8 +52,15 @@ import {
 } from '@/components/strategy-builder/condition-list'
 import { indicatorLabel } from '@/components/strategy-builder/indicator-select'
 import {
+  RegimeConditionList,
+  newRegimeRow,
+} from '@/components/strategy-builder/regime-condition-list'
+import {
   holdDaysSweepRowValues,
   isHoldDaysSweepRow,
+  isRegimeSweepRow,
+  regimeSweepRowId,
+  regimeSweepRowOperator,
   isSymbolConfirmSweepRow,
   sweepRowSide,
   sweepRowToConditionRow,
@@ -107,6 +116,14 @@ function conditionRowsFromPayload(
   }))
 }
 
+/** Market regimes live in their own section. Everything else is an entry condition. */
+function splitRegimeRows(rows: ConditionRow[]) {
+  return {
+    regimeRows: rows.filter((row) => isRegimeIndicatorId(row.left)),
+    entryRows: rows.filter((row) => !isRegimeIndicatorId(row.left)),
+  }
+}
+
 function buildPayload(
   symbol: string,
   direction: string,
@@ -117,6 +134,7 @@ function buildPayload(
   confirmSymbols: string,
   proxySymbol: string,
   entryConditions: ConditionRow[],
+  regimeConditions: ConditionRow[],
   exitConditions: ConditionRow[],
   entryIndicators: IndicatorInfo[],
   exitIndicators: IndicatorInfo[],
@@ -143,7 +161,7 @@ function buildPayload(
   }
   validateConditions(entryConditions, entryIndicators, {
     label: 'Entry condition',
-    required: true,
+    required: regimeConditions.length === 0,
     rightIndicators: exitIndicators,
   })
   validateConditions(exitConditions, exitIndicators, {
@@ -164,7 +182,8 @@ function buildPayload(
     profit: parsedProfit,
     name: name.trim(),
     description: description.trim(),
-    conditions: toConditionPayload(entryConditions),
+    // Regimes first. The compiler ANDs them with everything else whatever their order.
+    conditions: [...toConditionPayload(regimeConditions), ...toConditionPayload(entryConditions)],
     sell_conditions: toConditionPayload(exitConditions),
     confirm_symbols: customDatasetId ? [] : csv(confirmSymbols),
     ...(customDatasetId
@@ -189,6 +208,7 @@ function buildSavePayload(
   confirmSymbols: string,
   proxySymbol: string,
   entryConditions: ConditionRow[],
+  regimeConditions: ConditionRow[],
   exitConditions: ConditionRow[],
   entryIndicators: IndicatorInfo[],
   exitIndicators: IndicatorInfo[],
@@ -208,6 +228,7 @@ function buildSavePayload(
     confirmSymbols,
     proxySymbol,
     entryConditions,
+    regimeConditions,
     exitConditions,
     entryIndicators,
     exitIndicators,
@@ -355,7 +376,9 @@ export const StrategyBuilderSetup = forwardRef<
   const regimeCondition = useRegimeConditionRequest()
   const [validationError, setValidationError] = useState<string | null>(null)
   const [entryOpen, setEntryOpen] = useState(true)
+  const [regimeOpen, setRegimeOpen] = useState(false)
   const [exitOpen, setExitOpen] = useState(false)
+  const [selectedStrategyId, setSelectedStrategyId] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [symbol, setSymbol] = useState('SPY')
   const [years, setYears] = useState('25')
@@ -366,6 +389,7 @@ export const StrategyBuilderSetup = forwardRef<
   const [proxySymbol, setProxySymbol] = useState('')
   const [description, setDescription] = useState('')
   const [entryConditions, setEntryConditions] = useState<ConditionRow[]>(defaultEntryConditions)
+  const [regimeConditions, setRegimeConditions] = useState<ConditionRow[]>([])
   const [exitConditions, setExitConditions] = useState<ConditionRow[]>([])
   const [customDataset, setCustomDataset] = useState<CustomDatasetInfo | null>(null)
   const [rthEntriesOnly, setRthEntriesOnly] = useState(true)
@@ -376,6 +400,13 @@ export const StrategyBuilderSetup = forwardRef<
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const draftSymbol = symbol.trim().toUpperCase() || 'SPY'
+  const savedStrategyOptions = useMemo(
+    () =>
+      [...savedStrategies].sort(
+        (a, b) => compareSymbols(a.symbol, b.symbol) || a.name.localeCompare(b.name),
+      ),
+    [savedStrategies],
+  )
   const unavailableIndicatorIds = useMemo(
     () => new Set(customDataset?.unavailable_indicator_ids ?? []),
     [customDataset],
@@ -425,8 +456,14 @@ export const StrategyBuilderSetup = forwardRef<
     [builderIndicators],
   )
 
+  const entryOnlyPreview = formatConditionPreview(entryConditions, builderIndicators, indicatorIds)
+  const regimePreview = formatConditionPreview(regimeConditions, builderIndicators, indicatorIds)
   const entryPreview = withSessionEntryPreview(
-    formatConditionPreview(entryConditions, builderIndicators, indicatorIds),
+    formatConditionPreview(
+      [...regimeConditions, ...entryConditions],
+      builderIndicators,
+      indicatorIds,
+    ),
     Boolean(customDataset) && rthEntriesOnly,
   )
   const exitPreview = withSessionExitPreview(
@@ -474,14 +511,14 @@ export const StrategyBuilderSetup = forwardRef<
     try {
       validateConditions(entryConditions, builderIndicators, {
         label: 'Entry condition',
-        required: true,
+        required: regimeConditions.length === 0,
         rightIndicators: indicatorsWithAvailability,
       })
       return true
     } catch {
       return false
     }
-  }, [entryConditions, builderIndicators, indicatorsWithAvailability])
+  }, [entryConditions, regimeConditions, builderIndicators, indicatorsWithAvailability])
 
   const customDataBacktestLabel = customDataset
     ? backtestAllData
@@ -520,6 +557,7 @@ export const StrategyBuilderSetup = forwardRef<
   function resetFormToDefaults() {
     clearCustomDataset()
     setValidationError(null)
+    setSelectedStrategyId(null)
     setName('')
     setSymbol('SPY')
     setYears('25')
@@ -530,14 +568,44 @@ export const StrategyBuilderSetup = forwardRef<
     setProxySymbol('')
     setDescription('')
     setEntryConditions(defaultEntryConditions())
+    setRegimeConditions([])
     setExitConditions([])
     setRthEntriesOnly(true)
     setEodExit(true)
     setBacktestAllData(false)
     setHoldOnBuySignal(false)
     setEntryOpen(true)
+    setRegimeOpen(false)
     setExitOpen(false)
     onReset?.()
+  }
+
+  function loadStrategy(strategy: SavedStrategy) {
+    setValidationError(null)
+    const { regimeRows, entryRows } = splitRegimeRows(
+      conditionRowsFromPayload(strategy.conditions, `entry-${strategy.id}`),
+    )
+    const exitRows = conditionRowsFromPayload(strategy.sell_conditions, `exit-${strategy.id}`)
+    setSelectedStrategyId(strategy.id)
+    setName(strategy.name)
+    setSymbol(strategy.symbol)
+    setDirection(strategy.direction)
+    setHoldDays(String(strategy.hold_days))
+    setProfitableCloses(String(strategy.profit))
+    setConfirmSymbols((strategy.confirm_symbols ?? []).join(', '))
+    setProxySymbol(strategy.proxy_symbol ?? '')
+    setDescription(strategy.description ?? '')
+    setRthEntriesOnly(strategy.rth_entries_only ?? true)
+    setEodExit(strategy.eod_exit ?? true)
+    setHoldOnBuySignal(strategy.hold_on_buy_signal ?? false)
+    setEntryConditions(
+      entryRows.length > 0 || regimeRows.length > 0 ? entryRows : defaultEntryConditions(),
+    )
+    setRegimeConditions(regimeRows)
+    setExitConditions(exitRows)
+    setEntryOpen(true)
+    setRegimeOpen(regimeRows.length > 0)
+    setExitOpen(exitRows.length > 0)
   }
 
   useEffect(() => {
@@ -545,54 +613,35 @@ export const StrategyBuilderSetup = forwardRef<
       resetFormToDefaults()
       return
     }
-
-    setValidationError(null)
-    const entryRows = conditionRowsFromPayload(
-      initialStrategy.conditions,
-      `entry-${initialStrategy.id}`,
-    )
-    const exitRows = conditionRowsFromPayload(
-      initialStrategy.sell_conditions,
-      `exit-${initialStrategy.id}`,
-    )
-    setName(initialStrategy.name)
-    setSymbol(initialStrategy.symbol)
-    setDirection(initialStrategy.direction)
-    setHoldDays(String(initialStrategy.hold_days))
-    setProfitableCloses(String(initialStrategy.profit))
-    setConfirmSymbols((initialStrategy.confirm_symbols ?? []).join(', '))
-    setProxySymbol(initialStrategy.proxy_symbol ?? '')
-    setDescription(initialStrategy.description ?? '')
-    setRthEntriesOnly(initialStrategy.rth_entries_only ?? true)
-    setEodExit(initialStrategy.eod_exit ?? true)
-    setHoldOnBuySignal(initialStrategy.hold_on_buy_signal ?? false)
-    setEntryConditions(entryRows.length > 0 ? entryRows : defaultEntryConditions())
-    setExitConditions(exitRows)
-    setEntryOpen(true)
-    setExitOpen(exitRows.length > 0)
+    loadStrategy(initialStrategy)
   }, [initialStrategy])
+
+  /** Pick a saved strategy in the builder: drop the old results and fill in everything from it. */
+  function handleSelectSavedStrategy(strategyId: string) {
+    const strategy = savedStrategies.find((item) => item.id === strategyId)
+    if (!strategy) return
+    clearCustomDataset()
+    loadStrategy(strategy)
+    onReset?.()
+  }
 
   useEffect(() => {
     if (!regimeCondition) return
-    const rowId = `regime-${regimeCondition.id}`
-    const row: ConditionRow = {
-      id: rowId,
-      left: regimeCondition.left,
-      operator: regimeCondition.operator,
-      right: '',
-      logic: 'AND',
-    }
-    setEntryConditions((prev) => {
-      if (prev.some((item) => item.id === rowId)) return prev
-      return appendConditionRow(prev, row, builderIndicators, 1)
-    })
-    setEntryOpen(true)
-    onConditionNotice?.(`Added ${regimeCondition.label} ${regimeCondition.operator} to entry.`)
+    const row = newRegimeRow({ left: regimeCondition.left, operator: regimeCondition.operator })
+    setRegimeConditions((prev) =>
+      prev.some((item) => item.left === row.left && item.operator === row.operator)
+        ? prev
+        : [...prev, row],
+    )
+    setRegimeOpen(true)
+    onConditionNotice?.(
+      `Added ${regimeConditionLabel(regimeCondition.left) ?? regimeCondition.label} ${regimeCondition.operator} to market regimes.`,
+    )
     consumeRegimeCondition(regimeCondition.id)
     requestAnimationFrame(() => {
-      document.getElementById('entry-conditions')?.scrollIntoView({ block: 'center' })
+      document.getElementById('regime-conditions')?.scrollIntoView({ block: 'center' })
     })
-  }, [regimeCondition, builderIndicators, onConditionNotice])
+  }, [regimeCondition, onConditionNotice])
 
   useImperativeHandle(
     ref,
@@ -608,6 +657,7 @@ export const StrategyBuilderSetup = forwardRef<
           confirmSymbols,
           proxySymbol,
           entryConditions,
+          regimeConditions,
           exitConditions,
           builderIndicators,
           indicatorsWithAvailability,
@@ -629,6 +679,7 @@ export const StrategyBuilderSetup = forwardRef<
           confirmSymbols,
           proxySymbol,
           entryConditions,
+          regimeConditions,
           exitConditions,
           builderIndicators,
           indicatorsWithAvailability,
@@ -650,6 +701,7 @@ export const StrategyBuilderSetup = forwardRef<
           confirmSymbols,
           proxySymbol,
           entryConditions,
+          regimeConditions,
           exitConditions,
           builderIndicators,
           indicatorsWithAvailability,
@@ -677,6 +729,19 @@ export const StrategyBuilderSetup = forwardRef<
           return value
             ? `Applied confirmation: ${value}.`
             : 'Cleared confirmation symbols.'
+        }
+
+        if (isRegimeSweepRow(row)) {
+          const left = regimeSweepRowId(row)
+          if (!left) return 'Could not map this sweep row to a market regime.'
+          const operator = regimeSweepRowOperator(row)
+          setRegimeConditions((prev) =>
+            prev.some((item) => item.left === left && item.operator === operator)
+              ? prev
+              : [...prev, newRegimeRow({ left, operator })],
+          )
+          setRegimeOpen(true)
+          return `Added ${regimeConditionLabel(left) ?? left} ${operator} to market regimes.`
         }
 
         const mapped = sweepRowToConditionRow(row, builderIndicators)
@@ -710,6 +775,7 @@ export const StrategyBuilderSetup = forwardRef<
       description,
       confirmSymbols,
       entryConditions,
+      regimeConditions,
       exitConditions,
       builderIndicators,
       indicatorsWithAvailability,
@@ -736,6 +802,7 @@ export const StrategyBuilderSetup = forwardRef<
           confirmSymbols,
           proxySymbol,
           entryConditions,
+          regimeConditions,
           exitConditions,
           builderIndicators,
           indicatorsWithAvailability,
@@ -766,6 +833,7 @@ export const StrategyBuilderSetup = forwardRef<
           confirmSymbols,
           proxySymbol,
           entryConditions,
+          regimeConditions,
           exitConditions,
           builderIndicators,
           indicatorsWithAvailability,
@@ -787,6 +855,27 @@ export const StrategyBuilderSetup = forwardRef<
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-base font-semibold">Strategy builder</h2>
           <div className="flex flex-wrap items-center gap-2">
+            <Select
+              value={selectedStrategyId ?? undefined}
+              onValueChange={(value) => value && handleSelectSavedStrategy(value)}
+              disabled={savedStrategyOptions.length === 0}
+            >
+              <SelectTrigger size="sm" className="h-8 w-56 text-xs" aria-label="Load saved strategy">
+                <SelectValue placeholder="Load saved strategy">
+                  {(value: string) => {
+                    const item = savedStrategyOptions.find((strategy) => strategy.id === value)
+                    return item ? `${item.symbol} · ${item.name}` : 'Load saved strategy'
+                  }}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent className="max-h-[min(28rem,70vh)] w-max min-w-[var(--anchor-width)]">
+                {savedStrategyOptions.map((strategy) => (
+                  <SelectItem key={strategy.id} value={strategy.id} className="text-xs">
+                    {strategy.symbol} · {strategy.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <input
               ref={fileInputRef}
               type="file"
@@ -996,7 +1085,7 @@ export const StrategyBuilderSetup = forwardRef<
         <div id="entry-conditions" className="mt-3 space-y-2">
           <CollapsibleSection
             title="Entry conditions"
-            summary={entryPreview || '—'}
+            summary={entryOnlyPreview || '—'}
             open={entryOpen}
             onOpenChange={setEntryOpen}
             actions={
@@ -1012,9 +1101,29 @@ export const StrategyBuilderSetup = forwardRef<
               indicatorIds={indicatorIds}
               rightIndicators={indicatorsWithAvailability}
               rightIndicatorIds={staticIndicatorIds}
-              minConditions={1}
+              minConditions={regimeConditions.length > 0 ? 0 : 1}
+              emptyHint="No entry conditions. Entries follow the market regimes below."
             />
           </CollapsibleSection>
+
+          <div id="regime-conditions">
+            <CollapsibleSection
+              title="Market regimes"
+              summary={regimePreview || 'None'}
+              open={regimeOpen}
+              onOpenChange={setRegimeOpen}
+              actions={
+                <AddConditionButton
+                  onClick={() => {
+                    setRegimeConditions((prev) => [...prev, newRegimeRow()])
+                    setRegimeOpen(true)
+                  }}
+                />
+              }
+            >
+              <RegimeConditionList conditions={regimeConditions} onChange={setRegimeConditions} />
+            </CollapsibleSection>
+          </div>
 
           <CollapsibleSection
             title="Exit conditions"

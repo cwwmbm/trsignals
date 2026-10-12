@@ -1,6 +1,7 @@
 import { memo, useMemo } from "react";
 import type { IndicatorInfo } from "@/api";
 import { groupIndicators } from "@/lib/indicator-groups";
+import { regimeConditionLabel } from "@/lib/market-regimes";
 import { cn } from "@/lib/utils";
 import {
   Select,
@@ -76,5 +77,5 @@ function IndicatorSelectInner({
 export const IndicatorSelect = memo(IndicatorSelectInner);
 
 export function indicatorLabel(indicators: IndicatorInfo[], value: string) {
-  return indicators.find((item) => item.id === value)?.label ?? value;
+  return indicators.find((item) => item.id === value)?.label ?? regimeConditionLabel(value) ?? value;
 }

@@ -445,11 +445,13 @@ INDICATOR_CATALOG: list[IndicatorDef] = [
     _entry("AdjustedChange", "Adjusted change", "Internal", "volatility", "percent", builder_eligible=False),
 ]
 
+REGIME_CATEGORY = "Market regimes"
+
 INDICATOR_CATALOG.extend(
     _entry(
         spec.id,
         spec.label,
-        "Market regimes",
+        REGIME_CATEGORY,
         "signal_flag",
         "flag",
         description=spec.description,
@@ -627,10 +629,14 @@ def validate_compare_target(left_id: str, right_value: str) -> None:
                 ) from exc
 
 
-def list_indicators(*, builder_only: bool = False) -> list[IndicatorDef]:
+def list_indicators(*, builder_only: bool = False, include_regimes: bool = True) -> list[IndicatorDef]:
+    """Catalog entries. Market regimes are conditions of their own, not indicators:
+    pass ``include_regimes=False`` for anything a user picks from."""
     items = INDICATOR_CATALOG
     if builder_only:
         items = [item for item in items if item.get("builderEligible", True)]
+    if not include_regimes:
+        items = [item for item in items if item["category"] != REGIME_CATEGORY]
     order = {category: index for index, category in enumerate(_CATEGORY_ORDER)}
     return sorted(
         (enrich_indicator(item) for item in items),

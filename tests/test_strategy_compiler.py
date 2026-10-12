@@ -265,8 +265,55 @@ class StrategyCompilerTests(unittest.TestCase):
             {"left": "Regime_vix_le_15", "operator": "is true", "right": "", "logic": "OR"},
         ]
         self.assertEqual(compile_entry_ready_mask(data, both).tolist(), [False, False, True, True])
-        self.assertEqual(compile_entry_ready_mask(data, either).tolist(), [False, True, True, True])
+        # A regime is never OR'd: it is ANDed with the rest whatever logic it carries.
+        self.assertEqual(compile_entry_ready_mask(data, either).tolist(), [False, False, True, True])
         self.assertEqual(compile_buy_mask(data, both).tolist(), [False, False, True, False])
+
+    def test_market_regime_is_anded_with_an_or_group(self):
+        data = pd.DataFrame(
+            {
+                "Close": [10.0, 10.0, 10.0, 10.0, 10.0, 10.0],
+                "RSI2": [5.0, 90.0, 5.0, 90.0, 5.0, 90.0],
+                "IBR": [0.1, 0.1, 0.9, 0.9, 0.1, 0.9],
+                "Regime_vix_le_15": [1, 1, 1, 1, -1, -1],
+            }
+        )
+        rsi = {"left": "RSI2", "operator": "<", "right": "20", "logic": "AND"}
+        ibr = {"left": "IBR", "operator": "<", "right": "0.5", "logic": "OR"}
+        regime = {"left": "Regime_vix_le_15", "operator": "is true", "right": "", "logic": "OR"}
+        expected = [True, True, True, False, False, False]
+        # Regime AND (RSI OR IBR), wherever the regime row sits and whatever its own logic.
+        for conditions in ([regime, rsi, ibr], [rsi, ibr, regime], [rsi, regime, ibr]):
+            self.assertEqual(compile_buy_mask(data, conditions).tolist(), expected, conditions)
+        # Without the regime the OR group alone is true on rows 4 and 5 as well.
+        self.assertEqual(
+            compile_buy_mask(data, [rsi, ibr]).tolist(), [True, True, True, False, True, False]
+        )
+
+    def test_regime_only_strategy_and_two_regimes_are_anded(self):
+        data = pd.DataFrame(
+            {
+                "Close": [10.0] * 3,
+                "Regime_vix_le_15": [1, 1, -1],
+                "Regime_spy_bull": [1, -1, 1],
+            }
+        )
+        vix = {"left": "Regime_vix_le_15", "operator": "is true", "right": "", "logic": "AND"}
+        spy = {"left": "Regime_spy_bull", "operator": "is true", "right": "", "logic": "OR"}
+        self.assertEqual(compile_buy_mask(data, [vix]).tolist(), [True, True, False])
+        self.assertEqual(compile_buy_mask(data, [vix, spy]).tolist(), [True, False, False])
+
+    def test_preview_groups_regimes_first(self):
+        rsi = {"left": "RSI2", "operator": "<", "right": "20", "logic": "AND"}
+        ibr = {"left": "IBR", "operator": "<", "right": "0.5", "logic": "OR"}
+        regime = {"left": "Regime_vix_le_15", "operator": "is true", "right": "", "logic": "OR"}
+        self.assertEqual(
+            format_condition_preview([rsi, ibr, regime]),
+            "VIX · ≤ 15 is true AND (RSI2 < 20 OR IBR < 0.5)",
+        )
+        self.assertEqual(format_condition_preview([rsi, regime]), "VIX · ≤ 15 is true AND RSI2 < 20")
+        self.assertEqual(format_condition_preview([regime]), "VIX · ≤ 15 is true")
+        self.assertEqual(format_condition_preview([rsi, ibr]), "RSI2 < 20 OR IBR < 0.5")
 
 
 if __name__ == "__main__":

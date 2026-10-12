@@ -13,7 +13,7 @@ import backtest as bt
 import config
 from api.proxy_symbol import proxy_column
 from api.scan_service import execute_saved_strategy
-from api.serializers import detailed_backtest_payload
+from api.serializers import detailed_backtest_payload, regime_request_payload
 from api.strategy_store import get_strategy_by_id
 from stats import (
     calmar_ratio,
@@ -1172,13 +1172,22 @@ def simulate_portfolio(request) -> dict:
         {_strategy_pnl_symbol(strategy, global_proxy) for strategy in strategies}
     ) > 1
 
+    regime_mode = getattr(request, "regime_mode", None)
+    if regime_mode:
+        return regime_request_payload(
+            frame,
+            mode=regime_mode,
+            regime_id=getattr(request, "regime_id", None),
+            years=request.years,
+            portfolio_equity=mixed_pnl_symbols,
+        )
+
     payload = detailed_backtest_payload(
         frame,
         max_hold,
         max_profit,
         description,
         portfolio_equity=mixed_pnl_symbols,
-        years=request.years,
     )
     payload["contribution"] = compute_portfolio_contribution(
         strategies,

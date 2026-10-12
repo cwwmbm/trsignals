@@ -117,6 +117,10 @@ export function PortfolioSection({
   const mutation = useMutation({
     mutationFn: runPortfolioSimulation,
   })
+  const regimeSource = useMemo(
+    () => (lastSimulateRequest ? { path: '/portfolios/simulate', payload: lastSimulateRequest } : null),
+    [lastSimulateRequest],
+  )
 
   const saveMutation = useMutation({
     mutationFn: async ({
@@ -621,7 +625,11 @@ export function PortfolioSection({
       </Card>
 
       {result ? (
-        <DetailResults result={result} shapleyRequest={lastSimulateRequest} />
+        <DetailResults
+          result={result}
+          shapleyRequest={lastSimulateRequest}
+          regimeSource={regimeSource}
+        />
       ) : null}
     </div>
   )

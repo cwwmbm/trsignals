@@ -11,7 +11,12 @@ from api.indicator_catalog import (
     is_primary_only_indicator,
     validate_compare_target,
 )
-from api.market_regimes import REGIME_INDICATOR_IDS, ensure_regime_indicator_columns
+from api.market_regimes import (
+    REGIME_INDICATOR_IDS,
+    ensure_regime_indicator_columns,
+    is_regime_indicator_id,
+    regime_spec,
+)
 
 
 VALID_OPERATORS = {"<", "<=", ">", ">=", "=", "crosses above", "crosses below", "is true", "is false"}
@@ -118,19 +123,57 @@ def _compile_condition_state(
     strategy_resolver: StrategyResolver | None = None,
     seen_strategy_ids: set[str] | None = None,
 ) -> tuple[pd.Series, pd.Series]:
-    """Return (condition is true, inputs exist so a trade could be taken)."""
+    """Return (condition is true, inputs exist so a trade could be taken).
+
+    Market regime conditions are a group of their own. They are always ANDed with
+    each other and with everything else, whatever position or logic they carry:
+    regimes AND (condition 1 OR condition 2).
+    """
     if not conditions:
         raise ValueError("At least one condition is required")
 
-    ensure_regime_indicator_columns(data, conditions)
+    regimes, others = split_regime_conditions(conditions)
+    ensure_regime_indicator_columns(data, regimes)
     seen_strategy_ids = seen_strategy_ids or set()
+    groups = []
+    if regimes:
+        groups.append(
+            _compile_condition_chain(
+                data, regimes, strategy_resolver, seen_strategy_ids, all_and=True
+            )
+        )
+    if others:
+        groups.append(_compile_condition_chain(data, others, strategy_resolver, seen_strategy_ids))
+    mask, ready = groups[0]
+    for group_mask, group_ready in groups[1:]:
+        mask = mask & group_mask
+        ready = ready & group_ready
+    return mask, ready
+
+
+def split_regime_conditions(conditions) -> tuple[list[dict], list[dict]]:
+    """(market regime conditions, every other condition), each in original order."""
+    condition_dicts = _condition_dicts(conditions)
+    regimes = [item for item in condition_dicts if is_regime_indicator_id(item["left"])]
+    others = [item for item in condition_dicts if not is_regime_indicator_id(item["left"])]
+    return regimes, others
+
+
+def _compile_condition_chain(
+    data: pd.DataFrame,
+    conditions: list[dict],
+    strategy_resolver: StrategyResolver | None,
+    seen_strategy_ids: set[str],
+    *,
+    all_and: bool = False,
+) -> tuple[pd.Series, pd.Series]:
     mask: pd.Series | None = None
     ready: pd.Series | None = None
     for condition in conditions:
         left_id = condition["left"]
         operator = condition["operator"]
         right_value = condition["right"]
-        logic = condition.get("logic", "AND")
+        logic = "AND" if all_and else condition.get("logic", "AND")
 
         if operator not in VALID_OPERATORS:
             raise ValueError(f"Unsupported operator: {operator}")
@@ -304,11 +347,10 @@ def compile_sell_mask(
     return compile_condition_mask(data, conditions, strategy_resolver=strategy_resolver)
 
 
-def format_condition_preview(conditions: list[dict], labels: dict[str, str] | None = None) -> str:
-    labels = labels or {}
+def _format_condition_chain(conditions: list[dict], labels: dict[str, str], *, all_and: bool = False) -> str:
     parts: list[str] = []
     for index, condition in enumerate(conditions):
-        left = labels.get(condition["left"], condition["left"])
+        left = _condition_label(condition["left"], labels)
         operator = condition["operator"]
         if operator in FLAG_OPERATORS:
             snippet = f"{left} {operator}"
@@ -318,8 +360,30 @@ def format_condition_preview(conditions: list[dict], labels: dict[str, str] | No
         if index == 0:
             parts.append(snippet)
         else:
-            parts.append(f" {condition.get('logic', 'AND')} {snippet}")
+            logic = "AND" if all_and else condition.get("logic", "AND")
+            parts.append(f" {logic} {snippet}")
     return "".join(parts)
+
+
+def _condition_label(indicator_id: str, labels: dict[str, str]) -> str:
+    if indicator_id in labels:
+        return labels[indicator_id]
+    spec = regime_spec(indicator_id)
+    return spec.label if spec is not None else indicator_id
+
+
+def format_condition_preview(conditions: list[dict], labels: dict[str, str] | None = None) -> str:
+    """Rule text. Market regimes lead and are ANDed with the rest: ``R AND (a OR b)``."""
+    labels = labels or {}
+    regimes, others = split_regime_conditions(conditions)
+    regime_text = _format_condition_chain(regimes, labels, all_and=True)
+    other_text = _format_condition_chain(others, labels)
+    if not regime_text:
+        return other_text
+    if not other_text:
+        return regime_text
+    has_or = any(item.get("logic", "AND") == "OR" for item in others[1:])
+    return f"{regime_text} AND ({other_text})" if has_or else f"{regime_text} AND {other_text}"
 
 
 def _format_snapshot_value(value) -> str | None:
@@ -382,7 +446,9 @@ def evaluate_condition_snapshot(
         return []
 
     labels = labels or {}
-    condition_dicts = _condition_dicts(conditions)
+    regimes, others = split_regime_conditions(conditions)
+    # Regimes lead and are ANDed with everything after them, as in the compiled rule.
+    condition_dicts = [*regimes, *others]
     results: list[ConditionSnapshotItem] = []
 
     for index, condition in enumerate(condition_dicts):
@@ -393,7 +459,12 @@ def evaluate_condition_snapshot(
         )
         passed = bool(part.iloc[-1])
         left_value, right_value = _snapshot_values_for_condition(data, condition)
-        logic = None if index == 0 else condition.get("logic", "AND")
+        if index == 0:
+            logic = None
+        elif index <= len(regimes):
+            logic = "AND"
+        else:
+            logic = condition.get("logic", "AND")
 
         results.append(
             {

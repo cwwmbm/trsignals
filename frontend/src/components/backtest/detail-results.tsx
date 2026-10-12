@@ -1,5 +1,12 @@
+import { useMutation } from "@tanstack/react-query";
 import { memo, useState } from "react";
-import type { DetailedResult, PortfolioSimulatePayload } from "@/api";
+import {
+  fetchRegimeOverview,
+  type DetailedResult,
+  type PortfolioSimulatePayload,
+  type RegimeOverview,
+  type RegimeSource,
+} from "@/api";
 import { ContributionPanel } from "@/components/backtest/contribution-panel";
 import { EquityDrawdownPanel } from "@/components/backtest/equity-drawdown-panel";
 import { MarketRegimesPanel } from "@/components/backtest/market-regimes-panel";
@@ -20,13 +27,28 @@ export const DetailResults = memo(function DetailResults({
   result,
   embedded = false,
   shapleyRequest = null,
+  regimeSource = null,
 }: {
   result: DetailedResult;
   embedded?: boolean;
   shapleyRequest?: PortfolioSimulatePayload | null;
+  /** The request that produced `result`. Regimes are computed from it, and only on demand. */
+  regimeSource?: RegimeSource | null;
 }) {
   const [analysisTab, setAnalysisTab] = useState<AnalysisTab>("equity-drawdown");
   const [resultsTab, setResultsTab] = useState<ResultsTab>("overview");
+  // Held here, not in the tab, so switching tabs keeps the calculation. Tied to the
+  // result it was computed for, so a new backtest starts uncalculated.
+  const [regimeState, setRegimeState] = useState<{ result: DetailedResult; overview: RegimeOverview } | null>(
+    null,
+  );
+  const regimeOverview = regimeState?.result === result ? regimeState.overview : null;
+  const regimeMutation = useMutation({
+    mutationFn: ({ source }: { source: RegimeSource; forResult: DetailedResult }) =>
+      fetchRegimeOverview(source),
+    onSuccess: (overview, { forResult }) => setRegimeState({ result: forResult, overview }),
+  });
+  const calculatingRegimes = regimeMutation.isPending && regimeMutation.variables?.forResult === result;
   const latestTrades = [...result.trades].reverse().slice(0, 100);
   const latestYears = [...result.yearly].reverse();
   const latestMonths = [...(result.monthly ?? [])].reverse();
@@ -118,10 +140,13 @@ export const DetailResults = memo(function DetailResults({
           <TabsContent value="market-regimes" className="mt-3">
             {analysisTab === "market-regimes" ? (
               <MarketRegimesPanel
-                sharpe={result.market_regime_sharpe}
-                trades={result.trades}
-                current={result.market_regime_current}
-                coverage={result.market_regime_coverage}
+                overview={regimeOverview}
+                source={regimeSource}
+                isCalculating={calculatingRegimes}
+                error={regimeMutation.variables?.forResult === result ? regimeMutation.error : null}
+                onCalculate={() => {
+                  if (regimeSource) regimeMutation.mutate({ source: regimeSource, forResult: result });
+                }}
               />
             ) : null}
           </TabsContent>

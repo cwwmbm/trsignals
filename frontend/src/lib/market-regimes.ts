@@ -415,7 +415,7 @@ export const REGIME_DIMENSIONS: RegimeDimension[] = [
   },
 ];
 
-const MIN_REGIME_TRADES = 20;
+export const MIN_REGIME_TRADES = 20;
 
 function closedTradeStats(trades: RegimeTradeRow[], field: RegimeField, key: string) {
   let count = 0;
@@ -495,4 +495,44 @@ export function regimeYValue(point: RegimeChartPoint, metric: RegimeYMetric): nu
   if (metric === "avg_trade_return") return point.avgTradeReturnPct;
   if (point.maxDrawdown == null) return null;
   return -point.maxDrawdown * 100;
+}
+
+/** Regimes that exist independent of any traded symbol, so they have a market-wide history. */
+export const MARKET_WIDE_REGIMES = REGIME_DIMENSIONS.filter((dimension) => dimension.id !== "atr");
+
+export const SCORE_WEAK = "#dc2626";
+export const SCORE_DECENT = "#f59e0b";
+export const SCORE_GOOD = "#4ade80";
+export const SCORE_VERY_GOOD = "#15803d";
+
+export function regimeScoreColor(value: number) {
+  if (value < 25) return SCORE_WEAK;
+  if (value < 50) return SCORE_DECENT;
+  if (value < 75) return SCORE_GOOD;
+  return SCORE_VERY_GOOD;
+}
+
+const REGIME_INDICATOR_PREFIX = "Regime_";
+
+export function isRegimeIndicatorId(id: string) {
+  return id.startsWith(REGIME_INDICATOR_PREFIX);
+}
+
+const REGIME_STATE_BY_ID = new Map(
+  REGIME_DIMENSIONS.flatMap((dimension) =>
+    dimension.buckets.map(
+      (bucket) => [regimeIndicatorId(dimension.id, bucket.key), { dimension, bucket }] as const,
+    ),
+  ),
+);
+
+/** The regime and state a `Regime_<regime>_<state>` condition id stands for. */
+export function parseRegimeIndicatorId(id: string) {
+  return REGIME_STATE_BY_ID.get(id) ?? null;
+}
+
+/** "VIX · ≤ 15" for a regime condition id, or null for any other id. */
+export function regimeConditionLabel(id: string): string | null {
+  const parsed = parseRegimeIndicatorId(id);
+  return parsed ? regimeIndicatorLabel(parsed.dimension.title, parsed.bucket.label) : null;
 }

@@ -22,6 +22,13 @@ class IndicatorCatalogTests(unittest.TestCase):
         self.assertTrue(all(item.get("builderEligible", True) for item in indicators))
         self.assertTrue(all("id" in item and "label" in item and "category" in item for item in indicators))
 
+    def test_market_regimes_are_not_offered_as_indicators(self):
+        offered = {item["id"] for item in list_indicators(builder_only=True, include_regimes=False)}
+        self.assertFalse(offered & REGIME_INDICATOR_IDS)
+        # They stay in the full catalog so saved rules keep their labels and compile.
+        everything = {item["id"] for item in list_indicators(builder_only=True)}
+        self.assertTrue(REGIME_INDICATOR_IDS <= everything)
+
     def test_builder_indicators_have_descriptions(self):
         missing = [
             item["id"]

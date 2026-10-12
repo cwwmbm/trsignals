@@ -11,6 +11,18 @@ class RuntimeOptions(BaseModel):
     hold_on_buy_signal: bool | None = None
 
 
+class RegimeRequestOptions(BaseModel):
+    """Ask a backtest for market regime figures instead of its normal result."""
+
+    regime_mode: Literal["overview", "analyze"] | None = None
+    regime_id: str | None = None
+
+
+class RegimeAnalyzeRequest(BaseModel):
+    regime_id: str
+    years: int = Field(default=25, ge=1, le=100)
+
+
 class SingleSignalExpression(BaseModel):
     kind: Literal["single"] = "single"
     name: str
@@ -26,7 +38,7 @@ class CombinedSignalExpression(BaseModel):
 SignalExpression = SingleSignalExpression | CombinedSignalExpression
 
 
-class SingleBacktestRequest(BaseModel):
+class SingleBacktestRequest(RegimeRequestOptions):
     symbol: str = "SOXX"
     years: int = Field(default=25, ge=1, le=100)
     signal: SignalExpression
@@ -49,7 +61,7 @@ class SymbolConfirmSweepRequest(BaseModel):
     runtime_options: RuntimeOptions = Field(default_factory=RuntimeOptions)
 
 
-class SymbolConfirmDetailRequest(BaseModel):
+class SymbolConfirmDetailRequest(RegimeRequestOptions):
     primary_symbol: str = "SOXX"
     confirm_symbols: list[str] = Field(default_factory=list)
     years: int = Field(default=25, ge=1, le=100)
@@ -89,7 +101,7 @@ class BuilderCondition(BaseModel):
     logic: Literal["AND", "OR"] = "AND"
 
 
-class BuilderBacktestRequest(BaseModel):
+class BuilderBacktestRequest(RegimeRequestOptions):
     symbol: str = "SPY"
     years: int = Field(default=25, ge=1, le=100)
     direction: Literal["long", "short"] = "long"
@@ -129,6 +141,7 @@ BuilderRefineMode = Literal[
     "symbol-confirm-sweep",
     "hold-days-sweep",
     "indicator-sweep",
+    "market-regime-sweep",
 ]
 
 
@@ -217,7 +230,7 @@ class UpdateStrategyRequest(BaseModel):
 PortfolioOverlapMode = Literal["first_signal_only", "hold_until_all_exit"]
 
 
-class PortfolioSimulateRequest(BaseModel):
+class PortfolioSimulateRequest(RegimeRequestOptions):
     strategy_ids: list[str] = Field(min_items=1)
     overlap_mode: PortfolioOverlapMode = "first_signal_only"
     proxy_symbol: str | None = None

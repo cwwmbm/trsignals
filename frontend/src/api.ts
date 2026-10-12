@@ -109,9 +109,6 @@ export interface DetailedResult {
   equity_curve_total_points?: number;
   equity_curve_shown_points?: number;
   contribution?: StrategyContribution[] | null;
-  market_regime_sharpe?: MarketRegimeSharpe | null;
-  market_regime_current?: MarketRegimeCurrent | null;
-  market_regime_coverage?: MarketRegimeCoverage | null;
 }
 
 export type MarketRegimeCurrent = {
@@ -138,6 +135,68 @@ export type RegimeSharpeBucket = {
 };
 
 export type MarketRegimeSharpe = Partial<Record<string, RegimeSharpeBucket[]>>;
+
+/** A request that produced a backtest result, so regimes can be computed for it on demand. */
+export type RegimeSource = {
+  path: string;
+  payload: object;
+};
+
+/** Everything the Market regimes charts need. Trades carry their entry-day regime labels. */
+export type RegimeOverview = {
+  market_regime_sharpe: MarketRegimeSharpe;
+  market_regime_current: MarketRegimeCurrent;
+  market_regime_coverage: MarketRegimeCoverage;
+  trades: DetailedResult["trades"];
+};
+
+export type RegimeStateDef = { key: string; label: string };
+
+export type RegimeYearRow = {
+  year: number;
+  days: Record<string, number>;
+  total_days: number;
+  changes: number;
+};
+
+export type RegimeMarketAnalysis = {
+  regime: { id: string; title: string; hint: string };
+  states: RegimeStateDef[];
+  rows: RegimeYearRow[];
+  coverage: { start: string; end: string } | null;
+};
+
+export type RegimeTradeCount = { trades: number; profitable: number };
+
+export type RegimeStrategyYearRow = RegimeYearRow & {
+  trades: Record<string, RegimeTradeCount>;
+  total_trades: number;
+  profitable_trades: number;
+  return: number | null;
+};
+
+export type RegimeGranularState = RegimeSharpeBucket & {
+  label: string;
+  trades: number;
+  profitable: number;
+  /** Average closed-trade return, as a fraction. */
+  avg_trade_return: number | null;
+  /** Average closed-trade return per day held, as a fraction. */
+  exposure: number | null;
+};
+
+export type RegimeStrategyAnalysis = {
+  regime: { id: string; title: string; hint: string };
+  states: RegimeStateDef[];
+  rows: RegimeStrategyYearRow[];
+  period: { start: string; end: string };
+  granular: {
+    refined: boolean;
+    states: RegimeGranularState[];
+    rows: RegimeStrategyYearRow[];
+    base_score: number | null;
+  };
+};
 
 export type MonteCarloMethod = "shuffle" | "bootstrap";
 
@@ -469,12 +528,6 @@ export type PortfolioRegimeResult = {
 
 export type PortfolioRegimePayload = PortfolioSimulatePayload;
 
-export async function getSignals(): Promise<SignalInfo[]> {
-  const response = await fetch(`${API_URL}/signals`);
-  if (!response.ok) throw new Error(await response.text());
-  return response.json();
-}
-
 export async function getIndicators(builderOnly = true): Promise<IndicatorInfo[]> {
   const response = await fetch(`${API_URL}/indicators?builder_only=${builderOnly}`);
   if (!response.ok) throw new Error(await response.text());
@@ -509,17 +562,28 @@ async function deleteJson<T>(path: string): Promise<T> {
   return response.json();
 }
 
-export function runBacktest(mode: RunMode, payload: Record<string, unknown>) {
-  const pathByMode: Record<RunMode, string> = {
-    single: "/backtests/single",
-    "signal-combo-sweep": "/backtests/signal-combo-sweep",
-    "symbol-confirm-sweep": "/backtests/symbol-confirm-sweep",
-    "symbol-confirm-detail": "/backtests/symbol-confirm-detail",
-    "hold-days-sweep": "/backtests/hold-days-sweep",
-    "indicator-sweep": "/backtests/indicator-sweep",
-  };
+/** Re-run the request behind a backtest result and return only its regime figures. */
+export function fetchRegimeOverview(source: RegimeSource): Promise<RegimeOverview> {
+  return postJson<RegimeOverview>(source.path, { ...source.payload, regime_mode: "overview" });
+}
 
-  return postJson<DetailedResult | SweepResult>(pathByMode[mode], payload);
+export async function fetchRegimeStrategyAnalysis(
+  source: RegimeSource,
+  regimeId: string,
+): Promise<RegimeStrategyAnalysis> {
+  const response = await postJson<{ regime_analysis: RegimeStrategyAnalysis }>(source.path, {
+    ...source.payload,
+    regime_mode: "analyze",
+    regime_id: regimeId,
+  });
+  return response.regime_analysis;
+}
+
+export function analyzeMarketRegime(payload: {
+  regime_id: string;
+  years: number;
+}): Promise<RegimeMarketAnalysis> {
+  return postJson<RegimeMarketAnalysis>("/regimes/analyze", payload);
 }
 
 export function runMonteCarlo(payload: MonteCarloPayload) {

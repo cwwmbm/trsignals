@@ -27,7 +27,7 @@ export function buildBuilderRefinePayload(
     strategy: draft,
   };
 
-  if (state.mode === "signal-combo-sweep") {
+  if (state.mode === "signal-combo-sweep" || state.mode === "market-regime-sweep") {
     return base;
   }
 

@@ -239,6 +239,17 @@ export function BuilderRefinePanel({
         </Field>
       )}
 
+      {mode === "market-regime-sweep" && (
+        <Section title="Market regime sweep">
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            Runs the draft strategy once for every market regime state, both ways: “Is” (only that
+            state) and “Is not” (every other labeled state). Regimes are ANDed with the entry
+            conditions, so each row is the strategy restricted that way. Regimes the draft already
+            uses are skipped. Use “Add to market regimes” on a row to keep it.
+          </p>
+        </Section>
+      )}
+
       {mode === "indicator-sweep" && (
         <Section title="Indicator sweep">
           <div className="flex flex-wrap gap-4">

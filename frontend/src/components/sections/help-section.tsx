@@ -1,25 +1,19 @@
 'use client'
 
-import { BookOpen, FlaskConical, LineChart, ListChecks, Radar, Wrench } from 'lucide-react'
+import { BookOpen, LineChart, ListChecks, Radar, Wrench } from 'lucide-react'
 import { Card } from '@/components/ui/card'
-import { RUN_MODES } from '@/lib/mock-data'
 import { IndicatorGlossary } from '@/components/sections/indicator-glossary'
 
 const SECTION_HELP = [
   {
-    icon: FlaskConical,
-    title: 'Backtest',
-    body: 'Configure a run mode, symbol, and signal, then run a historical simulation. Results include headline stats, a year-by-year breakdown, the full trade list, and an equity curve with a log-scale toggle.',
-  },
-  {
     icon: ListChecks,
     title: 'All strategies',
-    body: 'Browse every saved strategy with its key performance metrics. Filter by status (live, draft, archived) or search by name, signal, or tag, and jump straight into a backtest.',
+    body: 'Browse every saved strategy with its key performance metrics. Filter by status (live, draft, archived) or search by name, signal, or tag, and open one in the Strategy Builder to backtest it.',
   },
   {
     icon: Wrench,
-    title: 'New strategy builder',
-    body: 'Compose entry conditions from indicators and operators, set direction and holding period, and preview the generated rule before saving or backtesting it.',
+    title: 'Strategy Builder',
+    body: 'Compose entry conditions from indicators and operators, add market regimes, set direction and holding period, and preview the generated rule before saving or backtesting it. Use Load saved strategy to start from any saved strategy.',
   },
   {
     icon: Radar,
@@ -55,7 +49,7 @@ export function HelpSection() {
           <div>
             <h2 className="text-lg font-semibold">Help &amp; documentation</h2>
             <p className="text-sm text-muted-foreground">
-              How each section works, the available run modes, a metrics glossary, and an indicator glossary.
+              How each section works, a metrics glossary, and an indicator glossary.
             </p>
           </div>
         </div>
@@ -72,18 +66,6 @@ export function HelpSection() {
           </Card>
         ))}
       </div>
-
-      <Card className="border-border/60 p-6">
-        <h3 className="text-sm font-semibold">Run modes</h3>
-        <div className="mt-4 flex flex-col divide-y divide-border/60">
-          {RUN_MODES.map((m) => (
-            <div key={m.id} className="flex flex-col gap-1 py-3 first:pt-0 last:pb-0 sm:flex-row sm:gap-6">
-              <span className="w-56 shrink-0 font-medium">{m.label}</span>
-              <span className="text-sm text-muted-foreground">{m.description}</span>
-            </div>
-          ))}
-        </div>
-      </Card>
 
       <Card className="border-border/60 p-6">
         <h3 className="text-sm font-semibold">Metrics glossary</h3>

@@ -613,6 +613,174 @@ def builder_indicator_tryout(
     return running_results
 
 
+REGIME_OPERATORS = ("is true", "is false")
+_REGIME_OPERATOR_LABEL = {"is true": "Is", "is false": "Is not"}
+
+
+def _regime_trial_frame(
+    refine_frame: pd.DataFrame,
+    flag: pd.Series,
+    operator: str = "is true",
+) -> pd.DataFrame:
+    """The refine frame with one regime condition ANDed into Buy and into EntryReady.
+
+    ``is true`` keeps days in the state (flag 1). ``is false`` keeps days labeled as
+    any other state (flag -1). Unlabeled days (flag 0) match neither.
+    """
+    if operator not in REGIME_OPERATORS:
+        raise ValueError(f"Unsupported regime operator: {operator}")
+    if "EntryReady" in refine_frame.columns:
+        ready = refine_frame["EntryReady"].fillna(False).astype(bool)
+    else:
+        ready = pd.Series(True, index=refine_frame.index)
+    return refine_frame.assign(
+        Buy=refine_frame["Buy"] & (flag == (1 if operator == "is true" else -1)),
+        EntryReady=ready & (flag != 0),
+    )
+
+
+def regime_trial_metrics(
+    refine_frame: pd.DataFrame,
+    flags: pd.DataFrame,
+    spec,
+    days: int,
+    profit: int,
+    is_long: bool,
+    *,
+    operator: str = "is true",
+    pnl_column: str | None = None,
+    include_yearly: bool = True,
+) -> dict:
+    """Ranking metrics for the strategy with one market regime condition added to entry."""
+    executed = bt.execute_strategy(
+        _regime_trial_frame(refine_frame, flags[spec.id], operator),
+        days,
+        profit,
+        is_long,
+        pnl_column=pnl_column,
+    )
+    return bt._ranking_metrics(executed, include_yearly=include_yearly)
+
+
+def regime_trial_metrics_full_path(
+    strategy: SavedStrategy,
+    spec,
+    *,
+    years: int,
+    symbol_data: dict | None,
+    operator: str = "is true",
+    in_sample_end: pd.Timestamp | None = None,
+    strategy_resolver: StrategyResolver | None = None,
+    labels: dict[str, str] | None = None,
+    pnl_column: str | None = None,
+    include_yearly: bool = True,
+) -> dict:
+    """Same, through the whole confirm-symbol path. For states that live on each symbol (ATR)."""
+    trial = _clone_strategy_with_conditions(
+        strategy,
+        [
+            *strategy.conditions,
+            BuilderCondition(left=spec.id, operator=operator, right="", logic="AND"),
+        ],
+    )
+    frame, days, profit, is_long, pnl_col = prepare_builder_refine_frame(
+        trial,
+        years=years,
+        symbol_data=symbol_data,
+        in_sample_end=in_sample_end,
+        strategy_resolver=strategy_resolver,
+        labels=labels,
+    )
+    executed = bt.execute_strategy(frame, days, profit, is_long, pnl_column=pnl_col or pnl_column)
+    return bt._ranking_metrics(executed, include_yearly=include_yearly)
+
+
+def regime_needs_full_path(strategy: SavedStrategy, spec) -> bool:
+    """Confirm symbols are evaluated per symbol, so a per-symbol state cannot be a post-merge filter."""
+    return bool(strategy.confirm_symbols) and not spec.market_wide
+
+
+def builder_regime_tryout(
+    strategy: SavedStrategy,
+    refine_frame: pd.DataFrame,
+    days: int,
+    profit: int,
+    is_long: bool,
+    *,
+    years: int = 25,
+    pnl_column: str | None = None,
+    in_sample_end: pd.Timestamp | None = None,
+    strategy_resolver: StrategyResolver | None = None,
+    labels: dict[str, str] | None = None,
+) -> pd.DataFrame:
+    """Add each market regime condition to the draft's entry conditions, one at a time, and rank them.
+
+    Every state is tried both ways: "is" (only that state) and "is not" (every other
+    labeled state). Regimes are ANDed with the entry rule, so each row is the strategy
+    restricted that way. States the draft already uses are skipped.
+    """
+    from api.market_regimes import REGIME_INDICATOR_SPECS, regime_flag_frame
+    from api.sample_window import slice_symbol_data_to_end
+
+    used = {condition.left for condition in strategy.conditions}
+    specs = [spec for spec in REGIME_INDICATOR_SPECS if spec.id not in used]
+    flags = regime_flag_frame(refine_frame, tuple(specs))
+    symbol_data = None
+    rows: list[dict] = []
+    for spec in specs:
+        for operator in REGIME_OPERATORS:
+            if regime_needs_full_path(strategy, spec):
+                if symbol_data is None:
+                    needed = list(
+                        dict.fromkeys([strategy.symbol.strip().upper(), *strategy.confirm_symbols])
+                    )
+                    symbol_data = bt.load_symbol_dataset(needed, years=years)
+                    if in_sample_end is not None:
+                        symbol_data = slice_symbol_data_to_end(symbol_data, in_sample_end)
+                metrics = regime_trial_metrics_full_path(
+                    strategy,
+                    spec,
+                    years=years,
+                    symbol_data=symbol_data,
+                    operator=operator,
+                    strategy_resolver=strategy_resolver,
+                    labels=labels,
+                    pnl_column=pnl_column,
+                )
+            else:
+                metrics = regime_trial_metrics(
+                    refine_frame,
+                    flags,
+                    spec,
+                    days,
+                    profit,
+                    is_long,
+                    operator=operator,
+                    pnl_column=pnl_column,
+                )
+            rows.append(
+                {
+                    "Buysell": "Buy",
+                    "Regime": spec.title,
+                    "Operator": _REGIME_OPERATOR_LABEL[operator],
+                    "State": spec.bucket_label,
+                    "RegimeId": spec.id,
+                    "RegimeOperator": operator,
+                    "PnL": metrics["PnL"],
+                    "MaxDD": metrics["MaxDD"],
+                    "Trades": metrics["Trades"],
+                    "%Pstv": metrics["%Pstv"],
+                    "CAGR": metrics["CAGR"],
+                    "Sharpe": metrics["Sharpe"],
+                    "Sortino": metrics["Sortino"],
+                    "Yearly": metrics["Yearly"],
+                }
+            )
+    if not rows:
+        return pd.DataFrame(rows)
+    return bt._format_ranking_results(pd.DataFrame(rows))
+
+
 def backtest_builder_signal_combinations(
     primary: SavedStrategy,
     secondary: SavedStrategy,

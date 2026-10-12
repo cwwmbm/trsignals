@@ -25,6 +25,7 @@ from api.schemas import (
     PortfolioSimulateRequest,
     PortfolioRegimeRequest,
     QuoteResponse,
+    RegimeAnalyzeRequest,
     SavePortfolioRequest,
     UpdatePortfolioRequest,
     UpdateStrategyRequest,
@@ -45,6 +46,7 @@ from api.services import (
     run_portfolio_shapley,
     run_portfolio_regimes,
     run_portfolio_simulation,
+    run_regime_analysis,
     run_signal_combo_sweep,
     run_single_backtest,
     run_symbol_confirm_detail,
@@ -90,7 +92,7 @@ def signals() -> list[dict]:
 
 @app.get("/indicators")
 def indicators(builder_only: bool = True) -> list[dict]:
-    return list_indicators(builder_only=builder_only)
+    return list_indicators(builder_only=builder_only, include_regimes=False)
 
 
 @app.get("/config")
@@ -115,6 +117,11 @@ def _handle_errors(fn, request):
         return fn(request)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/regimes/analyze")
+def regimes_analyze(request: RegimeAnalyzeRequest) -> dict:
+    return _handle_errors(run_regime_analysis, request)
 
 
 @app.post("/backtests/single")

@@ -2,7 +2,8 @@ export type BuilderRefineMode =
   | "signal-combo-sweep"
   | "symbol-confirm-sweep"
   | "hold-days-sweep"
-  | "indicator-sweep";
+  | "indicator-sweep"
+  | "market-regime-sweep";
 
 export type BuilderRefineModeOption = {
   id: BuilderRefineMode;
@@ -15,6 +16,12 @@ export const BUILDER_REFINE_MODES: BuilderRefineModeOption[] = [
     id: "indicator-sweep",
     label: "Indicator sweep",
     description: "Layer indicator threshold filters onto the draft strategy and rank results.",
+  },
+  {
+    id: "market-regime-sweep",
+    label: "Market Regime Sweep",
+    description:
+      "Restrict the draft strategy to each market regime state, and to everything but it, and rank the results. Indicator sweeps never include regimes.",
   },
   {
     id: "signal-combo-sweep",
@@ -40,5 +47,7 @@ export function isSymbolConfirmRefineMode(mode: BuilderRefineMode) {
 }
 
 export function refineModesForCustomData(): BuilderRefineModeOption[] {
-  return BUILDER_REFINE_MODES.filter((item) => item.id !== "symbol-confirm-sweep");
+  return BUILDER_REFINE_MODES.filter(
+    (item) => item.id !== "symbol-confirm-sweep" && item.id !== "market-regime-sweep",
+  );
 }

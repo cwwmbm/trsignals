@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from api.market_regimes import (
+    analyze_strategy_regime,
     atr_regime_from_row,
     compute_market_regime_sharpe,
     current_market_regimes,
@@ -272,3 +273,45 @@ def detailed_backtest_payload(
         payload["market_regime_current"] = current_market_regimes(data, regime_calendar)
         payload["market_regime_coverage"] = regime_coverage(scored, regime_calendar)
     return payload
+
+
+def regime_request_payload(
+    data: pd.DataFrame,
+    *,
+    mode: str,
+    regime_id: str | None,
+    years: int,
+    periods_per_year: int = 252,
+    is_intraday: bool = False,
+    portfolio_equity: bool = False,
+) -> dict:
+    """Regime figures for an executed backtest, computed only when asked for.
+
+    ``overview`` is everything the Market regimes charts need. ``analyze`` is the
+    year-by-year breakdown of one regime. The backtest payload itself carries none
+    of this, because it is the slow part.
+    """
+    calendar = load_regime_calendar(years)
+    if mode == "overview":
+        scored = performance_frame(data)
+        return {
+            "market_regime_sharpe": compute_market_regime_sharpe(
+                scored, calendar, periods_per_year=periods_per_year
+            ),
+            "market_regime_current": current_market_regimes(data, calendar),
+            "market_regime_coverage": regime_coverage(scored, calendar),
+            "trades": trade_payload(
+                data,
+                is_intraday=is_intraday,
+                portfolio_equity=portfolio_equity,
+                include_regimes=True,
+                regime_calendar=calendar,
+            ),
+        }
+    if mode == "analyze":
+        return {
+            "regime_analysis": analyze_strategy_regime(
+                data, calendar, str(regime_id or ""), periods_per_year=periods_per_year
+            )
+        }
+    raise ValueError(f"Unknown regime mode: {mode}")

@@ -11,6 +11,7 @@ import {
   updateStrategy,
   type CustomDatasetInfo,
   type DetailedResult,
+  type RegimeSource,
   type SaveStrategyPayload,
   type SavedStrategy,
   type SweepResult,
@@ -45,6 +46,7 @@ export function StrategyBuilderSection({
 
   const [builderResult, setBuilderResult] = useState<DetailedResult | SweepResult | undefined>()
   const [builderResultsVersion, setBuilderResultsVersion] = useState(0)
+  const [builderRegimeSource, setBuilderRegimeSource] = useState<RegimeSource | undefined>()
   const [builderSelectedSweepRow, setBuilderSelectedSweepRow] = useState<
     Record<string, unknown> | undefined
   >()
@@ -59,8 +61,9 @@ export function StrategyBuilderSection({
 
   const mutation = useMutation({
     mutationFn: runBuilderBacktest,
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       setBuilderResult(data)
+      setBuilderRegimeSource({ path: '/backtests/builder', payload: variables })
       setBuilderResultsVersion((v) => v + 1)
     },
   })
@@ -288,6 +291,7 @@ export function StrategyBuilderSection({
       <MemoizedStrategyBuilderResultsPane
         builderResult={builderResult}
         builderResultsVersion={builderResultsVersion}
+        builderRegimeSource={builderRegimeSource}
         builderSelectedSweepRow={builderSelectedSweepRow}
         onBuilderSelectSweepRow={setBuilderSelectedSweepRow}
         refineResult={refineResult}

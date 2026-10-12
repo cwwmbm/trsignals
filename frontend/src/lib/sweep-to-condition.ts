@@ -13,6 +13,20 @@ export function isIndicatorSweepRow(row: Record<string, unknown>): boolean {
   );
 }
 
+/** A Market regime sweep row. Its `RegimeId` is the `Regime_<regime>_<state>` condition id. */
+export function isRegimeSweepRow(row: Record<string, unknown>): boolean {
+  return typeof row.RegimeId === "string" && row.RegimeId.trim() !== "";
+}
+
+/** "is true" keeps only that state. "is false" keeps every other labeled state. */
+export function regimeSweepRowOperator(row: Record<string, unknown>): "is true" | "is false" {
+  return row.RegimeOperator === "is false" ? "is false" : "is true";
+}
+
+export function regimeSweepRowId(row: Record<string, unknown>): string | null {
+  return isRegimeSweepRow(row) ? String(row.RegimeId).trim() : null;
+}
+
 export function isHoldDaysSweepRow(row: Record<string, unknown>): boolean {
   return row.Days !== undefined && row.Prf !== undefined;
 }
@@ -91,6 +105,7 @@ export function canAddSweepRowToBuilder(
   indicators: IndicatorInfo[],
 ): boolean {
   if (holdDaysSweepRowValues(row)) return true;
+  if (isRegimeSweepRow(row)) return true;
   if (isStrategyComboSweepRow(row)) return true;
   if (isSymbolConfirmSweepRow(row)) return symbolConfirmSweepRowValues(row) !== null;
   if (!isIndicatorSweepRow(row)) return false;
@@ -140,6 +155,7 @@ export function sweepRowToConditionRow(
 
 export function sweepRowAddLabel(row: Record<string, unknown>): string {
   if (isHoldDaysSweepRow(row)) return "Apply hold and profit";
+  if (isRegimeSweepRow(row)) return "Add to market regimes";
   if (isStrategyComboSweepRow(row)) return "Add strategy condition";
   if (isSymbolConfirmSweepRow(row)) {
     const value = symbolConfirmSweepRowValues(row);

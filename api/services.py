@@ -8,11 +8,15 @@ from api.builder_strategy import (
     _run_confirm_embedded_buy_threshold,
     backtest_builder_signal_sweep,
     builder_indicator_tryout,
+    builder_regime_tryout,
     builder_signal_callable,
     combine_builder_buy_masks,
     draft_to_saved_strategy,
     merge_strategy_entry_ready,
     prepare_builder_refine_frame,
+    regime_needs_full_path,
+    regime_trial_metrics,
+    regime_trial_metrics_full_path,
 )
 from api.indicator_catalog import is_market_wide_indicator, list_indicators
 from api.proxy_symbol import proxy_column, with_proxy_description
@@ -22,7 +26,7 @@ from api.sample_window import (
     slice_frame_to_end,
     slice_symbol_data_to_end,
 )
-from api.serializers import dataframe_records, detailed_backtest_payload
+from api.serializers import dataframe_records, detailed_backtest_payload, regime_request_payload
 from api.signal_registry import get_signal, resolve_signal
 from api.strategy_compiler import compile_buy_mask, compile_sell_mask, format_condition_preview
 from api.scan_service import execute_saved_strategy
@@ -101,6 +105,27 @@ def _with_runtime_options(request, fn):
         _restore_runtime_options(original)
 
 
+def _regime_response(request, executed, **options) -> dict | None:
+    """Regime figures when the request asks for them, otherwise None."""
+    mode = getattr(request, "regime_mode", None)
+    if not mode:
+        return None
+    return regime_request_payload(
+        executed,
+        mode=mode,
+        regime_id=getattr(request, "regime_id", None),
+        years=request.years,
+        **options,
+    )
+
+
+def run_regime_analysis(request) -> dict:
+    """Days per state and state changes per year for one market regime."""
+    from api.market_regimes import analyze_market_regime, load_regime_calendar
+
+    return analyze_market_regime(request.regime_id, load_regime_calendar(request.years))
+
+
 def run_single_backtest(request) -> dict:
     def _run():
         signal = resolve_signal(request.signal.model_dump())
@@ -109,7 +134,10 @@ def run_single_backtest(request) -> dict:
             data, request.symbol
         )
         executed = bt.execute_strategy(data, days, profit, is_long)
-        return detailed_backtest_payload(executed, days, profit, description, years=request.years)
+        regimes = _regime_response(request, executed)
+        if regimes is not None:
+            return regimes
+        return detailed_backtest_payload(executed, days, profit, description)
 
     return _with_runtime_options(request, _run)
 
@@ -148,7 +176,10 @@ def run_symbol_confirm_detail(request) -> dict:
             request.confirm_symbols,
             years=request.years,
         )
-        return detailed_backtest_payload(data, days, profit, description, years=request.years)
+        regimes = _regime_response(request, data)
+        if regimes is not None:
+            return regimes
+        return detailed_backtest_payload(data, days, profit, description)
 
     return _with_runtime_options(request, _run)
 
@@ -262,6 +293,14 @@ def run_builder_backtest(request) -> dict:
 
     if custom_dataset is not None:
         executed = execute_saved_strategy(data, strategy, years=request.years)
+        regimes = _regime_response(
+            request,
+            executed,
+            periods_per_year=custom_dataset.periods_per_year,
+            is_intraday=True,
+        )
+        if regimes is not None:
+            return regimes
         final_description = description
         return detailed_backtest_payload(
             executed,
@@ -270,18 +309,19 @@ def run_builder_backtest(request) -> dict:
             final_description,
             periods_per_year=custom_dataset.periods_per_year,
             is_intraday=True,
-            years=request.years,
         )
 
     def _run():
         executed = execute_saved_strategy(data, strategy, years=request.years)
+        regimes = _regime_response(request, executed)
+        if regimes is not None:
+            return regimes
         final_description = with_proxy_description(description, strategy)
         return detailed_backtest_payload(
             executed,
             strategy.hold_days,
             strategy.profit,
             final_description,
-            years=request.years,
         )
 
     return _with_builder_hold_on_buy(request, custom_dataset, _run)
@@ -567,6 +607,65 @@ def _evaluate_refine_row_metrics(
             )
         return bt._ranking_metrics(executed, include_yearly=True)
 
+    if mode == "market-regime-sweep":
+        from api.market_regimes import regime_flag_frame, regime_spec
+
+        spec = regime_spec(str(row.get("RegimeId") or ""))
+        if spec is None:
+            raise ValueError("Market regime outcome requires a known RegimeId")
+        operator = str(row.get("RegimeOperator") or "is true")
+        if operator not in {"is true", "is false"}:
+            raise ValueError("Market regime outcome requires RegimeOperator is true or is false")
+        if regime_needs_full_path(primary, spec):
+            cache_key = ("confirm_symbol_data", use_end)
+            symbol_data = cache.get(cache_key)
+            if symbol_data is None:
+                needed = list(
+                    dict.fromkeys([primary.symbol.strip().upper(), *primary.confirm_symbols])
+                )
+                symbol_data = bt.load_symbol_dataset(needed, years=years)
+                if use_end is not None:
+                    symbol_data = slice_symbol_data_to_end(symbol_data, use_end)
+                cache[cache_key] = symbol_data
+            return regime_trial_metrics_full_path(
+                primary,
+                spec,
+                years=years,
+                symbol_data=symbol_data,
+                operator=operator,
+                strategy_resolver=get_strategy_by_id,
+                labels=labels,
+                pnl_column=pnl_col,
+            )
+        cache_key = ("refine_frame", use_end)
+        packed = cache.get(cache_key)
+        if packed is None:
+            packed = prepare_builder_refine_frame(
+                primary,
+                years=years,
+                data=data,
+                in_sample_end=use_end,
+                strategy_resolver=get_strategy_by_id,
+                labels=labels,
+            )
+            cache[cache_key] = packed
+        refine_frame, days, profit, is_long, frame_pnl = packed
+        flags_key = ("regime_flags", use_end)
+        flags = cache.get(flags_key)
+        if flags is None:
+            flags = regime_flag_frame(refine_frame)
+            cache[flags_key] = flags
+        return regime_trial_metrics(
+            refine_frame,
+            flags,
+            spec,
+            days,
+            profit,
+            is_long,
+            operator=operator,
+            pnl_column=frame_pnl or pnl_col,
+        )
+
     raise ValueError(f"Unsupported refine mode: {mode}")
 
 
@@ -765,6 +864,29 @@ def run_builder_refine(request) -> dict:
                     include_vwap_sweeps=custom_dataset is not None and custom_dataset.has_vwap,
                     pnl_column=pnl_col,
                 )
+            rows = _attach_full_period_to_rows(
+                results,
+                mode=request.mode,
+                primary=primary,
+                data=data,
+                years=years,
+                labels=labels,
+            )
+            return _wrap_refine_rows(rows, full_frame, in_sample_end=in_sample_end)
+
+        if request.mode == "market-regime-sweep":
+            results = builder_regime_tryout(
+                primary,
+                refine_frame,
+                days,
+                profit,
+                is_long,
+                years=years,
+                pnl_column=pnl_col,
+                in_sample_end=in_sample_end,
+                strategy_resolver=get_strategy_by_id,
+                labels=labels,
+            )
             rows = _attach_full_period_to_rows(
                 results,
                 mode=request.mode,

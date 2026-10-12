@@ -31,7 +31,7 @@ import indicators as ind
 import numpy as np
 import pandas as pd
 
-from stats import compute_aggregate_metrics, yearly_returns
+from stats import compute_aggregate_metrics, performance_frame, yearly_returns
 
 logger = logging.getLogger(__name__)
 
@@ -874,6 +874,8 @@ class RegimeIndicatorSpec:
         self.dimension = dimension
         self.key = key
         self.market_wide = market_wide
+        self.title = title
+        self.bucket_label = bucket_label
         self.id = regime_indicator_id(dimension, key)
         self.label = f"{title} · {bucket_label}"
         prose = hint.rstrip()
@@ -1339,6 +1341,81 @@ def current_market_regimes(data: pd.DataFrame, calendar: pd.DataFrame | None) ->
     return {"as_of": as_of, "regimes": regimes, "readings": readings}
 
 
+def _trade_arrays(data: pd.DataFrame) -> dict[str, np.ndarray]:
+    """Per-bar arrays the regime metrics are built from."""
+    equity = pd.to_numeric(data["RollingPnL"], errors="coerce")
+    return {
+        "daily": equity.pct_change().replace([np.inf, -np.inf], np.nan),
+        "bar_returns": _strategy_bar_returns(equity),
+        "long_in": _bool_column(data, "LongTradeIn"),
+        "hold": _bool_column(data, "HoldLong"),
+        "long_out": _bool_column(data, "LongTradeOut"),
+        "trade_pnl": (
+            pd.to_numeric(data["TradePnL"], errors="coerce").to_numpy(dtype=float)
+            if "TradePnL" in data.columns
+            else np.full(len(data), np.nan)
+        ),
+        "days_in_trade": (
+            pd.to_numeric(data["DaysInTrade"], errors="coerce").to_numpy(dtype=float)
+            if "DaysInTrade" in data.columns
+            else np.full(len(data), np.nan)
+        ),
+    }
+
+
+def _bucket_rows(
+    data: pd.DataFrame,
+    arrays: dict[str, Any],
+    labels: pd.Series,
+    keys: tuple[str, ...],
+    periods_per_year: int,
+) -> list[dict[str, Any]]:
+    """One metrics row per bucket for trades entered in that bucket."""
+    long_out = arrays["long_out"]
+    trade_pnl = arrays["trade_pnl"]
+    held_as = _hold_entry_labels(
+        labels.to_numpy(dtype=object), arrays["long_in"], arrays["hold"], long_out
+    )
+    rows: list[dict[str, Any]] = []
+    for key in keys:
+        in_bucket = labels == key
+        finite_days = arrays["daily"][in_bucket]
+        finite_days = finite_days[np.isfinite(finite_days.to_numpy(dtype=float))]
+        trade_bars = held_as == key
+        metrics = _summary_metrics_of_trades(
+            data["Date"], arrays["bar_returns"], trade_bars, periods_per_year
+        )
+        closed = trade_bars & long_out & np.isfinite(trade_pnl)
+        avg_trade = float(np.mean(trade_pnl[closed])) if np.any(closed) else None
+        scored = regime_score(
+            metrics["score_sortino"],
+            avg_trade,
+            metrics["score_max_drawdown"],
+            metrics["year_returns"],
+        )
+        rows.append(
+            {
+                "key": key,
+                "sharpe": metrics["sharpe"],
+                "sortino": metrics["sortino"],
+                "days": int(len(finite_days)),
+                "max_drawdown": metrics["max_drawdown"],
+                "cagr": metrics["cagr"],
+                "calmar": metrics["calmar"],
+                "regime_score": scored["score"],
+                "regime_score_sortino": scored["sortino"],
+                "regime_score_return": scored["return"],
+                "regime_score_drawdown": scored["drawdown"],
+                "regime_score_robustness": scored["robustness"],
+                "trades": int(np.count_nonzero(closed)),
+                "profitable": int(np.count_nonzero(closed & (trade_pnl > 0))),
+                "avg_trade_return": avg_trade,
+                "exposure": _exposure_per_day(trade_pnl, arrays["days_in_trade"], closed),
+            }
+        )
+    return rows
+
+
 def compute_market_regime_sharpe(
     data: pd.DataFrame,
     calendar: pd.DataFrame | None,
@@ -1353,56 +1430,12 @@ def compute_market_regime_sharpe(
     `days` is still the number of bars whose own label is the regime, used to tell a
     missing calendar from an empty bucket.
     """
-    equity = pd.to_numeric(data["RollingPnL"], errors="coerce")
-    daily = equity.pct_change().replace([np.inf, -np.inf], np.nan)
-    bar_returns = _strategy_bar_returns(equity)
-    long_in = _bool_column(data, "LongTradeIn")
-    hold = _bool_column(data, "HoldLong")
-    long_out = _bool_column(data, "LongTradeOut")
-    trade_pnl = (
-        pd.to_numeric(data["TradePnL"], errors="coerce").to_numpy(dtype=float)
-        if "TradePnL" in data.columns
-        else np.full(len(data), np.nan)
-    )
+    arrays = _trade_arrays(data)
     label_sets = _regime_label_sets(data, calendar)
-
-    payload: dict[str, list[dict[str, Any]]] = {}
-    for dimension, keys in _SHARPE_BUCKETS.items():
-        labels = label_sets[dimension]
-        held_as = _hold_entry_labels(labels.to_numpy(dtype=object), long_in, hold, long_out)
-        rows: list[dict[str, Any]] = []
-        for key in keys:
-            in_bucket = labels == key
-            finite_days = daily[in_bucket]
-            finite_days = finite_days[np.isfinite(finite_days.to_numpy(dtype=float))]
-            trade_bars = held_as == key
-            metrics = _summary_metrics_of_trades(data["Date"], bar_returns, trade_bars, periods_per_year)
-            closed = trade_bars & long_out & np.isfinite(trade_pnl)
-            avg_trade = float(np.mean(trade_pnl[closed])) if np.any(closed) else None
-            scored = regime_score(
-                metrics["score_sortino"],
-                avg_trade,
-                metrics["score_max_drawdown"],
-                metrics["year_returns"],
-            )
-            rows.append(
-                {
-                    "key": key,
-                    "sharpe": metrics["sharpe"],
-                    "sortino": metrics["sortino"],
-                    "days": int(len(finite_days)),
-                    "max_drawdown": metrics["max_drawdown"],
-                    "cagr": metrics["cagr"],
-                    "calmar": metrics["calmar"],
-                    "regime_score": scored["score"],
-                    "regime_score_sortino": scored["sortino"],
-                    "regime_score_return": scored["return"],
-                    "regime_score_drawdown": scored["drawdown"],
-                    "regime_score_robustness": scored["robustness"],
-                }
-            )
-        payload[dimension] = rows
-    return payload
+    return {
+        dimension: _bucket_rows(data, arrays, label_sets[dimension], keys, periods_per_year)
+        for dimension, keys in _SHARPE_BUCKETS.items()
+    }
 
 
 _BOOK_METRIC_FIELDS = (
@@ -1651,6 +1684,40 @@ def ensure_regime_indicator_columns(data: pd.DataFrame, conditions: list[dict]) 
         data[spec.id] = _flag_series(labels[spec.dimension], spec.key)
 
 
+def is_regime_indicator_id(value) -> bool:
+    return isinstance(value, str) and value in REGIME_INDICATOR_IDS
+
+
+def regime_spec(indicator_id: str) -> RegimeIndicatorSpec | None:
+    return _REGIME_SPEC_BY_ID.get(indicator_id)
+
+
+def regime_flag_frame(
+    data: pd.DataFrame,
+    specs: tuple[RegimeIndicatorSpec, ...] | None = None,
+) -> pd.DataFrame:
+    """Flag column per regime state, labels computed once.
+
+    Same values as ``ensure_regime_indicator_columns`` (1 in the state, -1 in another
+    defined state, 0 when unlabeled), for many states at a time.
+    """
+    specs = REGIME_INDICATOR_SPECS if specs is None else specs
+    if "Date" not in data.columns:
+        raise ValueError("Regime conditions need a Date column")
+    calendar = None
+    if any(spec.dimension != "atr" for spec in specs):
+        calendar = load_regime_calendar(_years_covering_dates(data["Date"]))
+        if calendar is None:
+            raise ValueError(
+                "Market regime calendar is unavailable, so regime conditions cannot be evaluated"
+            )
+    labels = _regime_label_sets(data, calendar)
+    return pd.DataFrame(
+        {spec.id: _flag_series(labels[spec.dimension], spec.key) for spec in specs},
+        index=data.index,
+    )
+
+
 def _fetch_regime_calendar(years: int) -> pd.DataFrame:
     import getdata as dt
 
@@ -1698,3 +1765,327 @@ def load_regime_calendar(years: int) -> pd.DataFrame | None:
         return None
     _CALENDAR_CACHE[key] = frame
     return frame
+
+
+# --- Regime analysis: days per state per year, regime changes, strategy overlay ---
+
+SHOCK_GRANULAR_KEYS = (
+    "lt_neg_2",
+    "neg_2_neg_15",
+    "neg_15_neg_1",
+    "neg_1_neg_05",
+    "neg_05_0",
+    "0_pos_05",
+    "pos_05_pos_1",
+    "pos_1_pos_15",
+    "pos_15_pos_2",
+    "gt_2",
+)
+SHOCK_GRANULAR_LABELS = {
+    "lt_neg_2": "< -2",
+    "neg_2_neg_15": "-2 to -1.5",
+    "neg_15_neg_1": "-1.5 to -1",
+    "neg_1_neg_05": "-1 to -0.5",
+    "neg_05_0": "-0.5 to 0",
+    "0_pos_05": "0 to 0.5",
+    "pos_05_pos_1": "0.5 to 1",
+    "pos_1_pos_15": "1 to 1.5",
+    "pos_15_pos_2": "1.5 to 2",
+    "gt_2": "> 2",
+}
+
+
+def classify_shock_granular(value) -> str | None:
+    """Ten buckets that refine the three shock buckets exactly.
+
+    -1 and 1 stay in the middle bucket, as in ``classify_rate_shock``, so -1 is in
+    -1 to -0.5 and 1 is in 0.5 to 1. The other inner edges below zero belong to
+    the upper bucket and those above zero to the lower bucket. Zero is in 0 to 0.5.
+    """
+    number = _finite(value)
+    if number is None:
+        return None
+    keys = SHOCK_GRANULAR_KEYS
+    if number < -2:
+        return keys[0]
+    if number < -1.5:
+        return keys[1]
+    if number < -1:
+        return keys[2]
+    if number < -0.5:
+        return keys[3]
+    if number < 0:
+        return keys[4]
+    if number <= 0.5:
+        return keys[5]
+    if number <= 1:
+        return keys[6]
+    if number <= 1.5:
+        return keys[7]
+    if number <= 2:
+        return keys[8]
+    return keys[9]
+
+
+# Dimensions whose three buckets are the shock buckets, with their calendar column.
+_SHOCK_GRANULAR_COLUMN = {
+    dimension: _READING_COLUMN[dimension]
+    for dimension, keys in _SHARPE_BUCKETS.items()
+    if keys is RATE_SHOCK_KEYS
+}
+_DIMENSION_META_BY_ID = {item["id"]: item for item in _REGIME_DIMENSION_META}
+
+
+def _dimension_meta(dimension_id: str | None) -> dict[str, Any]:
+    meta = _DIMENSION_META_BY_ID.get(str(dimension_id or ""))
+    if meta is None:
+        raise ValueError(f"Unknown regime: {dimension_id}")
+    return meta
+
+
+def _state_defs(meta: dict[str, Any]) -> list[dict[str, str]]:
+    return [{"key": key, "label": label} for key, label in meta["labels"].items()]
+
+
+def _calendar_day_labels(dimension: str, calendar: pd.DataFrame) -> pd.Series:
+    """Regime label for every calendar session, indexed by date."""
+    frame = pd.DataFrame({"Date": calendar.index})
+    labels = _regime_label_sets(frame, calendar)[dimension]
+    return pd.Series(labels.to_numpy(dtype=object), index=calendar.index)
+
+
+def _calendar_day_granular(dimension: str, calendar: pd.DataFrame) -> pd.Series:
+    column = _SHOCK_GRANULAR_COLUMN[dimension]
+    if column not in calendar.columns:
+        return pd.Series([None] * len(calendar), index=calendar.index, dtype="object")
+    return calendar[column].map(classify_shock_granular).astype(object)
+
+
+def _frame_day_labels(data: pd.DataFrame, dimension: str) -> pd.Series:
+    """Per-day label from the traded symbol's own bars (ATR). Last bar of a day wins."""
+    labels = _regime_label_sets(data, None)[dimension]
+    days = pd.DatetimeIndex([_normalize_timestamp(value) for value in data["Date"]])
+    series = pd.Series(labels.to_numpy(dtype=object), index=days)
+    return series[~series.index.duplicated(keep="last")].sort_index()
+
+
+def _within(series: pd.Series, start, end) -> pd.Series:
+    if start is None or end is None:
+        return series
+    return series[(series.index >= start) & (series.index <= end)]
+
+
+def _year_table(day_labels: pd.Series, keys: tuple[str, ...] | list[str]) -> dict[int, dict[str, Any]]:
+    """Sessions per state and state changes per calendar year.
+
+    A change is counted in the year of the session that moves to a different
+    state than the previous labeled session, so a change on the first session of
+    January belongs to that January. Unlabeled sessions are skipped, not counted
+    as a state.
+    """
+    table: dict[int, dict[str, Any]] = {}
+    previous = None
+    for stamp, label in zip(day_labels.index, day_labels.to_numpy(dtype=object)):
+        if not isinstance(label, str) or not label:
+            continue
+        row = table.setdefault(
+            int(stamp.year),
+            {"days": {key: 0 for key in keys}, "total_days": 0, "changes": 0},
+        )
+        if label in row["days"]:
+            row["days"][label] += 1
+        row["total_days"] += 1
+        if previous is not None and label != previous:
+            row["changes"] += 1
+        previous = label
+    return table
+
+
+def _empty_year_row(keys) -> dict[str, Any]:
+    return {"days": {key: 0 for key in keys}, "total_days": 0, "changes": 0}
+
+
+def analyze_market_regime(dimension_id: str, calendar: pd.DataFrame | None) -> dict[str, Any]:
+    """Days in each state and number of state changes, per calendar year."""
+    meta = _dimension_meta(dimension_id)
+    if not meta["market_wide"]:
+        raise ValueError(f"{meta['title']} depends on the traded symbol, so it has no market-wide history")
+    if calendar is None or calendar.empty:
+        raise ValueError("Market regime calendar is unavailable")
+    keys = tuple(meta["labels"])
+    day_labels = _calendar_day_labels(dimension_id, calendar)
+    table = _year_table(day_labels, keys)
+    labeled = day_labels[[isinstance(value, str) and bool(value) for value in day_labels.to_numpy(dtype=object)]]
+    return {
+        "regime": {"id": dimension_id, "title": meta["title"], "hint": meta["hint"]},
+        "states": _state_defs(meta),
+        "rows": [{"year": year, **table[year]} for year in sorted(table)],
+        "coverage": (
+            None
+            if labeled.empty
+            else {
+                "start": labeled.index.min().strftime("%Y-%m-%d"),
+                "end": labeled.index.max().strftime("%Y-%m-%d"),
+            }
+        ),
+    }
+
+
+def _closed_trades_by_entry(data: pd.DataFrame, labels: pd.Series) -> list[tuple[int, str | None, float]]:
+    """(entry year, entry-bar label, trade return) for each closed trade."""
+    long_in = _bool_column(data, "LongTradeIn")
+    long_out = _bool_column(data, "LongTradeOut")
+    pnl = (
+        pd.to_numeric(data["TradePnL"], errors="coerce").to_numpy(dtype=float)
+        if "TradePnL" in data.columns
+        else np.full(len(data), np.nan)
+    )
+    years = pd.to_datetime(data["Date"]).dt.year.to_numpy()
+    values = labels.to_numpy(dtype=object)
+    trades: list[tuple[int, str | None, float]] = []
+    entry: int | None = None
+    for i in range(len(data)):
+        if long_in[i]:
+            entry = i
+        if long_out[i] and entry is not None:
+            if np.isfinite(pnl[i]):
+                label = values[entry]
+                trades.append(
+                    (int(years[entry]), label if isinstance(label, str) and label else None, float(pnl[i]))
+                )
+            entry = None
+    return trades
+
+
+def _base_regime_score(data: pd.DataFrame, arrays: dict[str, Any], periods_per_year: int) -> float | None:
+    if "DaysInTrade" in data.columns:
+        days_in_trade = pd.to_numeric(data["DaysInTrade"], errors="coerce").to_numpy(dtype=float)
+    else:
+        days_in_trade = np.full(len(data), np.nan)
+    closed = arrays["long_out"] & np.isfinite(arrays["trade_pnl"])
+    base = _book_metrics_for_mask(
+        data["Date"],
+        arrays["bar_returns"],
+        np.ones(len(data), dtype=bool),
+        arrays["trade_pnl"],
+        days_in_trade,
+        closed,
+        periods_per_year,
+    )
+    return _finite_metric(base["regime_score"])
+
+
+def analyze_strategy_regime(
+    data: pd.DataFrame,
+    calendar: pd.DataFrame | None,
+    dimension_id: str,
+    *,
+    periods_per_year: int = 252,
+) -> dict[str, Any]:
+    """One regime viewed through one executed strategy.
+
+    Per calendar year: sessions in each state, state changes, closed trades entered
+    in each state (and how many were profitable), all trades entered that year,
+    and the strategy's return for the year. Trades belong to the state on their
+    entry bar and to the year of that bar. Below that, the regime split into finer
+    states (shock regimes only) with each state's regime score.
+    """
+    meta = _dimension_meta(dimension_id)
+    is_atr = dimension_id == "atr"
+    if data is None or data.empty or "RollingPnL" not in data.columns or "Date" not in data.columns:
+        raise ValueError("No backtest data to analyze")
+    if not is_atr and (calendar is None or calendar.empty):
+        raise ValueError("Market regime calendar is unavailable")
+
+    scored = performance_frame(data)
+    stamps = pd.to_datetime(scored["Date"], errors="coerce").dropna()
+    if stamps.empty:
+        raise ValueError("No backtest data to analyze")
+    start = stamps.min().normalize()
+    end = stamps.max().normalize()
+
+    keys = tuple(meta["labels"])
+    day_labels = _frame_day_labels(data, dimension_id) if is_atr else _calendar_day_labels(dimension_id, calendar)
+    period_labels = _within(day_labels, start, end)
+    entry_labels = _regime_label_sets(data, calendar)[dimension_id]
+    returns = yearly_returns(scored)
+    rows = _strategy_year_rows(data, period_labels, entry_labels, keys, returns)
+
+    arrays = _trade_arrays(data)
+    refined = dimension_id in _SHOCK_GRANULAR_COLUMN
+    if refined:
+        column = _SHOCK_GRANULAR_COLUMN[dimension_id]
+        fine_keys = SHOCK_GRANULAR_KEYS
+        fine_labels = SHOCK_GRANULAR_LABELS
+        fine_entry = _calendar_label_series(data["Date"], calendar, column, classify_shock_granular)
+        fine_days = _within(_calendar_day_granular(dimension_id, calendar), start, end)
+        fine_rows = _strategy_year_rows(data, fine_days, fine_entry, fine_keys, returns)
+    else:
+        fine_keys = keys
+        fine_labels = dict(meta["labels"])
+        fine_entry = entry_labels
+        fine_days = period_labels
+        fine_rows = rows
+    day_counts = fine_days.value_counts()
+    states = []
+    for row in _bucket_rows(data, arrays, fine_entry, fine_keys, periods_per_year):
+        states.append(
+            {
+                **row,
+                "label": fine_labels[row["key"]],
+                "days": int(day_counts.get(row["key"], 0)),
+            }
+        )
+
+    return {
+        "regime": {"id": dimension_id, "title": meta["title"], "hint": meta["hint"]},
+        "states": _state_defs(meta),
+        "rows": rows,
+        "period": {"start": start.strftime("%Y-%m-%d"), "end": end.strftime("%Y-%m-%d")},
+        "granular": {
+            "refined": refined,
+            "states": states,
+            "rows": fine_rows,
+            "base_score": _base_regime_score(data, arrays, periods_per_year),
+        },
+    }
+
+
+def _strategy_year_rows(
+    data: pd.DataFrame,
+    day_labels: pd.Series,
+    entry_labels: pd.Series,
+    keys: tuple[str, ...],
+    returns: dict,
+) -> list[dict[str, Any]]:
+    """Per calendar year: days and changes for ``keys``, trades entered in each, and the year's return."""
+    table = _year_table(day_labels, keys)
+
+    def blank_trade_row() -> dict[str, Any]:
+        return {"states": {key: {"trades": 0, "profitable": 0} for key in keys}, "total": 0, "profitable": 0}
+
+    trade_years: dict[int, dict[str, Any]] = {}
+    for year, label, pnl in _closed_trades_by_entry(data, entry_labels):
+        bucket = trade_years.setdefault(year, blank_trade_row())
+        won = pnl > 0
+        bucket["total"] += 1
+        bucket["profitable"] += int(won)
+        if label in bucket["states"]:
+            bucket["states"][label]["trades"] += 1
+            bucket["states"][label]["profitable"] += int(won)
+
+    years = sorted(set(table) | set(trade_years) | {int(year) for year in returns})
+    rows = []
+    for year in years:
+        trade = trade_years.get(year) or blank_trade_row()
+        rows.append(
+            {
+                "year": year,
+                **(table.get(year) or _empty_year_row(keys)),
+                "trades": trade["states"],
+                "total_trades": trade["total"],
+                "profitable_trades": trade["profitable"],
+                "return": _finite_metric(returns[year]) if year in returns else None,
+            }
+        )
+    return rows

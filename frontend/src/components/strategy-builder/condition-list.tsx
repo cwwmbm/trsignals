@@ -32,6 +32,7 @@ import {
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { OPERATORS } from '@/lib/mock-data'
+import { isRegimeIndicatorId } from '@/lib/market-regimes'
 import {
   filterCompareIndicators,
   formatConditionOperator,
@@ -80,22 +81,39 @@ export function reorderConditions(
   return arrayMove(conditions, oldIndex, newIndex)
 }
 
+function formatConditionChain(
+  conditions: ConditionRow[],
+  indicators: IndicatorInfo[],
+  indicatorIds: Set<string>,
+  allAnd = false,
+) {
+  return conditions
+    .map((c, i) => {
+      const join = i > 0 ? ` ${allAnd ? 'AND' : c.logic} ` : ''
+      const left = indicatorLabel(indicators, c.left)
+      if (isRegimeIndicatorId(c.left) || isFlagIndicator(indicators, c.left)) {
+        return `${join}${left} ${formatConditionOperator(c.operator)}`
+      }
+      const right = indicatorIds.has(c.right) ? indicatorLabel(indicators, c.right) : c.right
+      return `${join}${left} ${c.operator} ${right}`
+    })
+    .join('')
+}
+
+/** Rule text. Market regimes lead and are ANDed with the rest: `R AND (a OR b)`. */
 export function formatConditionPreview(
   conditions: ConditionRow[],
   indicators: IndicatorInfo[],
   indicatorIds: Set<string>,
 ) {
-  return conditions
-    .map((c, i) => {
-      const left = indicatorLabel(indicators, c.left)
-      const flagCondition = isFlagIndicator(indicators, c.left)
-      if (flagCondition) {
-        return `${i > 0 ? ` ${c.logic} ` : ''}${left} ${formatConditionOperator(c.operator)}`
-      }
-      const right = indicatorIds.has(c.right) ? indicatorLabel(indicators, c.right) : c.right
-      return `${i > 0 ? ` ${c.logic} ` : ''}${left} ${c.operator} ${right}`
-    })
-    .join('')
+  const regimes = conditions.filter((c) => isRegimeIndicatorId(c.left))
+  const others = conditions.filter((c) => !isRegimeIndicatorId(c.left))
+  const regimeText = formatConditionChain(regimes, indicators, indicatorIds, true)
+  const otherText = formatConditionChain(others, indicators, indicatorIds)
+  if (!regimeText) return otherText
+  if (!otherText) return regimeText
+  const hasOr = others.slice(1).some((c) => c.logic === 'OR')
+  return hasOr ? `${regimeText} AND (${otherText})` : `${regimeText} AND ${otherText}`
 }
 
 function CompareRightToggle({

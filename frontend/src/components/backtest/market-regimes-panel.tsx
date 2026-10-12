@@ -13,7 +13,9 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { DetailedResult, MarketRegimeCoverage, MarketRegimeCurrent, MarketRegimeSharpe } from "@/api";
+import { Loader2 } from "lucide-react";
+import type { RegimeOverview, RegimeSource } from "@/api";
+import { RegimeAnalysisModal } from "@/components/backtest/regime-analysis-modal";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { requestRegimeCondition } from "@/lib/regime-condition";
@@ -31,7 +33,12 @@ import {
 } from "@/components/ui/select";
 import {
   REGIME_DIMENSIONS,
+  SCORE_DECENT,
+  SCORE_GOOD,
+  SCORE_VERY_GOOD,
+  SCORE_WEAK,
   regimeChartPoints,
+  regimeScoreColor,
   regimeIndicatorId,
   regimeIndicatorLabel,
   regimeYValue,
@@ -85,10 +92,10 @@ const METRIC_OPTIONS: { id: RegimeYMetric; label: string; subtitle: string }[] =
   },
 ];
 
-const SHARPE_WEAK = "#dc2626";
-const SHARPE_DECENT = "#f59e0b";
-const SHARPE_GOOD = "#4ade80";
-const SHARPE_VERY_GOOD = "#15803d";
+const SHARPE_WEAK = SCORE_WEAK;
+const SHARPE_DECENT = SCORE_DECENT;
+const SHARPE_GOOD = SCORE_GOOD;
+const SHARPE_VERY_GOOD = SCORE_VERY_GOOD;
 
 function formatSharpe(value: number | null) {
   if (value == null) return "—";
@@ -143,13 +150,6 @@ function exposureReturnColor(pct: number) {
   if (pct <= 0) return SHARPE_WEAK;
   if (pct <= 0.75) return SHARPE_DECENT;
   if (pct <= 1.5) return SHARPE_GOOD;
-  return SHARPE_VERY_GOOD;
-}
-
-function regimeScoreColor(value: number) {
-  if (value < 25) return SHARPE_WEAK;
-  if (value < 50) return SHARPE_DECENT;
-  if (value < 75) return SHARPE_GOOD;
   return SHARPE_VERY_GOOD;
 }
 
@@ -549,21 +549,61 @@ function RegimeBarChart({
 }
 
 export function MarketRegimesPanel({
-  sharpe,
-  trades,
-  current,
-  coverage,
+  overview,
+  source,
+  isCalculating,
+  error,
+  onCalculate,
 }: {
-  sharpe?: MarketRegimeSharpe | null;
-  trades: DetailedResult["trades"];
-  current?: MarketRegimeCurrent | null;
-  coverage?: MarketRegimeCoverage | null;
+  overview: RegimeOverview | null;
+  source?: RegimeSource | null;
+  isCalculating: boolean;
+  error: unknown;
+  onCalculate: () => void;
 }) {
+  if (!overview) {
+    return (
+      <div className="flex flex-col items-start gap-3">
+        <div>
+          <h3 className="text-sm font-semibold">Market regimes</h3>
+          <p className="text-xs text-muted-foreground">
+            {source
+              ? "Scores this strategy's trades by the market regime on the day each one was entered. It downloads market history and re-runs the backtest, so it only runs when asked."
+              : "Regime calculations are not available for this result."}
+          </p>
+        </div>
+        {source ? (
+          <Button type="button" onClick={onCalculate} disabled={isCalculating} className="gap-2">
+            {isCalculating ? <Loader2 className="size-4 animate-spin" /> : null}
+            {isCalculating ? "Calculating regimes..." : "Calculate regimes"}
+          </Button>
+        ) : null}
+        {error ? (
+          <pre className="whitespace-pre-wrap text-xs text-destructive">{String(error)}</pre>
+        ) : null}
+      </div>
+    );
+  }
+  return <MarketRegimesCharts overview={overview} source={source ?? null} />;
+}
+
+function MarketRegimesCharts({
+  overview,
+  source,
+}: {
+  overview: RegimeOverview;
+  source: RegimeSource | null;
+}) {
+  const sharpe = overview.market_regime_sharpe;
+  const trades = overview.trades;
+  const current = overview.market_regime_current;
+  const coverage = overview.market_regime_coverage;
   const [metric, setMetric] = useState<RegimeYMetric>("regime_score");
   const [showSmallSamples, setShowSmallSamples] = useState(false);
   const [prompt, setPrompt] = useState<{ dimension: RegimeDimension; point: RegimeChartPoint } | null>(
     null,
   );
+  const [analyzing, setAnalyzing] = useState<RegimeDimension | null>(null);
   const selected = METRIC_OPTIONS.find((option) => option.id === metric) ?? METRIC_OPTIONS[0];
   const charts = useMemo(
     () =>
@@ -611,38 +651,43 @@ export function MarketRegimesPanel({
         </div>
       </div>
 
-      {sharpe ? (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-4">
-          {charts.map(({ dimension, points }) =>
-            dimension.unavailableWhenEmpty && points.every((point) => point.days === 0) ? (
-              <div key={dimension.id} className="flex min-w-0 flex-col gap-2">
-                <h4 className="text-xs font-medium text-muted-foreground">{dimension.title}</h4>
-                <p className="text-xs text-muted-foreground">{ATR_UNAVAILABLE}</p>
-              </div>
-            ) : (
-              <RegimeBarChart
-                key={dimension.id}
-                dimension={dimension}
-                points={points}
-                metric={metric}
-                currentKey={current?.regimes?.[dimension.id] ?? null}
-                reading={current?.readings?.[dimension.id] ?? null}
-                coverage={coverage?.[dimension.id]}
-                onSelectBucket={(point) => setPrompt({ dimension, point })}
-              />
-            ),
-          )}
-        </div>
-      ) : (
-        <p className="text-xs text-muted-foreground">Regime stats are not available for this result.</p>
-      )}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-4">
+        {charts.map(({ dimension, points }) =>
+          dimension.unavailableWhenEmpty && points.every((point) => point.days === 0) ? (
+            <div key={dimension.id} className="flex min-w-0 flex-col gap-2">
+              <h4 className="text-xs font-medium text-muted-foreground">{dimension.title}</h4>
+              <p className="text-xs text-muted-foreground">{ATR_UNAVAILABLE}</p>
+            </div>
+          ) : (
+            <RegimeBarChart
+              key={dimension.id}
+              dimension={dimension}
+              points={points}
+              metric={metric}
+              currentKey={current?.regimes?.[dimension.id] ?? null}
+              reading={current?.readings?.[dimension.id] ?? null}
+              coverage={coverage?.[dimension.id]}
+              onSelectBucket={(point) => setPrompt({ dimension, point })}
+            />
+          ),
+        )}
+      </div>
 
       {prompt ? (
         <RegimeConditionPrompt
           dimension={prompt.dimension}
           point={prompt.point}
+          canAnalyze={source != null}
+          onAnalyze={() => {
+            setAnalyzing(prompt.dimension);
+            setPrompt(null);
+          }}
           onClose={() => setPrompt(null)}
         />
+      ) : null}
+
+      {analyzing && source ? (
+        <RegimeAnalysisModal dimension={analyzing} source={source} onClose={() => setAnalyzing(null)} />
       ) : null}
     </div>
   );
@@ -651,10 +696,14 @@ export function MarketRegimesPanel({
 function RegimeConditionPrompt({
   dimension,
   point,
+  canAnalyze,
+  onAnalyze,
   onClose,
 }: {
   dimension: RegimeDimension;
   point: RegimeChartPoint;
+  canAnalyze: boolean;
+  onAnalyze: () => void;
   onClose: () => void;
 }) {
   const label = regimeIndicatorLabel(dimension.title, point.label);
@@ -678,6 +727,7 @@ function RegimeConditionPrompt({
         </h3>
         <p className="mt-1 text-xs text-muted-foreground">
           Add an entry condition to the strategy builder. Days before this series exists stay out either way.
+          {canAnalyze ? ` Or analyze ${dimension.title} year by year across all of its states.` : ""}
         </p>
         <div className="mt-4 flex flex-col gap-2">
           <Button type="button" onClick={() => choose("is true")}>
@@ -686,6 +736,11 @@ function RegimeConditionPrompt({
           <Button type="button" variant="outline" onClick={() => choose("is false")}>
             Everything except this regime
           </Button>
+          {canAnalyze ? (
+            <Button type="button" variant="secondary" onClick={onAnalyze}>
+              Analyze the regime
+            </Button>
+          ) : null}
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>

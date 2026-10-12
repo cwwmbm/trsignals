@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import {
+  Activity,
   Briefcase,
   CandlestickChart,
-  FlaskConical,
   HelpCircle,
   LineChart,
   ListChecks,
@@ -17,42 +17,45 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { ThemeToggle } from '@/components/theme-toggle'
 import type { SavedStrategy } from '@/api'
-import { BacktestSection } from '@/components/sections/backtest-section'
 import { ScanSection } from '@/components/sections/scan-section'
 import { StrategiesSection } from '@/components/sections/strategies-section'
 import { StrategyBuilderSection } from '@/components/sections/strategy-builder-section'
 import { HelpSection } from '@/components/sections/help-section'
 import { PortfolioSection, type PortfolioInitialState } from '@/components/sections/portfolio-section'
 import { QuoteSection } from '@/components/sections/quote-section'
+import { RegimesSection } from '@/components/sections/regimes-section'
 import { subscribeRegimeConditionRequests } from '@/lib/regime-condition'
 
-type SectionId = 'backtest' | 'strategies' | 'builder' | 'scan' | 'quote' | 'portfolio' | 'help'
+type SectionId = 'strategies' | 'builder' | 'scan' | 'quote' | 'portfolio' | 'regimes' | 'help'
 
-const NAV: { id: SectionId; label: string; icon: typeof FlaskConical }[] = [
-  { id: 'backtest', label: 'Backtest', icon: FlaskConical },
+const NAV: { id: SectionId; label: string; icon: typeof Wrench }[] = [
   { id: 'strategies', label: 'All strategies', icon: ListChecks },
-  { id: 'builder', label: 'New strategy builder', icon: Wrench },
+  { id: 'builder', label: 'Strategy Builder', icon: Wrench },
   { id: 'scan', label: 'Scan', icon: Radar },
   { id: 'quote', label: 'Quote', icon: LineChart },
   { id: 'portfolio', label: 'Portfolio', icon: Briefcase },
+  { id: 'regimes', label: 'Regimes', icon: Activity },
   { id: 'help', label: 'Help', icon: HelpCircle },
 ]
 
 const TITLES: Record<SectionId, { title: string; subtitle: string }> = {
-  backtest: { title: 'Backtest', subtitle: 'Run historical simulations and inspect detailed performance.' },
   strategies: { title: 'All strategies', subtitle: 'Every saved strategy with its key metrics.' },
-  builder: { title: 'New strategy builder', subtitle: 'Compose entry rules and save a new signal.' },
+  builder: { title: 'Strategy Builder', subtitle: 'Compose entry rules, or load a saved strategy, then backtest and save.' },
   scan: { title: 'Scan', subtitle: 'Latest signal scan across the symbol universe.' },
   quote: { title: 'Quote', subtitle: 'SPY, QQQ, SOXX, and VIX snapshot with IBR, RSI, Stochastic, and missing-day checks.' },
   portfolio: {
     title: 'Portfolio',
     subtitle: 'Combine saved strategies and simulate shared all-in performance.',
   },
+  regimes: {
+    title: 'Regimes',
+    subtitle: 'How many trading days each market regime state was active, per year.',
+  },
   help: { title: 'Help', subtitle: 'Documentation, run modes, and glossary.' },
 }
 
 export function AppShell() {
-  const [active, setActive] = useState<SectionId>('backtest')
+  const [active, setActive] = useState<SectionId>('scan')
   const [mobileOpen, setMobileOpen] = useState(false)
   const [builderInitialStrategy, setBuilderInitialStrategy] = useState<SavedStrategy | undefined>()
   const [portfolioInitial, setPortfolioInitial] = useState<PortfolioInitialState | undefined>()
@@ -177,7 +180,6 @@ export function AppShell() {
         </header>
 
         <main className="flex-1 p-5 lg:p-8">
-          {active === 'backtest' && <BacktestSection />}
           {active === 'strategies' && (
             <StrategiesSection
               onNewStrategy={() => {
@@ -205,6 +207,7 @@ export function AppShell() {
           )}
           {active === 'quote' && <QuoteSection />}
           {active === 'portfolio' && <PortfolioSection initialState={portfolioInitial} />}
+          {active === 'regimes' && <RegimesSection />}
           {active === 'help' && <HelpSection />}
         </main>
       </div>
