@@ -1,0 +1,35 @@
+[
+  {
+    "id": "386f7287-8bee-4c22-b6c2-222ebe169d15",
+    "name": "OG + Semis combined",
+    "description": "SOXX proxy for all",
+    "strategy_ids": [
+      "62e00484-f3fe-4b14-8a1c-b3a828142205",
+      "bf3d69a1-353b-4c33-9cf3-cc39723535e1",
+      "944a4165-425e-4162-81cd-b71440686f75"
+    ],
+    "overlap_mode": "hold_until_all_exit",
+    "proxy_symbol": null,
+    "scan_lane": "active",
+    "scan_sort_order": 8,
+    "created_at": "2026-06-22T19:37:25+00:00",
+    "updated_at": "2026-07-20T18:11:20+00:00"
+  },
+  {
+    "id": "174e90c1-34dd-4e3b-b2f2-1e35577b1b6b",
+    "name": "OG + Semis + DownMonday Combined",
+    "description": "",
+    "strategy_ids": [
+      "3529f3b9-0f9b-4a06-893f-6bd9e815c12b",
+      "62e00484-f3fe-4b14-8a1c-b3a828142205",
+      "bf3d69a1-353b-4c33-9cf3-cc39723535e1",
+      "944a4165-425e-4162-81cd-b71440686f75"
+    ],
+    "overlap_mode": "hold_until_all_exit",
+    "proxy_symbol": "SOXX",
+    "scan_lane": "active",
+    "scan_sort_order": 14,
+    "created_at": "2026-07-14T15:58:57+00:00",
+    "updated_at": "2026-07-16T22:23:47+00:00"
+  }
+]

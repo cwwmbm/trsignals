@@ -11,7 +11,11 @@ unused/android.py
 unused/strategy.py
 #test_data.py
 __pycache__/
-data/
+data/benchmarks/
+data/market_cache/
+data/regression_baselines/
+data/yf_vs_ib_compare_5y.json
+data/AAPL_2024-08-26_2025-02-22.csv
 frontend/node_modules/
 frontend/dist/
 IntradayData/

@@ -1,0 +1,1739 @@
+[
+  {
+    "id": "872ab5d4-72f8-515e-9153-3219e21af7b5",
+    "name": "buy_signal1",
+    "symbol": "XBI",
+    "direction": "long",
+    "hold_days": 2,
+    "profit": 1,
+    "description": "Long IBB: RSI5EnergyBreadth < 70, Close_EMA8 < 0, IBR < 0.4",
+    "conditions": [
+      {
+        "left": "Close_EMA8",
+        "operator": "<",
+        "right": "0",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<",
+        "right": "0.4",
+        "logic": "AND"
+      },
+      {
+        "left": "ChangeVelocity",
+        "operator": ">",
+        "right": "-1",
+        "logic": "AND"
+      },
+      {
+        "left": "RSI5IndustrialsBreadth",
+        "operator": ">",
+        "right": "20",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "legacy_signal": "buy_signal1",
+    "created_at": "2026-06-15T18:10:39+00:00",
+    "updated_at": "2026-07-20T18:11:20+00:00",
+    "scan_lane": "active",
+    "scan_sort_order": 9
+  },
+  {
+    "id": "782c0cbc-6157-5b5f-a215-0d310a97ae9e",
+    "name": "buy_signal4",
+    "symbol": "FXI",
+    "direction": "long",
+    "hold_days": 3,
+    "profit": 1,
+    "description": "For SPY, add ValueCharts<0 condition. New strat for FXI: RSI2GoldBreadth > 50, Stoch < 90, RSI14SemisBreadth > 40",
+    "conditions": [
+      {
+        "left": "RSI2GoldBreadth",
+        "operator": ">",
+        "right": "50",
+        "logic": "AND"
+      },
+      {
+        "left": "RSI14SemisBreadth",
+        "operator": ">",
+        "right": "40",
+        "logic": "AND"
+      },
+      {
+        "left": "Stoch",
+        "operator": "<",
+        "right": "90",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "legacy_signal": "buy_signal4",
+    "created_at": "2026-06-15T18:10:39+00:00",
+    "updated_at": "2026-06-30T01:52:55+00:00",
+    "scan_lane": "archived",
+    "scan_sort_order": 0
+  },
+  {
+    "id": "8468a304-a139-59c6-b341-0dd8ff3d62f8",
+    "name": "buy_signal7",
+    "symbol": "SMH",
+    "direction": "long",
+    "hold_days": 2,
+    "profit": 1,
+    "description": "Long NQ: Close 1 day ago <= Close 3 days ago, IBR <= 0.4",
+    "conditions": [
+      {
+        "left": "CloseLag1",
+        "operator": "<=",
+        "right": "CloseLag3",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.4",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "legacy_signal": "buy_signal7",
+    "created_at": "2026-06-15T18:10:39+00:00",
+    "updated_at": "2026-06-22T20:12:11+00:00",
+    "scan_lane": "testing",
+    "scan_sort_order": 10
+  },
+  {
+    "id": "4e3ae603-c175-5d48-a7f2-adeaeade6398",
+    "name": "buy_signal7",
+    "symbol": "QQQ",
+    "direction": "long",
+    "hold_days": 2,
+    "profit": 1,
+    "description": "Long NQ: Close 1 day ago <= Close 3 days ago, IBR <= 0.4",
+    "conditions": [
+      {
+        "left": "CloseLag1",
+        "operator": "<=",
+        "right": "CloseLag3",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.4",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "legacy_signal": "buy_signal7",
+    "created_at": "2026-06-15T18:10:39+00:00",
+    "updated_at": "2026-06-22T20:12:12+00:00",
+    "scan_lane": "testing",
+    "scan_sort_order": 15
+  },
+  {
+    "id": "680de2a5-1655-52c6-9274-55b2ce281fbe",
+    "name": "buy_signal7",
+    "symbol": "FXI",
+    "direction": "long",
+    "hold_days": 2,
+    "profit": 1,
+    "description": "Long NQ: Close 1 day ago <= Close 3 days ago, IBR <= 0.4",
+    "conditions": [
+      {
+        "left": "CloseLag1",
+        "operator": "<=",
+        "right": "CloseLag3",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.4",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "legacy_signal": "buy_signal7",
+    "created_at": "2026-06-15T18:10:39+00:00",
+    "updated_at": "2026-06-30T01:52:57+00:00",
+    "scan_lane": "archived",
+    "scan_sort_order": 1
+  },
+  {
+    "id": "8c8be8de-01ed-5329-a270-1c7e0e90f7a6",
+    "name": "buy_signal7",
+    "symbol": "SOXX",
+    "direction": "long",
+    "hold_days": 2,
+    "profit": 1,
+    "description": "Long NQ: Close 1 day ago <= Close 3 days ago, IBR <= 0.4",
+    "conditions": [
+      {
+        "left": "CloseLag1",
+        "operator": "<=",
+        "right": "CloseLag3",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.4",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "legacy_signal": "buy_signal7",
+    "created_at": "2026-06-15T18:10:39+00:00",
+    "updated_at": "2026-06-22T20:12:12+00:00",
+    "scan_lane": "testing",
+    "scan_sort_order": 21
+  },
+  {
+    "id": "002cc1e9-56f0-5e0d-8edd-398f47907c88",
+    "name": "buy_signal7",
+    "symbol": "SPY",
+    "direction": "long",
+    "hold_days": 2,
+    "profit": 1,
+    "description": "Long NQ: Close 1 day ago <= Close 3 days ago, IBR <= 0.4",
+    "conditions": [
+      {
+        "left": "CloseLag1",
+        "operator": "<=",
+        "right": "CloseLag3",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.4",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "legacy_signal": "buy_signal7",
+    "created_at": "2026-06-15T18:10:39+00:00",
+    "updated_at": "2026-07-16T18:02:23+00:00",
+    "scan_lane": "testing",
+    "scan_sort_order": 4
+  },
+  {
+    "id": "e80b61bc-748a-55ba-8ed5-cbe2d0b0f448",
+    "name": "buy_signal8",
+    "symbol": "QQQ",
+    "direction": "long",
+    "hold_days": 3,
+    "profit": 1,
+    "description": "Long NQ: ER(10) > 0.50, ValueCharts(5) > -12, RSI2 <= 90, IBR <= 0.8, RSI5Breadth < 80",
+    "conditions": [
+      {
+        "left": "ER",
+        "operator": ">",
+        "right": "0.50",
+        "logic": "AND"
+      },
+      {
+        "left": "ValueCharts",
+        "operator": ">",
+        "right": "-12",
+        "logic": "AND"
+      },
+      {
+        "left": "RSI2",
+        "operator": "<=",
+        "right": "90",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.8",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "legacy_signal": "buy_signal8",
+    "created_at": "2026-06-15T18:10:39+00:00",
+    "updated_at": "2026-06-22T20:12:12+00:00",
+    "scan_lane": "testing",
+    "scan_sort_order": 16
+  },
+  {
+    "id": "e72474bf-b4c1-5c39-8a3e-daf90b9fad38",
+    "name": "buy_signal8",
+    "symbol": "SPY",
+    "direction": "long",
+    "hold_days": 3,
+    "profit": 1,
+    "description": "Long NQ: ER(10) > 0.50, ValueCharts(5) > -12, RSI2 <= 90, IBR <= 0.8, RSI5Breadth < 80",
+    "conditions": [
+      {
+        "left": "ER",
+        "operator": ">",
+        "right": "0.50",
+        "logic": "AND"
+      },
+      {
+        "left": "ValueCharts",
+        "operator": ">",
+        "right": "-12",
+        "logic": "AND"
+      },
+      {
+        "left": "RSI2",
+        "operator": "<=",
+        "right": "90",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.8",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "legacy_signal": "buy_signal8",
+    "created_at": "2026-06-15T18:10:39+00:00",
+    "updated_at": "2026-07-16T18:02:23+00:00",
+    "scan_lane": "testing",
+    "scan_sort_order": 5
+  },
+  {
+    "id": "3cd93189-480b-57cc-889f-fd2366b51e1b",
+    "name": "buy_signal9",
+    "symbol": "SPY",
+    "direction": "long",
+    "hold_days": 100,
+    "profit": 100,
+    "description": "Stoch < 30, MACD < 0, IBR <= 0.2",
+    "conditions": [
+      {
+        "left": "Stoch",
+        "operator": "<",
+        "right": "30",
+        "logic": "AND"
+      },
+      {
+        "left": "MACDHist",
+        "operator": "<",
+        "right": "0",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.2",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [
+      {
+        "left": "RSI14IndustrialsBreadth",
+        "operator": "<",
+        "right": "40",
+        "logic": "AND"
+      },
+      {
+        "left": "Stoch",
+        "operator": ">",
+        "right": "20",
+        "logic": "OR"
+      }
+    ],
+    "legacy_signal": "buy_signal9",
+    "created_at": "2026-06-15T18:10:39+00:00",
+    "updated_at": "2026-07-16T18:02:23+00:00",
+    "scan_lane": "testing",
+    "scan_sort_order": 6
+  },
+  {
+    "id": "64e05e44-af51-5480-8561-217cf37966bb",
+    "name": "buy_signal9",
+    "symbol": "QQQ",
+    "direction": "long",
+    "hold_days": 100,
+    "profit": 100,
+    "description": "Stoch < 30, MACD < 0, IBR <= 0.2",
+    "conditions": [
+      {
+        "left": "Stoch",
+        "operator": "<",
+        "right": "30",
+        "logic": "AND"
+      },
+      {
+        "left": "MACDHist",
+        "operator": "<",
+        "right": "0",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.2",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [
+      {
+        "left": "RSI14IndustrialsBreadth",
+        "operator": "<",
+        "right": "40",
+        "logic": "AND"
+      },
+      {
+        "left": "Stoch",
+        "operator": ">",
+        "right": "20",
+        "logic": "OR"
+      }
+    ],
+    "legacy_signal": "buy_signal9",
+    "created_at": "2026-06-15T18:10:39+00:00",
+    "updated_at": "2026-06-22T20:12:12+00:00",
+    "scan_lane": "testing",
+    "scan_sort_order": 17
+  },
+  {
+    "id": "68924c2c-f814-5698-91b9-8ad70c8c7651",
+    "name": "buy_signal10",
+    "symbol": "SMH",
+    "direction": "long",
+    "hold_days": 3,
+    "profit": 1,
+    "description": "Long NQ: Low 1 day ago <= Lowest Low in 2 days, IBR <= 50",
+    "conditions": [
+      {
+        "left": "LowLag1",
+        "operator": "<=",
+        "right": "LowMin2Lag1",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.50",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "legacy_signal": "buy_signal10",
+    "created_at": "2026-06-15T18:10:39+00:00",
+    "updated_at": "2026-06-22T20:12:11+00:00",
+    "scan_lane": "testing",
+    "scan_sort_order": 7
+  },
+  {
+    "id": "2ab9fe79-5bef-5664-affe-cc757af41ae1",
+    "name": "buy_signal10",
+    "symbol": "SPY",
+    "direction": "long",
+    "hold_days": 3,
+    "profit": 1,
+    "description": "Long NQ: Low 1 day ago <= Lowest Low in 2 days, IBR <= 50",
+    "conditions": [
+      {
+        "left": "LowLag1",
+        "operator": "<=",
+        "right": "LowMin2Lag1",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.50",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "legacy_signal": "buy_signal10",
+    "created_at": "2026-06-15T18:10:39+00:00",
+    "updated_at": "2026-06-15T18:10:39+00:00"
+  },
+  {
+    "id": "540c55d0-9e71-5b7d-aaa5-da0437d8474f",
+    "name": "buy_signal10",
+    "symbol": "SOXX",
+    "direction": "long",
+    "hold_days": 3,
+    "profit": 1,
+    "description": "Long NQ: Low 1 day ago <= Lowest Low in 2 days, IBR <= 50",
+    "conditions": [
+      {
+        "left": "LowLag1",
+        "operator": "<=",
+        "right": "LowMin2Lag1",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.50",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "legacy_signal": "buy_signal10",
+    "created_at": "2026-06-15T18:10:39+00:00",
+    "updated_at": "2026-06-22T20:12:12+00:00",
+    "scan_lane": "testing",
+    "scan_sort_order": 18
+  },
+  {
+    "id": "287a0f38-b7fa-5133-a7ae-4908d86602cd",
+    "name": "buy_signal10",
+    "symbol": "QQQ",
+    "direction": "long",
+    "hold_days": 3,
+    "profit": 1,
+    "description": "Long NQ: Low 1 day ago <= Lowest Low in 2 days, IBR <= 50",
+    "conditions": [
+      {
+        "left": "LowLag1",
+        "operator": "<=",
+        "right": "LowMin2Lag1",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.50",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "legacy_signal": "buy_signal10",
+    "created_at": "2026-06-15T18:10:39+00:00",
+    "updated_at": "2026-06-22T20:12:11+00:00",
+    "scan_lane": "testing",
+    "scan_sort_order": 11
+  },
+  {
+    "id": "78ca638f-1e50-5f8e-957a-6472d971f8e6",
+    "name": "buy_signal16",
+    "symbol": "SMH",
+    "direction": "long",
+    "hold_days": 4,
+    "profit": 1,
+    "description": "high[0] > close[1], IBR[0] <= 50, SMA50>SMA200, Hurst > 0.4",
+    "conditions": [
+      {
+        "left": "High",
+        "operator": ">",
+        "right": "CloseLag1",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.5",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "legacy_signal": "buy_signal16",
+    "created_at": "2026-06-15T18:10:39+00:00",
+    "updated_at": "2026-06-22T20:12:11+00:00",
+    "scan_lane": "testing",
+    "scan_sort_order": 8
+  },
+  {
+    "id": "516f4117-0b4e-557a-9393-d186043972af",
+    "name": "buy_signal16",
+    "symbol": "QQQ",
+    "direction": "long",
+    "hold_days": 4,
+    "profit": 1,
+    "description": "high[0] > close[1], IBR[0] <= 50, SMA50>SMA200, Hurst > 0.4",
+    "conditions": [
+      {
+        "left": "High",
+        "operator": ">",
+        "right": "CloseLag1",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.5",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "legacy_signal": "buy_signal16",
+    "created_at": "2026-06-15T18:10:39+00:00",
+    "updated_at": "2026-06-22T20:12:12+00:00",
+    "scan_lane": "testing",
+    "scan_sort_order": 12
+  },
+  {
+    "id": "d7f0516d-9333-54a6-9dd8-34c96f258a5b",
+    "name": "buy_signal16",
+    "symbol": "SOXX",
+    "direction": "long",
+    "hold_days": 4,
+    "profit": 1,
+    "description": "high[0] > close[1], IBR[0] <= 50, SMA50>SMA200, Hurst > 0.4",
+    "conditions": [
+      {
+        "left": "High",
+        "operator": ">",
+        "right": "CloseLag1",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.5",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "legacy_signal": "buy_signal16",
+    "created_at": "2026-06-15T18:10:39+00:00",
+    "updated_at": "2026-06-22T20:12:12+00:00",
+    "scan_lane": "testing",
+    "scan_sort_order": 19
+  },
+  {
+    "id": "4787f35d-cad1-509e-bdfa-a335afab2755",
+    "name": "buy_signal17",
+    "symbol": "SMH",
+    "direction": "long",
+    "hold_days": 2,
+    "profit": 1,
+    "description": "Long SMH: rsi(close,2)[0] <= 20, IBR[0] <= 30, ER>0.3",
+    "conditions": [
+      {
+        "left": "RSI2",
+        "operator": "<=",
+        "right": "20",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.3",
+        "logic": "AND"
+      },
+      {
+        "left": "ER",
+        "operator": ">=",
+        "right": "0.3",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "legacy_signal": "buy_signal17",
+    "created_at": "2026-06-15T18:10:39+00:00",
+    "updated_at": "2026-06-22T20:12:11+00:00",
+    "scan_lane": "testing",
+    "scan_sort_order": 9
+  },
+  {
+    "id": "005a4c62-09c4-5190-820f-4cc781345d20",
+    "name": "buy_signal17",
+    "symbol": "SOXX",
+    "direction": "long",
+    "hold_days": 2,
+    "profit": 1,
+    "description": "Long SMH: rsi(close,2)[0] <= 20, IBR[0] <= 30, ER>0.3",
+    "conditions": [
+      {
+        "left": "RSI2",
+        "operator": "<=",
+        "right": "20",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.3",
+        "logic": "AND"
+      },
+      {
+        "left": "ER",
+        "operator": ">=",
+        "right": "0.3",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "legacy_signal": "buy_signal17",
+    "created_at": "2026-06-15T18:10:39+00:00",
+    "updated_at": "2026-06-22T20:12:12+00:00",
+    "scan_lane": "testing",
+    "scan_sort_order": 20
+  },
+  {
+    "id": "24e0801e-cd5e-50cc-8db8-c66236933fc8",
+    "name": "buy_signal17",
+    "symbol": "QQQ",
+    "direction": "long",
+    "hold_days": 2,
+    "profit": 1,
+    "description": "Long SMH: rsi(close,2)[0] <= 20, IBR[0] <= 30, ER>0.3",
+    "conditions": [
+      {
+        "left": "RSI2",
+        "operator": "<=",
+        "right": "20",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.3",
+        "logic": "AND"
+      },
+      {
+        "left": "ER",
+        "operator": ">=",
+        "right": "0.3",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "legacy_signal": "buy_signal17",
+    "created_at": "2026-06-15T18:10:39+00:00",
+    "updated_at": "2026-06-22T20:12:12+00:00",
+    "scan_lane": "testing",
+    "scan_sort_order": 13
+  },
+  {
+    "id": "71ab1e65-54d6-5c18-aff6-a709dd8134e7",
+    "name": "buy_signal18",
+    "symbol": "GDX",
+    "direction": "long",
+    "hold_days": 2,
+    "profit": 1,
+    "description": "Long CL: open[1] <= lowest(open,2)[0], IBR[0] <= 20, Stochastics(14)[0] >= 10",
+    "conditions": [
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.2",
+        "logic": "AND"
+      },
+      {
+        "left": "ER",
+        "operator": "<=",
+        "right": "0.6",
+        "logic": "AND"
+      },
+      {
+        "left": "Stoch",
+        "operator": ">=",
+        "right": "10",
+        "logic": "AND"
+      },
+      {
+        "left": "RSI14EnergyBreadth",
+        "operator": "<",
+        "right": "60",
+        "logic": "AND"
+      },
+      {
+        "left": "RSI14EnergyBreadth",
+        "operator": ">",
+        "right": "30",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "legacy_signal": "buy_signal18",
+    "created_at": "2026-06-15T18:10:39+00:00",
+    "updated_at": "2026-07-16T22:23:54+00:00",
+    "scan_lane": "testing",
+    "scan_sort_order": 25
+  },
+  {
+    "id": "4f559eae-8972-530c-a9e8-155a7f89c5c5",
+    "name": "buy_signal20",
+    "symbol": "SPY",
+    "direction": "long",
+    "hold_days": 50,
+    "profit": 50,
+    "description": "Experimental Long signal",
+    "conditions": [
+      {
+        "left": "RSI2",
+        "operator": "<",
+        "right": "40",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<",
+        "right": "0.2",
+        "logic": "AND"
+      },
+      {
+        "left": "RSI5Breadth",
+        "operator": "<",
+        "right": "60",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [
+      {
+        "left": "RSI2SemisBreadth",
+        "operator": "crosses below",
+        "right": "50",
+        "logic": "AND"
+      },
+      {
+        "left": "Vix",
+        "operator": ">",
+        "right": "40",
+        "logic": "OR"
+      },
+      {
+        "left": "ChangeVelocity",
+        "operator": ">",
+        "right": "1",
+        "logic": "OR"
+      },
+      {
+        "left": "RSI2SemisBreadth",
+        "operator": "<",
+        "right": "10",
+        "logic": "OR"
+      }
+    ],
+    "legacy_signal": "buy_signal20",
+    "created_at": "2026-06-15T18:10:39+00:00",
+    "updated_at": "2026-07-16T18:02:22+00:00",
+    "scan_lane": "testing",
+    "scan_sort_order": 3
+  },
+  {
+    "id": "d5a775cf-9133-5fd4-b6c7-b2e7ec67d318",
+    "name": "buy_signal20",
+    "symbol": "QQQ",
+    "direction": "long",
+    "hold_days": 50,
+    "profit": 50,
+    "description": "Experimental Long signal",
+    "conditions": [
+      {
+        "left": "RSI2",
+        "operator": "<",
+        "right": "40",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<",
+        "right": "0.2",
+        "logic": "AND"
+      },
+      {
+        "left": "RSI5Breadth",
+        "operator": "<",
+        "right": "60",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [
+      {
+        "left": "RSI2SemisBreadth",
+        "operator": "crosses below",
+        "right": "50",
+        "logic": "AND"
+      },
+      {
+        "left": "Vix",
+        "operator": ">",
+        "right": "40",
+        "logic": "OR"
+      },
+      {
+        "left": "ChangeVelocity",
+        "operator": ">",
+        "right": "1",
+        "logic": "OR"
+      },
+      {
+        "left": "RSI2SemisBreadth",
+        "operator": "<",
+        "right": "10",
+        "logic": "OR"
+      }
+    ],
+    "legacy_signal": "buy_signal20",
+    "created_at": "2026-06-15T18:10:39+00:00",
+    "updated_at": "2026-06-22T20:12:12+00:00",
+    "scan_lane": "testing",
+    "scan_sort_order": 14
+  },
+  {
+    "id": "76f7e80c-dabf-53dc-9c9f-c6dc94b50aa8",
+    "name": "buy_signal20",
+    "symbol": "IWM",
+    "direction": "long",
+    "hold_days": 50,
+    "profit": 50,
+    "description": "Experimental Long signal",
+    "conditions": [
+      {
+        "left": "RSI2",
+        "operator": "<",
+        "right": "40",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<",
+        "right": "0.2",
+        "logic": "AND"
+      },
+      {
+        "left": "RSI5Breadth",
+        "operator": "<",
+        "right": "60",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [
+      {
+        "left": "RSI2SemisBreadth",
+        "operator": "crosses below",
+        "right": "50",
+        "logic": "AND"
+      },
+      {
+        "left": "Vix",
+        "operator": ">",
+        "right": "40",
+        "logic": "OR"
+      },
+      {
+        "left": "ChangeVelocity",
+        "operator": ">",
+        "right": "1",
+        "logic": "OR"
+      },
+      {
+        "left": "RSI2SemisBreadth",
+        "operator": "<",
+        "right": "10",
+        "logic": "OR"
+      }
+    ],
+    "legacy_signal": "buy_signal20",
+    "created_at": "2026-06-15T18:10:39+00:00",
+    "updated_at": "2026-10-01T17:37:08+00:00",
+    "scan_lane": "archived",
+    "scan_sort_order": 5
+  },
+  {
+    "id": "0df0711d-ac9e-597d-b07f-464c4d8e86d1",
+    "name": "buy_signal21",
+    "symbol": "SPY",
+    "direction": "long",
+    "hold_days": 1,
+    "profit": 1,
+    "description": "Close<200SMA, RSI2<40, RSI2SemisBreadth>30. Bear market long signal",
+    "conditions": [
+      {
+        "left": "SMA50_SMA200",
+        "operator": "<",
+        "right": "0",
+        "logic": "AND"
+      },
+      {
+        "left": "RSI2",
+        "operator": "<",
+        "right": "40",
+        "logic": "AND"
+      },
+      {
+        "left": "RSI2SemisBreadth",
+        "operator": ">",
+        "right": "30",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "legacy_signal": "buy_signal21",
+    "created_at": "2026-06-15T18:10:39+00:00",
+    "updated_at": "2026-07-20T18:11:20+00:00",
+    "scan_lane": "active",
+    "scan_sort_order": 6
+  },
+  {
+    "id": "a7251e42-f0fd-5f5a-95c1-289ebb7250ea",
+    "name": "buy_signal24",
+    "symbol": "GDX",
+    "direction": "long",
+    "hold_days": 2,
+    "profit": 1,
+    "description": "Testing",
+    "conditions": [
+      {
+        "left": "RSI5GoldBreadth",
+        "operator": ">",
+        "right": "60",
+        "logic": "AND"
+      },
+      {
+        "left": "RSI14UtilitiesBreadth",
+        "operator": "<",
+        "right": "50",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "legacy_signal": "buy_signal24",
+    "created_at": "2026-06-15T18:10:39+00:00",
+    "updated_at": "2026-07-21T20:02:51+00:00",
+    "scan_lane": "archived",
+    "scan_sort_order": 3
+  },
+  {
+    "id": "8011da09-b8a9-44b6-a029-ba1813cc16c8",
+    "name": "Modified OG Combined",
+    "symbol": "SPY",
+    "direction": "long",
+    "hold_days": 100,
+    "profit": 100,
+    "description": "Rethinking OG, and separating into bull and bear markets",
+    "conditions": [
+      {
+        "left": "Stoch",
+        "operator": "<=",
+        "right": "30",
+        "logic": "AND"
+      },
+      {
+        "left": "RSI2SemisBreadth",
+        "operator": ">=",
+        "right": "20",
+        "logic": "AND"
+      },
+      {
+        "left": "CloseBelowDonchianLower55",
+        "operator": "is false",
+        "right": "",
+        "logic": "AND"
+      },
+      {
+        "left": "RSI2",
+        "operator": "<=",
+        "right": "15",
+        "logic": "AND"
+      },
+      {
+        "left": "strategy:0df0711d-ac9e-597d-b07f-464c4d8e86d1",
+        "operator": "is true",
+        "right": "",
+        "logic": "OR"
+      }
+    ],
+    "sell_conditions": [
+      {
+        "left": "RSISell",
+        "operator": "is true",
+        "right": "",
+        "logic": "OR"
+      },
+      {
+        "left": "EMA8CrossDown",
+        "operator": "is true",
+        "right": "",
+        "logic": "OR"
+      },
+      {
+        "left": "SMA50_SMA200",
+        "operator": "<=",
+        "right": "0",
+        "logic": "OR"
+      },
+      {
+        "left": "RSI14EnergyBreadth",
+        "operator": ">=",
+        "right": "60",
+        "logic": "OR"
+      }
+    ],
+    "confirm_symbols": [],
+    "proxy_symbol": null,
+    "legacy_signal": null,
+    "rth_entries_only": false,
+    "eod_exit": false,
+    "created_at": "2026-06-21T02:03:35+00:00",
+    "updated_at": "2026-07-20T18:11:19+00:00",
+    "scan_lane": "active",
+    "scan_sort_order": 5
+  },
+  {
+    "id": "1b6cc60a-9c5a-4352-9822-f3dfea7ec2e8",
+    "name": "buy_signal16",
+    "symbol": "SPY",
+    "direction": "long",
+    "hold_days": 4,
+    "profit": 1,
+    "description": "high[0] > close[1], IBR[0] <= 50, SMA50>SMA200, Hurst > 0.4",
+    "conditions": [
+      {
+        "left": "High",
+        "operator": ">",
+        "right": "CloseLag1",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.5",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "confirm_symbols": [],
+    "proxy_symbol": null,
+    "legacy_signal": null,
+    "rth_entries_only": false,
+    "eod_exit": false,
+    "created_at": "2026-06-21T02:06:09+00:00",
+    "updated_at": "2026-07-16T18:02:22+00:00",
+    "scan_lane": "testing",
+    "scan_sort_order": 2
+  },
+  {
+    "id": "e5c5e1f9-d1c9-4aa0-a3b2-51497f4e8341",
+    "name": "Modified OG",
+    "symbol": "SPY",
+    "direction": "long",
+    "hold_days": 100,
+    "profit": 100,
+    "description": "",
+    "conditions": [
+      {
+        "left": "Stoch",
+        "operator": "<=",
+        "right": "30",
+        "logic": "AND"
+      },
+      {
+        "left": "RSI2SemisBreadth",
+        "operator": ">=",
+        "right": "20",
+        "logic": "AND"
+      },
+      {
+        "left": "CloseBelowDonchianLower55",
+        "operator": "is false",
+        "right": "",
+        "logic": "AND"
+      },
+      {
+        "left": "RSI2",
+        "operator": "<=",
+        "right": "15",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [
+      {
+        "left": "RSISell",
+        "operator": "is true",
+        "right": "",
+        "logic": "OR"
+      },
+      {
+        "left": "EMA8CrossDown",
+        "operator": "is true",
+        "right": "",
+        "logic": "OR"
+      },
+      {
+        "left": "SMA50_SMA200",
+        "operator": "<=",
+        "right": "0",
+        "logic": "OR"
+      },
+      {
+        "left": "RSI14EnergyBreadth",
+        "operator": ">=",
+        "right": "60",
+        "logic": "OR"
+      }
+    ],
+    "confirm_symbols": [],
+    "proxy_symbol": null,
+    "legacy_signal": null,
+    "rth_entries_only": false,
+    "eod_exit": false,
+    "created_at": "2026-06-21T02:07:51+00:00",
+    "updated_at": "2026-07-20T18:11:20+00:00",
+    "scan_lane": "active",
+    "scan_sort_order": 7
+  },
+  {
+    "id": "62e00484-f3fe-4b14-8a1c-b3a828142205",
+    "name": "Modified OG Combined Proxy",
+    "symbol": "SPY",
+    "direction": "long",
+    "hold_days": 100,
+    "profit": 100,
+    "description": "Rethinking OG, and separating into bull and bear markets",
+    "conditions": [
+      {
+        "left": "Stoch",
+        "operator": "<=",
+        "right": "30",
+        "logic": "AND"
+      },
+      {
+        "left": "RSI2SemisBreadth",
+        "operator": ">=",
+        "right": "20",
+        "logic": "AND"
+      },
+      {
+        "left": "CloseBelowDonchianLower55",
+        "operator": "is false",
+        "right": "",
+        "logic": "AND"
+      },
+      {
+        "left": "RSI2",
+        "operator": "<=",
+        "right": "15",
+        "logic": "AND"
+      },
+      {
+        "left": "strategy:0df0711d-ac9e-597d-b07f-464c4d8e86d1",
+        "operator": "is true",
+        "right": "",
+        "logic": "OR"
+      }
+    ],
+    "sell_conditions": [
+      {
+        "left": "RSISell",
+        "operator": "is true",
+        "right": "",
+        "logic": "OR"
+      },
+      {
+        "left": "EMA8CrossDown",
+        "operator": "is true",
+        "right": "",
+        "logic": "OR"
+      },
+      {
+        "left": "SMA50_SMA200",
+        "operator": "<=",
+        "right": "0",
+        "logic": "OR"
+      },
+      {
+        "left": "RSI14EnergyBreadth",
+        "operator": ">=",
+        "right": "60",
+        "logic": "OR"
+      }
+    ],
+    "confirm_symbols": [],
+    "proxy_symbol": "SOXX",
+    "legacy_signal": null,
+    "rth_entries_only": false,
+    "eod_exit": false,
+    "created_at": "2026-06-21T20:32:40+00:00",
+    "updated_at": "2026-07-21T20:57:53+00:00",
+    "scan_lane": "active",
+    "scan_sort_order": 10,
+    "hold_on_buy_signal": true
+  },
+  {
+    "id": "046a57d2-58c5-43a8-8ddd-3f423f6cc0df",
+    "name": "Signal16 OR Signal 7 Confirmed",
+    "symbol": "SOXX",
+    "direction": "long",
+    "hold_days": 4,
+    "profit": 1,
+    "description": "high[0] > close[1], IBR[0] <= 50, SMA50>SMA200, Hurst > 0.4",
+    "conditions": [
+      {
+        "left": "High",
+        "operator": ">",
+        "right": "CloseLag1",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.5",
+        "logic": "AND"
+      },
+      {
+        "left": "strategy:8c8be8de-01ed-5329-a270-1c7e0e90f7a6",
+        "operator": "is true",
+        "right": "",
+        "logic": "OR"
+      }
+    ],
+    "sell_conditions": [],
+    "confirm_symbols": [
+      "SMH",
+      "QQQ"
+    ],
+    "proxy_symbol": null,
+    "legacy_signal": null,
+    "hold_on_buy_signal": true,
+    "rth_entries_only": false,
+    "eod_exit": false,
+    "created_at": "2026-06-22T02:56:30+00:00",
+    "updated_at": "2026-06-22T19:19:48+00:00",
+    "scan_lane": "active",
+    "scan_sort_order": 0
+  },
+  {
+    "id": "4003b0b1-905c-421c-b462-b182501da56f",
+    "name": "Signal 7 Confirmed",
+    "symbol": "SOXX",
+    "direction": "long",
+    "hold_days": 2,
+    "profit": 1,
+    "description": "Long NQ: Close 1 day ago <= Close 3 days ago, IBR <= 0.4",
+    "conditions": [
+      {
+        "left": "CloseLag1",
+        "operator": "<=",
+        "right": "CloseLag3",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.4",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "confirm_symbols": [
+      "SMH",
+      "QQQ"
+    ],
+    "proxy_symbol": null,
+    "legacy_signal": null,
+    "hold_on_buy_signal": false,
+    "rth_entries_only": false,
+    "eod_exit": false,
+    "created_at": "2026-06-22T02:58:30+00:00",
+    "updated_at": "2026-06-22T20:12:12+00:00",
+    "scan_lane": "testing",
+    "scan_sort_order": 22
+  },
+  {
+    "id": "bf3d69a1-353b-4c33-9cf3-cc39723535e1",
+    "name": "Signal 16 Confirmed1",
+    "symbol": "SOXX",
+    "direction": "long",
+    "hold_days": 4,
+    "profit": 1,
+    "description": "high[0] > close[1], IBR[0] <= 50, SMA50>SMA200, Hurst > 0.4",
+    "conditions": [
+      {
+        "left": "High",
+        "operator": ">",
+        "right": "CloseLag1",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.5",
+        "logic": "AND"
+      },
+      {
+        "left": "RSI2SemisBreadth",
+        "operator": ">=",
+        "right": "30",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "confirm_symbols": [
+      "SMH",
+      "QQQ"
+    ],
+    "proxy_symbol": null,
+    "legacy_signal": null,
+    "hold_on_buy_signal": true,
+    "rth_entries_only": false,
+    "eod_exit": false,
+    "created_at": "2026-06-22T03:38:55+00:00",
+    "updated_at": "2026-06-22T19:19:57+00:00",
+    "scan_lane": "active",
+    "scan_sort_order": 1
+  },
+  {
+    "id": "944a4165-425e-4162-81cd-b71440686f75",
+    "name": "Signal 7 Confirmed1",
+    "symbol": "SOXX",
+    "direction": "long",
+    "hold_days": 2,
+    "profit": 1,
+    "description": "Long NQ: Close 1 day ago <= Close 3 days ago, IBR <= 0.4",
+    "conditions": [
+      {
+        "left": "CloseLag1",
+        "operator": "<=",
+        "right": "CloseLag3",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.4",
+        "logic": "AND"
+      },
+      {
+        "left": "ADX14",
+        "operator": ">=",
+        "right": "25",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "confirm_symbols": [
+      "SMH",
+      "QQQ"
+    ],
+    "proxy_symbol": null,
+    "legacy_signal": null,
+    "hold_on_buy_signal": false,
+    "rth_entries_only": false,
+    "eod_exit": false,
+    "created_at": "2026-06-22T03:44:07+00:00",
+    "updated_at": "2026-07-20T18:11:19+00:00",
+    "scan_lane": "active",
+    "scan_sort_order": 3
+  },
+  {
+    "id": "16c5eaeb-4761-40d8-8dae-325dbc13ff20",
+    "name": "OG New Migrated",
+    "symbol": "SPY",
+    "direction": "long",
+    "hold_days": 100,
+    "profit": 100,
+    "description": "",
+    "conditions": [
+      {
+        "left": "RSI2",
+        "operator": "<=",
+        "right": "15",
+        "logic": "AND"
+      },
+      {
+        "left": "%Change",
+        "operator": ">=",
+        "right": "-0.12",
+        "logic": "AND"
+      },
+      {
+        "left": "Stoch",
+        "operator": "<=",
+        "right": "30",
+        "logic": "AND"
+      },
+      {
+        "left": "SMA50_SMA200",
+        "operator": ">=",
+        "right": "0",
+        "logic": "AND"
+      },
+      {
+        "left": "ER",
+        "operator": "<=",
+        "right": "0.7",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [
+      {
+        "left": "RSISell",
+        "operator": "is true",
+        "right": "",
+        "logic": "OR"
+      },
+      {
+        "left": "EMA8CrossDown",
+        "operator": "is true",
+        "right": "",
+        "logic": "OR"
+      },
+      {
+        "left": "SMA50_SMA200",
+        "operator": "<",
+        "right": "0",
+        "logic": "OR"
+      }
+    ],
+    "confirm_symbols": [],
+    "proxy_symbol": null,
+    "legacy_signal": null,
+    "hold_on_buy_signal": false,
+    "rth_entries_only": false,
+    "eod_exit": false,
+    "created_at": "2026-06-22T18:43:11+00:00",
+    "updated_at": "2026-09-01T18:16:10+00:00",
+    "scan_lane": "archived",
+    "scan_sort_order": 4
+  },
+  {
+    "id": "3529f3b9-0f9b-4a06-893f-6bd9e815c12b",
+    "name": "Down Monday",
+    "symbol": "SPY",
+    "direction": "long",
+    "hold_days": 2,
+    "profit": 1,
+    "description": "",
+    "conditions": [
+      {
+        "left": "DownMonday",
+        "operator": "is true",
+        "right": "",
+        "logic": "AND"
+      },
+      {
+        "left": "CCI",
+        "operator": "<=",
+        "right": "100",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "confirm_symbols": [],
+    "proxy_symbol": "SOXX",
+    "legacy_signal": null,
+    "hold_on_buy_signal": false,
+    "rth_entries_only": false,
+    "eod_exit": false,
+    "scan_lane": "active",
+    "scan_sort_order": 11,
+    "created_at": "2026-07-13T19:00:06+00:00",
+    "updated_at": "2026-07-14T15:58:13+00:00"
+  },
+  {
+    "id": "13209ccb-c8a7-4099-b29d-a7d3a85dfaea",
+    "name": "buy_signal16 Breadth Confirmed",
+    "symbol": "SOXX",
+    "direction": "long",
+    "hold_days": 4,
+    "profit": 1,
+    "description": "high[0] > close[1], IBR[0] <= 50, SMA50>SMA200, Hurst > 0.4",
+    "conditions": [
+      {
+        "left": "High",
+        "operator": ">",
+        "right": "CloseLag1",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.5",
+        "logic": "AND"
+      },
+      {
+        "left": "RSI2RiskBreadth",
+        "operator": ">=",
+        "right": "20",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "confirm_symbols": [
+      "SMH",
+      "QQQ"
+    ],
+    "proxy_symbol": null,
+    "legacy_signal": null,
+    "hold_on_buy_signal": false,
+    "rth_entries_only": false,
+    "eod_exit": false,
+    "scan_lane": "active",
+    "scan_sort_order": 15,
+    "created_at": "2026-07-16T03:48:33+00:00",
+    "updated_at": "2026-07-16T22:23:47+00:00"
+  },
+  {
+    "id": "c9d17247-8e55-49d2-9671-949194088baf",
+    "name": "Signal 7 Confirmed IBR Based",
+    "symbol": "SOXX",
+    "direction": "long",
+    "hold_days": 2,
+    "profit": 1,
+    "description": "Long NQ: Close 1 day ago <= Close 3 days ago, IBR <= 0.4",
+    "conditions": [
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.2",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR3",
+        "operator": "<=",
+        "right": "0.4",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "confirm_symbols": [
+      "SMH",
+      "QQQ"
+    ],
+    "proxy_symbol": null,
+    "legacy_signal": null,
+    "hold_on_buy_signal": false,
+    "rth_entries_only": false,
+    "eod_exit": false,
+    "scan_lane": "archived",
+    "scan_sort_order": 2,
+    "created_at": "2026-07-16T14:30:52+00:00",
+    "updated_at": "2026-07-20T17:30:26+00:00"
+  },
+  {
+    "id": "7cb00e4c-9333-42c5-a9fb-2c471883b549",
+    "name": "Signal 7 based but different",
+    "symbol": "SOXX",
+    "direction": "long",
+    "hold_days": 2,
+    "profit": 1,
+    "description": "Long NQ: Close 1 day ago <= Close 3 days ago, IBR <= 0.4",
+    "conditions": [
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.4",
+        "logic": "AND"
+      },
+      {
+        "left": "EMA8CrossDown",
+        "operator": "is false",
+        "right": "",
+        "logic": "AND"
+      },
+      {
+        "left": "RSI5EnergyBreadth",
+        "operator": "<=",
+        "right": "70",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "confirm_symbols": [
+      "SMH",
+      "QQQ"
+    ],
+    "proxy_symbol": null,
+    "legacy_signal": null,
+    "hold_on_buy_signal": true,
+    "rth_entries_only": false,
+    "eod_exit": false,
+    "scan_lane": "active",
+    "scan_sort_order": 12,
+    "created_at": "2026-07-16T17:26:08+00:00",
+    "updated_at": "2026-07-21T16:59:37+00:00"
+  },
+  {
+    "id": "502c573f-6587-41df-9efb-6a6b1a1eda7d",
+    "name": "buy signal17 based, confirmed",
+    "symbol": "SOXX",
+    "direction": "long",
+    "hold_days": 2,
+    "profit": 1,
+    "description": "Long SMH: rsi(close,2)[0] <= 20, IBR[0] <= 30, ER>0.3",
+    "conditions": [
+      {
+        "left": "ER",
+        "operator": ">=",
+        "right": "0.3",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR2",
+        "operator": "<=",
+        "right": "0.5",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "confirm_symbols": [
+      "SMH"
+    ],
+    "proxy_symbol": null,
+    "legacy_signal": null,
+    "hold_on_buy_signal": true,
+    "rth_entries_only": false,
+    "eod_exit": false,
+    "scan_lane": "testing",
+    "scan_sort_order": 24,
+    "created_at": "2026-07-16T19:07:50+00:00",
+    "updated_at": "2026-10-01T01:56:50+00:00"
+  },
+  {
+    "id": "48076e2a-155b-42c3-9110-6bce75559794",
+    "name": "Signal 16 modified Bond confirmed",
+    "symbol": "SOXX",
+    "direction": "long",
+    "hold_days": 4,
+    "profit": 1,
+    "description": "high[0] > close[1], IBR[0] <= 50, SMA50>SMA200, Hurst > 0.4",
+    "conditions": [
+      {
+        "left": "Regime_equity_risk_breadth_gt_1",
+        "operator": "is false",
+        "right": "",
+        "logic": "AND"
+      },
+      {
+        "left": "RSI2SemisBreadth",
+        "operator": ">=",
+        "right": "30",
+        "logic": "AND"
+      },
+      {
+        "left": "RSI5BondBreadth",
+        "operator": ">=",
+        "right": "40",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.5",
+        "logic": "AND"
+      },
+      {
+        "left": "BBSqueeze",
+        "operator": "is false",
+        "right": "",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "confirm_symbols": [
+      "SMH",
+      "QQQ"
+    ],
+    "proxy_symbol": null,
+    "legacy_signal": null,
+    "hold_on_buy_signal": true,
+    "rth_entries_only": false,
+    "eod_exit": false,
+    "scan_lane": "active",
+    "scan_sort_order": 2,
+    "created_at": "2026-07-20T17:29:16+00:00",
+    "updated_at": "2026-10-06T17:42:40+00:00"
+  }
+]
