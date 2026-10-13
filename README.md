@@ -362,6 +362,89 @@ symbol_confirmation_detail(SIGNAL, 'SOXX', confirm_symbols=['SMH', 'QQQ'], years
 
 Typical workflow: **`symbol_confirm_sweep` → pick winner → `symbol_confirm_detail`**.
 
+## Portfolio allocation models
+
+A portfolio combines saved long strategies into one book. How much of that book is invested is the **allocation model**, chosen per request and saved with the portfolio. Strategy signals, entry/exit timing, and price conventions are never changed by it.
+
+| Model | Target exposure |
+|---|---|
+| **All-in** (default) | 100% while any strategy is active, 0% otherwise. This is the original behavior and runs through the original overlay code, so existing results are unchanged. Overlap mode (`first_signal_only` / `hold_until_all_exit`) applies. |
+| **Proportional, linear** | `active / total` |
+| **Proportional, early conviction** | `(active / total) ^ 0.5` |
+| **Proportional, confirmation required** | `(active / total) ^ 2` |
+
+All proportional modes give 0% with nothing active and 100% with everything active. Proportional ignores overlap mode: every strategy keeps its own entries and exits, and each counts toward exposure.
+
+**Simulation rules (proportional)**
+
+- *Active* means a strategy holds into the next bar: held and not exiting, or entering. *Total* counts every strategy that is **eligible**, whether or not it has ever entered.
+- A strategy becomes eligible on the first bar its entry could be evaluated (`EntryReady`: indicator warmup, instrument listing, regime labels) and stays in the denominator after that. Gaps in readiness later on are counted and reported, not dropped. A strategy whose data ends is removed from the denominator and can no longer be active. Strategies without an `EntryReady` column are eligible from their first bar. Metrics start on the first bar any strategy is eligible.
+- Exposure is a **target share of current portfolio equity**, not a separate investment per strategy. It is recomputed whenever the effective state changes (who is active, or who is eligible), and the existing position is rebalanced to it: partial entries, partial exits, and full liquidation all come from the same rebalance. Between changes the position drifts with price.
+- With several instruments (different strategy symbols, no portfolio proxy), the exposure is split evenly across the active strategies and each share is held in that strategy's instrument.
+- Timing matches the single-strategy backtester: a signal on a bar's close is traded at that close and earns the next bar's move. Each instrument trades as its leveraged return series (`config.Leverage * pct_change`), so a fully invested book compounds exactly like the all-in overlay.
+- Cash earns nothing. Trading cost is `transaction_cost_bps` of traded notional, on buys and sells, default `0`. It is charged to every model, including all-in, so comparisons are fair. With cost `0` the all-in path is untouched.
+- The book tracks cash, invested capital, quantity, average-cost basis, realized and unrealized P&L (realized is gross of costs; costs are tracked separately), and total transaction costs.
+
+**Analytics** (Allocation tab on a portfolio result, and `allocation` in the API payload)
+
+- Average exposure, time invested, exposure when invested, rebalance count (entries, exits, partial adjustments), turnover (total and annualized), and trading costs.
+- Performance attributable to allocation: against an all-in book on the same signals, the gap splits into an allocation effect, a cost effect, and a remainder (basket drift), with a breakdown by number of active strategies.
+- Per-strategy warmup and eligibility.
+- **Compare allocation models** (on demand, `POST /portfolios/allocation-comparison`): All-in versus each proportional mode over the same window, rebased to the same starting capital, with metrics and an equity-curve overlay.
+
+**Code layout** (each piece is replaceable on its own)
+
+```
+api/allocation.py            pure models: SignalState -> target exposure. No prices, cash, or dates.
+api/rebalancer.py            PortfolioLedger: trades to target weights, keeps the books.
+api/allocation_engine.py     effective signal state, then model -> ledger, bar by bar.
+api/allocation_analytics.py  exposure, turnover, attribution, comparison.
+api/portfolio_service.py     wiring: eligibility from strategies, dispatch, payloads.
+```
+
+To add a model (volatility targeting, regime-adjusted sizing, correlation-aware weighting), implement `target_exposure(state)` as a class in `api/allocation.py` and register it in `resolve_allocation_model`. Signals the model needs beyond the active count can travel in `SignalState.context`. The ledger, analytics, and API do not change.
+
+Request fields on `/portfolios/simulate` and saved portfolios: `allocation_model` (`all_in` | `proportional`), `proportional_mode` (`linear` | `early_conviction` | `confirmation_required`), `transaction_cost_bps`. Portfolios saved before these existed load as all-in.
+
+## Position episodes and rebalance events
+
+On a portfolio result the old Trades table is replaced by **Position Episodes**, which is the same under every allocation model. Partial entries, partial exits, and rebalances make "one entry, one exit, one P&L" the wrong unit, so the portfolio's behavior is shown as two things:
+
+- **Position episode**: a continuous period during which the portfolio holds a nonzero position in an instrument, from its first entry to full liquidation. Partial entries and exits never start a new episode. Newest first.
+- **Rebalance event**: one executed transaction inside an episode, classified from the position's quantity change alone: **Enter** (zero to positive), **Add**, **Reduce**, **Exit** (to zero). Only trades that actually executed appear. A signal change that leaves the book unchanged is not a buy or a sell; those are only counted (`signal_changes_without_transaction`).
+
+**Where the numbers come from.** Every figure is the ledger's own record of the fill (units, execution price, fee, realized P&L, position and average cost after), never rebuilt from target percentages. Episodes are derived from those transactions, not from signals. Signals only explain *why*.
+
+| Episode column | Definition |
+|---|---|
+| Days | Sessions the position was carried into, on the simulation calendar. Weekends and holidays are not sessions. A buy on Monday's close sold on Wednesday's close is 2. |
+| Initial entry / final exit price | The underlying's closing price on the day of the first entry and of the last exit (blank while open). The same prices the old Trades table showed. |
+| Max / Avg exposure | Highest actual exposure, and session-weighted mean actual exposure, during the episode. Actual, not target: it drifts with price and fees. |
+| Episode % | Episode P&L / portfolio equity immediately before the first entry. Episode P&L is realized (average cost, gross) minus fees, plus unrealized P&L on units still held at the final mark (zero once closed); the dollar figure is in the expanded row. A contribution to portfolio equity, not the return on deployed capital and not the instrument's price move. |
+| Rebalances | Executed transactions in the episode. |
+
+Each event row shows its date, type, **Trigger**, active/eligible strategies, **Exposure**, **Price** (the underlying's close that day), **Trade P&L**, and fees. Trade P&L is the trade's realized P&L (before fees) as a percent of total portfolio equity just before it; entries and adds show `-` because only sells realize. **Rolling P&L** is the episode's P&L so far (realized minus fees, plus the units still held at that event's price) as a percent of the same pre-entry equity as Episode %, so it builds line by line and the last line of a closed episode equals Episode %. The first line is `-`. Trigger is just who moved on that bar: `+Strategy1` entered, `-Strategy2` exited, simultaneous changes all listed. Exposure is the actual portfolio exposure after the trade. **Accounting detail** adds cash and equity before and after, position value, unrealized P&L, and the names of the active strategies.
+
+A trade can move the book without a signal deciding the size, for example when a swap leaves the count unchanged but price has pushed the position off its share. The trigger still lists the strategies that moved; the exposure shows where the book ended up.
+
+**All-In uses the same models.** The all-in overlay still produces the all-in equity curve, so its results are unchanged. Its position flags are replayed through the same engine and ledger, which yields the same transactions and episodes as every other model. There is one accounting implementation. The replay's equity is compared with the overlay's, and the largest gap is reported in the payload (about 4e-15 on the saved portfolios). An All-In episode is normally one Enter and one Exit.
+
+**Prices are real prices.** Every price shown is the underlying's closing price on the trade date, as in the old Trades table. Internally the ledger trades each instrument as its leveraged return series (`config.Leverage * pct_change`, starting at 100), and that simulated price never appears as a price in the UI. The payload keeps it under `simulated_price`, `initial_simulated_price` and `final_simulated_price` for audit, and the real close under `underlying_close`, `initial_underlying_close` and `final_underlying_close`. Because the position is leveraged, the move between an entry and exit price is not the episode's return; the episode and event percentages come from the ledger.
+
+**Episode % under All-In is the old Trades table's number, exactly.** It is taken from the unchanged overlay code, so every All-In trade matches the old build field for field (percent, dates, prices, days, status), and the closing line of the events table agrees with it. That figure is the leveraged price return of the underlying, `Leverage * (exit close / entry close - 1)`. It is not what the equity curve did over the trade, because the curve compounds the leverage daily. For one trade 2026-10-06 to 2026-10-12 (closes 589.45, 582.82, 563.28, 559.40, 546.26) the old formula gives -21.98% and the compounded equity change is -20.89%. Over the 799 closed trades of "OG + Semis combined", chaining the old percentages gives 87.4M times the starting capital against 48.4M for the equity curve itself. The ledger's own figure is kept as `return_on_equity` in the payload. Under the proportional models, where there is no old figure and fractional positions make a price return meaningless, Episode % is that ledger figure (episode P&L / equity just before the first entry).
+
+**Reconciliation** is in the payload (`positions.reconciliation`): episode P&L added up against the change in portfolio equity, against the sum of event P&L, and the money moved by transactions against the change in cash. All three tie out to float noise. Slippage is supported by the ledger (execution price moves against the trade, equity is marked at the mark) but is not exposed as a setting, because the all-in overlay does not model it.
+
+**Code layout**
+
+```
+api/rebalancer.py          Fill: the authoritative transaction record.
+api/position_episodes.py   TransactionRecord, Enter/Add/Reduce/Exit, episode aggregation.
+api/allocation_engine.py   records a TransactionRecord for each fill, with its signal context.
+api/portfolio_service.py   all-in replay and the `positions` payload.
+frontend/.../position-episodes-table.tsx   the expandable table.
+```
+
 ## Other scripts
 
 ### Daily signal check (Streamlit)

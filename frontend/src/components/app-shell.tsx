@@ -45,7 +45,7 @@ const TITLES: Record<SectionId, { title: string; subtitle: string }> = {
   quote: { title: 'Quote', subtitle: 'SPY, QQQ, SOXX, and VIX snapshot with IBR, RSI, Stochastic, and missing-day checks.' },
   portfolio: {
     title: 'Portfolio',
-    subtitle: 'Combine saved strategies and simulate shared all-in performance.',
+    subtitle: 'Combine saved strategies and simulate portfolio performance under an allocation model.',
   },
   regimes: {
     title: 'Regimes',

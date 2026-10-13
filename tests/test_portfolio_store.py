@@ -195,5 +195,95 @@ class PortfolioStoreTests(unittest.TestCase):
         self.assertEqual({item.id for item in loaded}, {first.id, second.id})
 
 
+class PortfolioAllocationStoreTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.store_path = Path(self.temp_dir.name) / "portfolios.json"
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def _strategy(self):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(id="s1", name="Long SPY", direction="long")
+
+    @patch("api.portfolio_store.get_strategy_by_id")
+    def test_new_portfolios_default_to_all_in(self, mock_get_strategy):
+        mock_get_strategy.return_value = self._strategy()
+        saved = create_portfolio(
+            SavePortfolioRequest(name="Core", strategy_ids=["s1"]),
+            store_path=self.store_path,
+        )
+        self.assertEqual(saved.allocation_model, "all_in")
+        self.assertEqual(saved.proportional_mode, "linear")
+        self.assertEqual(saved.transaction_cost_bps, 0.0)
+
+    def test_records_saved_before_allocation_models_load_as_all_in(self):
+        import json
+
+        self.store_path.write_text(
+            json.dumps(
+                [
+                    {
+                        "id": "old",
+                        "name": "Legacy",
+                        "description": "",
+                        "strategy_ids": ["s1"],
+                        "overlap_mode": "hold_until_all_exit",
+                        "proxy_symbol": None,
+                        "scan_lane": "active",
+                        "scan_sort_order": 1,
+                        "created_at": "2026-01-01T00:00:00+00:00",
+                        "updated_at": "2026-01-01T00:00:00+00:00",
+                    }
+                ]
+            )
+        )
+        (portfolio,) = list_portfolios(store_path=self.store_path)
+        self.assertEqual(portfolio.allocation_model, "all_in")
+        self.assertEqual(portfolio.overlap_mode, "hold_until_all_exit")
+
+    @patch("api.portfolio_store.get_strategy_by_id")
+    def test_allocation_fields_round_trip_and_update(self, mock_get_strategy):
+        mock_get_strategy.return_value = self._strategy()
+        saved = create_portfolio(
+            SavePortfolioRequest(
+                name="Core",
+                strategy_ids=["s1"],
+                allocation_model="proportional",
+                proportional_mode="early_conviction",
+                transaction_cost_bps=5,
+            ),
+            store_path=self.store_path,
+        )
+        (loaded,) = list_portfolios(store_path=self.store_path)
+        self.assertEqual(loaded.allocation_model, "proportional")
+        self.assertEqual(loaded.proportional_mode, "early_conviction")
+        self.assertEqual(loaded.transaction_cost_bps, 5)
+
+        updated = update_portfolio(
+            saved.id,
+            UpdatePortfolioRequest(proportional_mode="confirmation_required"),
+            store_path=self.store_path,
+        )
+        self.assertEqual(updated.proportional_mode, "confirmation_required")
+        self.assertEqual(updated.allocation_model, "proportional")
+        self.assertEqual(updated.transaction_cost_bps, 5)
+
+        back = update_portfolio(
+            saved.id,
+            UpdatePortfolioRequest(allocation_model="all_in"),
+            store_path=self.store_path,
+        )
+        self.assertEqual(back.allocation_model, "all_in")
+
+    def test_rejects_unknown_model_and_negative_cost(self):
+        with self.assertRaises(ValueError):
+            SavePortfolioRequest(name="x", strategy_ids=["s1"], allocation_model="kelly")
+        with self.assertRaises(ValueError):
+            SavePortfolioRequest(name="x", strategy_ids=["s1"], transaction_cost_bps=-1)
+
+
 if __name__ == "__main__":
     unittest.main()

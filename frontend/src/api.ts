@@ -100,6 +100,78 @@ export type StrategyContribution = {
   redundant_holding_percent: number | null;
 };
 
+export type PositionEventKind = "Enter" | "Add" | "Reduce" | "Exit";
+
+export type PositionSignalChange = {
+  strategy_id: string;
+  strategy_name: string;
+  change: "entered" | "exited";
+};
+
+/** One executed transaction, as the portfolio simulator's ledger recorded it. */
+export type PositionEvent = {
+  date: string;
+  event: PositionEventKind;
+  symbol: string;
+  signal_changes: PositionSignalChange[];
+  active_strategies: string[];
+  active_signals: number;
+  eligible_signals: number;
+  exposure_before: number;
+  exposure_after: number;
+  /** The underlying's close on the trade date: the price to show. */
+  underlying_close: number | null;
+  position_value_after: number;
+  unrealized_pnl_after: number;
+  realized_pnl: number;
+  /** Episode P&L so far, as of this event, net of fees. */
+  episode_pnl_to_date: number;
+  episode_return_to_date: number | null;
+  fees: number;
+  cash_before: number;
+  cash_after: number;
+  equity_before: number;
+  equity_after: number;
+};
+
+/** A continuous period of nonzero exposure to one instrument. */
+export type PositionEpisode = {
+  id: string;
+  symbol: string;
+  status: "Open" | "Closed";
+  start: string;
+  end: string | null;
+  days: number;
+  max_exposure: number;
+  avg_exposure: number;
+  pnl: number;
+  return: number | null;
+  equity_before_entry: number;
+  rebalance_count: number;
+  realized_pnl: number;
+  unrealized_pnl: number;
+  fees: number;
+  /** The underlying's close on the days of first entry and final exit. */
+  initial_underlying_close: number | null;
+  final_underlying_close: number | null;
+  events: PositionEvent[];
+};
+
+export type PositionsPayload = {
+  episodes: PositionEpisode[];
+  reconciliation: {
+    episode_pnl_total: number;
+    equity_change: number;
+    episode_vs_equity_difference: number;
+    cash_difference: number;
+    episode_count: number;
+    transaction_count: number;
+    ledger_vs_simulation_max_relative_difference?: number;
+  };
+  signal_changes_without_transaction: number;
+  price_basis: { leverage: number; description: string };
+};
+
 export interface DetailedResult {
   summary: Record<string, number | string | null>;
   yearly: Array<Record<string, number | string | null>>;
@@ -109,6 +181,10 @@ export interface DetailedResult {
   equity_curve_total_points?: number;
   equity_curve_shown_points?: number;
   contribution?: StrategyContribution[] | null;
+  /** Present on portfolio simulations. */
+  allocation?: AllocationSummary | null;
+  /** Present on portfolio simulations: episodes and their rebalance events. */
+  positions?: PositionsPayload | null;
 }
 
 export type MarketRegimeCurrent = {
@@ -433,12 +509,19 @@ export type ScanRow = {
 
 export type PortfolioOverlapMode = "first_signal_only" | "hold_until_all_exit";
 
+/** All-in is the original behavior. Proportional sizes the book by active / total strategies. */
+export type PortfolioAllocationModel = "all_in" | "proportional";
+export type PortfolioProportionalMode = "linear" | "early_conviction" | "confirmation_required";
+
 export type SavePortfolioPayload = {
   name: string;
   description?: string;
   strategy_ids: string[];
   overlap_mode: PortfolioOverlapMode;
   proxy_symbol?: string;
+  allocation_model?: PortfolioAllocationModel;
+  proportional_mode?: PortfolioProportionalMode;
+  transaction_cost_bps?: number;
 };
 
 export type SavedPortfolio = SavePortfolioPayload & {
@@ -457,6 +540,9 @@ export type UpdatePortfolioPayload = {
   strategy_ids?: string[];
   overlap_mode?: PortfolioOverlapMode;
   proxy_symbol?: string | null;
+  allocation_model?: PortfolioAllocationModel;
+  proportional_mode?: PortfolioProportionalMode;
+  transaction_cost_bps?: number;
 };
 
 export type PortfolioSimulatePayload = {
@@ -464,6 +550,107 @@ export type PortfolioSimulatePayload = {
   overlap_mode: PortfolioOverlapMode;
   proxy_symbol?: string;
   years?: number;
+  allocation_model?: PortfolioAllocationModel;
+  proportional_mode?: PortfolioProportionalMode;
+  transaction_cost_bps?: number;
+};
+
+export type AllocationAnalytics = {
+  bars: number;
+  average_exposure_pct: number;
+  average_exposure_when_invested_pct: number | null;
+  max_exposure_pct: number;
+  time_invested_pct: number;
+  rebalance_count: number;
+  entry_count: number;
+  exit_count: number;
+  adjustment_count: number;
+  total_traded_notional: number;
+  turnover_total_pct: number | null;
+  turnover_annualized_pct: number | null;
+  total_transaction_costs: number;
+  transaction_costs_pct_of_avg_equity: number | null;
+};
+
+export type AllocationAttribution = {
+  reference: string;
+  allocation_effect_pp: number;
+  cost_effect_pp: number;
+  other_pp: number;
+  total_return_gap_pp: number;
+  final_equity_delta: number;
+  final_equity_delta_pct: number | null;
+  days_below_reference: number;
+  days_partially_invested: number;
+  average_eligible_strategies: number;
+  by_active_count: Array<{
+    active_count: number;
+    days: number;
+    average_exposure_pct: number;
+    allocation_effect_pp: number;
+  }>;
+};
+
+export type AllocationEligibility = {
+  strategy_id: string;
+  strategy_name: string;
+  first_eligible_date: string | null;
+  last_available_date: string | null;
+  warmup_bars: number;
+  eligible_bars: number;
+  unavailable_bars: number;
+};
+
+export type AllocationLedger = {
+  cash: number;
+  invested_capital: number;
+  equity: number;
+  realized_pnl: number;
+  unrealized_pnl: number;
+  transaction_costs: number;
+  positions: Array<{
+    symbol: string;
+    quantity: number;
+    price: number;
+    market_value: number;
+    average_cost: number;
+    unrealized_pnl: number;
+  }>;
+};
+
+export type AllocationSummary = {
+  model: string;
+  label: string;
+  transaction_cost_bps: number;
+  analytics: AllocationAnalytics;
+  /** Null for all-in, which is its own reference. */
+  attribution: AllocationAttribution | null;
+  eligibility: AllocationEligibility[] | null;
+  ledger: AllocationLedger | null;
+  /** Target exposure as a step function: one row per change. */
+  exposure_steps: Array<{
+    date: string;
+    exposure: number;
+    active_count?: number;
+    eligible_count?: number;
+  }>;
+};
+
+export type AllocationComparisonRow = {
+  model: string;
+  label: string;
+  metrics: Record<string, number | null>;
+  analytics: AllocationAnalytics;
+  attribution: AllocationAttribution | null;
+};
+
+export type AllocationComparison = {
+  start_date: string;
+  start_capital: number;
+  transaction_cost_bps: number;
+  models: AllocationComparisonRow[];
+  /** One row per date: `date` plus each model id's rebased equity. */
+  equity_curves: Array<Record<string, number | string>>;
 };
 
 export type PortfolioShapleyPayload = PortfolioSimulatePayload & {
@@ -619,6 +806,12 @@ export function runPortfolioShapley(
   payload: PortfolioShapleyPayload,
 ): Promise<PortfolioShapleyResult> {
   return postJson<PortfolioShapleyResult>("/portfolios/shapley", payload);
+}
+
+export function runPortfolioAllocationComparison(
+  payload: PortfolioSimulatePayload,
+): Promise<AllocationComparison> {
+  return postJson<AllocationComparison>("/portfolios/allocation-comparison", payload);
 }
 
 export function runPortfolioRegimes(

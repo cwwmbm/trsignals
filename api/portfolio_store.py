@@ -128,6 +128,9 @@ def create_portfolio(
         strategy_ids=strategy_ids,
         overlap_mode=request.overlap_mode,
         proxy_symbol=_normalize_proxy_symbol(request.proxy_symbol),
+        allocation_model=request.allocation_model,
+        proportional_mode=request.proportional_mode,
+        transaction_cost_bps=request.transaction_cost_bps,
         scan_lane="testing",
         scan_sort_order=0,
         created_at=now,
@@ -172,6 +175,9 @@ def update_portfolio(
                 updated["overlap_mode"] = payload["overlap_mode"]
             if "proxy_symbol" in payload:
                 updated["proxy_symbol"] = _normalize_proxy_symbol(payload["proxy_symbol"])
+            for key in ("allocation_model", "proportional_mode", "transaction_cost_bps"):
+                if key in payload and payload[key] is not None:
+                    updated[key] = payload[key]
             items[index] = updated
             _write_raw(path, items)
             return _validate_saved_portfolio(updated)

@@ -11,6 +11,24 @@ import pandas as pd
 
 import backtest as bt
 import config
+from api.allocation import (
+    ALL_IN,
+    AllInModel,
+    AllocationModel,
+    comparison_models,
+    resolve_allocation_model,
+)
+from api.allocation_analytics import (
+    allocation_attribution,
+    arrays_from_overlay,
+    arrays_from_simulation,
+    charge_overlay_costs,
+    exposure_analytics,
+    merged_equity_curves,
+    rebased_comparison_frame,
+)
+from api.allocation_engine import AllocationSimulation, effective_state, simulate_allocation
+from api.position_episodes import build_position_episodes, reconcile_episodes
 from api.proxy_symbol import proxy_column
 from api.scan_service import execute_saved_strategy
 from api.serializers import detailed_backtest_payload, regime_request_payload
@@ -38,6 +56,8 @@ class StrategySignals:
     hold_long: np.ndarray
     long_trade_out: np.ndarray
     executed: pd.DataFrame | None = None
+    # Bars where an entry could be evaluated. None means the strategy reports no warmup.
+    entry_ready: np.ndarray | None = None
 
 
 def _normalize_proxy(value: str | None) -> str | None:
@@ -344,6 +364,263 @@ def simulate_portfolio_overlay(
     return frame
 
 
+@dataclass(frozen=True)
+class AllocationSettings:
+    """Which allocation model sizes the book, and what trading it costs."""
+
+    model: AllocationModel
+    cost_bps: float = 0.0
+
+    @property
+    def is_all_in(self) -> bool:
+        return self.model.id == ALL_IN
+
+
+def allocation_settings(source) -> AllocationSettings:
+    """Read allocation fields off a request or saved portfolio. Missing means legacy all-in."""
+    model = resolve_allocation_model(
+        getattr(source, "allocation_model", None),
+        getattr(source, "proportional_mode", None),
+    )
+    cost = getattr(source, "transaction_cost_bps", 0.0)
+    return AllocationSettings(model=model, cost_bps=float(cost or 0.0))
+
+
+def _master_dates_for(
+    signals_by_id: dict[str, StrategySignals],
+    master_dates: pd.DatetimeIndex | None,
+) -> pd.DatetimeIndex:
+    if master_dates is not None:
+        return pd.DatetimeIndex(master_dates)
+    return pd.DatetimeIndex(
+        sorted(set().union(*(signals.dates for signals in signals_by_id.values())))
+    )
+
+
+def _strategy_availability(
+    strategy,
+    signals: StrategySignals,
+    master_dates: pd.DatetimeIndex,
+) -> tuple[int | None, int | None, dict[str, Any]]:
+    """Where on the master calendar a strategy's signals can be evaluated.
+
+    Eligible from the first bar its entry conditions had every input (after indicator
+    warmup, instrument listing, regime labels), until its own data ends. Strategies with
+    no ``EntryReady`` column are eligible from their first bar. Mid-history gaps in
+    readiness are not removed from the denominator; they are counted and reported.
+    """
+    n = len(master_dates)
+    dates = pd.DatetimeIndex(signals.dates)
+    report: dict[str, Any] = {
+        "strategy_id": strategy.id,
+        "strategy_name": strategy.name,
+        "first_eligible_date": None,
+        "last_available_date": None,
+        "warmup_bars": n,
+        "eligible_bars": 0,
+        "unavailable_bars": 0,
+    }
+    if len(dates) == 0 or n == 0:
+        return None, None, report
+
+    ready_date = dates.min()
+    unavailable = 0
+    if signals.entry_ready is not None:
+        ready = np.asarray(signals.entry_ready, dtype=bool)
+        if not ready.any():
+            return None, None, report
+        first_ready = int(np.argmax(ready))
+        ready_date = dates[first_ready]
+        unavailable = int((~ready[first_ready:]).sum())
+
+    first_idx = int(master_dates.searchsorted(ready_date, side="left"))
+    last_idx = int(master_dates.searchsorted(dates.max(), side="right")) - 1
+    if first_idx >= n or last_idx < first_idx:
+        return None, None, report
+
+    report.update(
+        first_eligible_date=master_dates[first_idx].strftime("%Y-%m-%d"),
+        last_available_date=master_dates[last_idx].strftime("%Y-%m-%d"),
+        warmup_bars=first_idx,
+        eligible_bars=last_idx - first_idx + 1,
+        unavailable_bars=unavailable,
+    )
+    return first_idx, last_idx, report
+
+
+def simulate_portfolio_allocation(
+    strategies: list,
+    signals_by_id: dict[str, StrategySignals],
+    *,
+    model: AllocationModel,
+    cost_bps: float = 0.0,
+    global_proxy: str | None,
+    track_changes: dict[str, pd.Series],
+    close_series: dict[str, pd.Series],
+    master_dates: pd.DatetimeIndex | None = None,
+) -> AllocationSimulation:
+    """Size the book from how many strategies are active, using ``model``.
+
+    Each strategy keeps its own entry and exit timing; overlap modes do not apply because
+    every strategy's state counts toward the exposure.
+    """
+    if not strategies:
+        raise ValueError("At least one strategy is required")
+    master_dates = _master_dates_for(signals_by_id, master_dates)
+    if len(master_dates) == 0:
+        raise ValueError("No overlapping market data for selected strategies")
+    active, eligible, reports = _effective_signal_matrices(strategies, signals_by_id, master_dates)
+
+    simulation = simulate_allocation(
+        dates=master_dates,
+        active=active,
+        eligible=eligible,
+        pnl_symbols=[_strategy_pnl_symbol(strategy, global_proxy) for strategy in strategies],
+        track_changes=track_changes,
+        close_series=close_series,
+        model=model,
+        start_capital=START_CAPITAL,
+        cost_bps=cost_bps,
+        strategy_labels=[(strategy.id, strategy.name) for strategy in strategies],
+    )
+    simulation.eligibility = reports
+    return simulation
+
+
+def _effective_signal_matrices(
+    strategies: list,
+    signals_by_id: dict[str, StrategySignals],
+    master_dates: pd.DatetimeIndex,
+) -> tuple[np.ndarray, np.ndarray, list[dict[str, Any]]]:
+    """``(active, eligible, reports)``: per-strategy effective state on the master calendar."""
+    n = len(master_dates)
+    active = np.zeros((len(strategies), n), dtype=bool)
+    eligible = np.zeros((len(strategies), n), dtype=bool)
+    reports: list[dict[str, Any]] = []
+    for k, strategy in enumerate(strategies):
+        signals = signals_by_id[strategy.id]
+        trade_in, hold, trade_out = _aligned_signal_arrays(signals, master_dates)
+        first, last, report = _strategy_availability(strategy, signals, master_dates)
+        active[k], eligible[k] = effective_state(
+            trade_in,
+            hold,
+            trade_out,
+            first_eligible=first,
+            last_available=last,
+        )
+        reports.append(report)
+    return active, eligible, reports
+
+
+def _overlay_book_label(strategies: list, global_proxy: str | None) -> str:
+    """Name of the instrument an all-in book holds: its one symbol, else the whole portfolio."""
+    symbols = {_strategy_pnl_symbol(strategy, global_proxy) for strategy in strategies}
+    return next(iter(symbols)) if len(symbols) == 1 else "Portfolio"
+
+
+def replay_overlay_transactions(
+    frame: pd.DataFrame,
+    strategies: list,
+    signals_by_id: dict[str, StrategySignals],
+    *,
+    global_proxy: str | None,
+    cost_bps: float = 0.0,
+) -> AllocationSimulation:
+    """Run an all-in overlay frame's positions through the same engine and ledger.
+
+    The overlay stays the source of the all-in equity curve, so its results are unchanged.
+    Replaying its in/out flags through ``simulate_allocation`` gives all-in the same
+    transaction records and episodes as every other allocation model, from one accounting
+    implementation. The book trades as one instrument whose returns are the overlay's own
+    ``TrackChange``, which is the held symbol's leveraged return on every bar it is held.
+    Strategies enter only as context, so rows can say who entered and who exited.
+    """
+    dates = pd.DatetimeIndex(frame["Date"])
+    active_ctx, eligible_ctx, _ = _effective_signal_matrices(strategies, signals_by_id, dates)
+    in_position = (arrays_from_overlay(frame).post_weight > 0.5)[None, :]
+    label = _overlay_book_label(strategies, global_proxy)
+    close = pd.Series(frame["Close"].to_numpy(dtype=float), index=dates)
+    return simulate_allocation(
+        dates=dates,
+        active=in_position,
+        eligible=np.ones_like(in_position),
+        pnl_symbols=[label],
+        track_changes={label: pd.Series(frame["TrackChange"].to_numpy(dtype=float), index=dates)},
+        close_series={label: close.where(close > 0)},
+        model=AllInModel(),
+        start_capital=START_CAPITAL,
+        cost_bps=cost_bps,
+        strategy_labels=[(strategy.id, strategy.name) for strategy in strategies],
+        signal_context=(active_ctx, eligible_ctx),
+    )
+
+
+def _costed_overlay(
+    strategies: list,
+    signals_by_id: dict[str, StrategySignals],
+    *,
+    cost_bps: float,
+    **kwargs,
+) -> pd.DataFrame:
+    """The legacy overlay, with trading costs charged only when a cost is set."""
+    frame = simulate_portfolio_overlay(strategies, signals_by_id, **kwargs)
+    return charge_overlay_costs(frame, cost_bps)
+
+
+def simulate_portfolio_frame(
+    strategies: list,
+    signals_by_id: dict[str, StrategySignals],
+    *,
+    allocation: AllocationSettings | None,
+    overlap_mode: PortfolioOverlapMode,
+    global_proxy: str | None,
+    track_changes: dict[str, pd.Series],
+    close_series: dict[str, pd.Series],
+    strategy_order: list[str],
+    master_dates: pd.DatetimeIndex | None = None,
+) -> pd.DataFrame:
+    """The portfolio frame for either allocation path. All-in is the untouched overlay."""
+    if allocation is None or allocation.is_all_in:
+        return _costed_overlay(
+            strategies,
+            signals_by_id,
+            cost_bps=0.0 if allocation is None else allocation.cost_bps,
+            overlap_mode=overlap_mode,
+            global_proxy=global_proxy,
+            track_changes=track_changes,
+            close_series=close_series,
+            strategy_order=strategy_order,
+            master_dates=master_dates,
+        )
+    return simulate_portfolio_allocation(
+        strategies,
+        signals_by_id,
+        model=allocation.model,
+        cost_bps=allocation.cost_bps,
+        global_proxy=global_proxy,
+        track_changes=track_changes,
+        close_series=close_series,
+        master_dates=master_dates,
+    ).frame
+
+
+def _aligned_signal_arrays(
+    signals: StrategySignals,
+    master_dates: pd.DatetimeIndex,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    return _align_strategy_signals(
+        pd.DataFrame(
+            {
+                "Date": signals.dates,
+                "LongTradeIn": signals.long_trade_in,
+                "HoldLong": signals.hold_long,
+                "LongTradeOut": signals.long_trade_out,
+            }
+        ),
+        master_dates,
+    )
+
+
 def _load_strategy_signals(
     strategy,
     *,
@@ -375,6 +652,11 @@ def _load_strategy_signals(
         hold_long=executed["HoldLong"].to_numpy(dtype=bool),
         long_trade_out=executed["LongTradeOut"].to_numpy(dtype=bool),
         executed=executed if keep_executed else None,
+        entry_ready=(
+            executed["EntryReady"].fillna(False).to_numpy(dtype=bool)
+            if "EntryReady" in executed.columns
+            else None
+        ),
     )
 
 
@@ -395,12 +677,20 @@ def _resolve_portfolio_strategies(strategy_ids: list[str]) -> list:
     return strategies
 
 
-def _portfolio_description(strategies: list, overlap_mode: str, global_proxy: str | None) -> str:
-    mode_label = (
-        "first signal only"
-        if overlap_mode == "first_signal_only"
-        else "hold until all exit"
-    )
+def _portfolio_description(
+    strategies: list,
+    overlap_mode: str,
+    global_proxy: str | None,
+    allocation: AllocationSettings | None = None,
+) -> str:
+    if allocation is not None and not allocation.is_all_in:
+        mode_label = allocation.model.id.replace("_", " ")
+    else:
+        mode_label = (
+            "first signal only"
+            if overlap_mode == "first_signal_only"
+            else "hold until all exit"
+        )
     names = ", ".join(strategy.name for strategy in strategies)
     proxy_note = f", proxy {global_proxy}" if global_proxy else ""
     return f"Portfolio ({len(strategies)} strategies, {mode_label}{proxy_note}): {names}"
@@ -475,9 +765,11 @@ def build_portfolio_overlay_frame(
         bulk_data=bulk_data,
     )
 
-    frame = simulate_portfolio_overlay(
+    allocation = allocation_settings(portfolio)
+    frame = simulate_portfolio_frame(
         strategies,
         signals_by_id,
+        allocation=allocation,
         overlap_mode=overlap_mode,
         global_proxy=global_proxy,
         track_changes=track_changes,
@@ -485,7 +777,7 @@ def build_portfolio_overlay_frame(
         strategy_order=strategy_ids,
     )
 
-    description = _portfolio_description(strategies, overlap_mode, global_proxy)
+    description = _portfolio_description(strategies, overlap_mode, global_proxy, allocation)
     max_hold = max(strategy.hold_days for strategy in strategies)
     max_profit = max(strategy.profit for strategy in strategies)
     return frame, strategies, description, max_hold, max_profit
@@ -837,6 +1129,7 @@ def compute_portfolio_contribution(
     track_changes: dict[str, pd.Series],
     close_series: dict[str, pd.Series],
     strategy_order: list[str],
+    allocation: AllocationSettings | None = None,
 ) -> list[dict[str, Any]]:
     master_dates = pd.DatetimeIndex(full_frame["Date"])
     full_metrics = extract_contribution_metrics(full_frame)
@@ -849,9 +1142,10 @@ def compute_portfolio_contribution(
         remaining_order = [item_id for item_id in strategy_order if item_id != strategy_id]
 
         if remaining:
-            reduced_frame = simulate_portfolio_overlay(
+            reduced_frame = simulate_portfolio_frame(
                 remaining,
                 {item.id: signals_by_id[item.id] for item in remaining},
+                allocation=allocation,
                 overlap_mode=overlap_mode,
                 global_proxy=global_proxy,
                 track_changes=track_changes,
@@ -1022,6 +1316,7 @@ def compute_portfolio_shapley(
     strategy_order: list[str],
     samples: int = SHAPLEY_SAMPLES_DEFAULT,
     seed: int | None = None,
+    allocation: AllocationSettings | None = None,
 ) -> dict[str, Any]:
     samples_clamped = clamp_shapley_samples(samples)
     strategy_ids = list(strategy_order)
@@ -1040,9 +1335,10 @@ def compute_portfolio_shapley(
         else:
             subset = [strategies_by_id[item_id] for item_id in strategy_ids if item_id in member_ids]
             subset_order = [item_id for item_id in strategy_ids if item_id in member_ids]
-            frame = simulate_portfolio_overlay(
+            frame = simulate_portfolio_frame(
                 subset,
                 {item.id: signals_by_id[item.id] for item in subset},
+                allocation=allocation,
                 overlap_mode=overlap_mode,
                 global_proxy=global_proxy,
                 track_changes=track_changes,
@@ -1133,6 +1429,159 @@ def simulate_portfolio_shapley(request) -> dict:
         strategy_order=strategy_ids,
         samples=getattr(request, "samples", SHAPLEY_SAMPLES_DEFAULT),
         seed=getattr(request, "seed", None),
+        allocation=allocation_settings(request),
+    )
+
+
+EXPOSURE_STEP_LIMIT = 4000
+
+
+def _exposure_steps(frame: pd.DataFrame) -> list[dict[str, Any]]:
+    """Exposure as a step function: one row per bar where it or the signal counts changed."""
+    columns = ["TargetExposure" if "TargetExposure" in frame.columns else "Exposure"]
+    if "ActiveCount" in frame.columns:
+        columns += ["ActiveCount", "EligibleCount"]
+    changed = frame[columns].ne(frame[columns].shift()).any(axis=1)
+    changed.iloc[0] = True
+    rows = frame.loc[changed]
+    if len(rows) > EXPOSURE_STEP_LIMIT:
+        rows = rows.iloc[-EXPOSURE_STEP_LIMIT:]
+    steps = []
+    for _, row in rows.iterrows():
+        step = {
+            "date": pd.Timestamp(row["Date"]).strftime("%Y-%m-%d"),
+            "exposure": float(row[columns[0]]),
+        }
+        if "ActiveCount" in rows.columns:
+            step["active_count"] = int(row["ActiveCount"])
+            step["eligible_count"] = int(row["EligibleCount"])
+        steps.append(step)
+    return steps
+
+
+def _overlay_exposure_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    """All-in frames are 0%/100%; give them an Exposure column so steps work the same way."""
+    out = frame[["Date"]].copy()
+    book = arrays_from_overlay(frame)
+    out["Exposure"] = book.post_weight
+    return out
+
+
+def _allocation_payload(
+    allocation: AllocationSettings,
+    frame: pd.DataFrame,
+    simulation: AllocationSimulation | None,
+    reference: AllocationSimulation | None,
+) -> dict[str, Any]:
+    """Allocation analytics shipped with a portfolio backtest."""
+    model = allocation.model
+    payload: dict[str, Any] = {
+        "model": model.id,
+        "label": model.label,
+        "transaction_cost_bps": allocation.cost_bps,
+    }
+    if simulation is None:
+        payload.update(
+            analytics=exposure_analytics(arrays_from_overlay(frame)),
+            attribution=None,
+            eligibility=None,
+            ledger=None,
+            exposure_steps=_exposure_steps(_overlay_exposure_frame(frame)),
+        )
+        return payload
+
+    last = len(frame) - 1
+    payload.update(
+        analytics=exposure_analytics(arrays_from_simulation(simulation)),
+        attribution=(
+            allocation_attribution(simulation, reference) if reference is not None else None
+        ),
+        eligibility=simulation.eligibility,
+        ledger={
+            "cash": float(simulation.cash[last]),
+            "invested_capital": float(simulation.invested[last]),
+            "equity": float(simulation.equity[last]),
+            "realized_pnl": float(simulation.realized_pnl[last]),
+            "unrealized_pnl": float(simulation.unrealized_pnl[last]),
+            "transaction_costs": float(simulation.total_costs[last]),
+            "positions": simulation.final_positions,
+        },
+        exposure_steps=_exposure_steps(frame),
+    )
+    return payload
+
+
+def _json_safe(value: Any) -> Any:
+    """Recursively turn non-finite floats into None so the response is valid JSON."""
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
+
+def _positions_payload(
+    book: AllocationSimulation,
+    *,
+    comparison_equity: np.ndarray | None = None,
+    legacy_returns: dict[str, float] | None = None,
+) -> dict[str, Any]:
+    """Position episodes and rebalance events from the book's executed transactions.
+
+    ``comparison_equity`` is the equity curve the book is supposed to reproduce (the all-in
+    overlay's). The largest relative gap is reported so a mismatch is visible, not hidden.
+
+    ``legacy_returns`` maps an episode's start date to the return the old all-in Trades table
+    showed for that trade. When given, it is what Episode % displays, so all-in numbers match
+    the old table exactly. The last line of a closed episode follows it, so the two never
+    disagree on screen. The ledger's own figure stays available as ``return_on_equity``.
+    """
+    episodes = build_position_episodes(
+        book.transactions,
+        asset_weight_post=book.asset_weight_post,
+        final_marks=book.final_marks,
+        last_bar=len(book.dates) - 1,
+    )
+    reconciliation = reconcile_episodes(
+        episodes,
+        start_equity=book.start_capital,
+        final_equity=float(book.equity[-1]),
+        start_cash=book.start_capital,
+        final_cash=float(book.cash[-1]),
+        transactions=book.transactions,
+    )
+    if legacy_returns:
+        for episode in episodes:
+            legacy = legacy_returns.get(episode["start"])
+            if legacy is None:
+                continue
+            episode["return"] = legacy
+            if episode["status"] == "Closed":
+                episode["events"][-1]["episode_return_to_date"] = legacy
+    if comparison_equity is not None:
+        reference = np.asarray(comparison_equity, dtype=float)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            gap = np.abs(book.equity - reference) / np.abs(reference)
+        reconciliation["ledger_vs_simulation_max_relative_difference"] = float(
+            np.nanmax(gap) if gap.size else 0.0
+        )
+    return _json_safe(
+        {
+            "episodes": episodes,
+            "reconciliation": reconciliation,
+            "signal_changes_without_transaction": book.signal_changes_without_transaction,
+            "price_basis": {
+                "leverage": config.Leverage,
+                "description": (
+                    "Prices are the underlying's closing price on the trade date. The "
+                    f"simulation trades it at {config.Leverage:g}x its daily return, so P&L "
+                    "and exposure come from the ledger and are not the change between two "
+                    "prices."
+                ),
+            },
+        }
     )
 
 
@@ -1155,22 +1604,51 @@ def simulate_portfolio(request) -> dict:
         use_cache=True,
     )
 
-    frame = simulate_portfolio_overlay(
-        strategies,
-        signals_by_id,
-        overlap_mode=overlap_mode,
-        global_proxy=global_proxy,
-        track_changes=track_changes,
-        close_series=close_series,
-        strategy_order=strategy_ids,
-    )
+    allocation = allocation_settings(request)
+    simulation: AllocationSimulation | None = None
+    reference: AllocationSimulation | None = None
+    if allocation.is_all_in:
+        frame = _costed_overlay(
+            strategies,
+            signals_by_id,
+            cost_bps=allocation.cost_bps,
+            overlap_mode=overlap_mode,
+            global_proxy=global_proxy,
+            track_changes=track_changes,
+            close_series=close_series,
+            strategy_order=strategy_ids,
+        )
+        mixed_pnl_symbols = len(
+            {_strategy_pnl_symbol(strategy, global_proxy) for strategy in strategies}
+        ) > 1
+    else:
+        simulation = simulate_portfolio_allocation(
+            strategies,
+            signals_by_id,
+            model=allocation.model,
+            cost_bps=allocation.cost_bps,
+            global_proxy=global_proxy,
+            track_changes=track_changes,
+            close_series=close_series,
+        )
+        frame = simulation.frame
+        # Reference book for attribution: the same signals held all-in, at the same cost.
+        reference = simulate_portfolio_allocation(
+            strategies,
+            signals_by_id,
+            model=resolve_allocation_model(ALL_IN),
+            cost_bps=allocation.cost_bps,
+            global_proxy=global_proxy,
+            track_changes=track_changes,
+            close_series=close_series,
+            master_dates=simulation.dates,
+        )
+        # Equity is book value rather than one instrument's price.
+        mixed_pnl_symbols = True
 
-    description = _portfolio_description(strategies, overlap_mode, global_proxy)
+    description = _portfolio_description(strategies, overlap_mode, global_proxy, allocation)
     max_hold = max(strategy.hold_days for strategy in strategies)
     max_profit = max(strategy.profit for strategy in strategies)
-    mixed_pnl_symbols = len(
-        {_strategy_pnl_symbol(strategy, global_proxy) for strategy in strategies}
-    ) > 1
 
     regime_mode = getattr(request, "regime_mode", None)
     if regime_mode:
@@ -1189,6 +1667,25 @@ def simulate_portfolio(request) -> dict:
         description,
         portfolio_equity=mixed_pnl_symbols,
     )
+    payload["allocation"] = _allocation_payload(allocation, frame, simulation, reference)
+    if simulation is not None:
+        payload["positions"] = _positions_payload(simulation)
+    else:
+        replay = replay_overlay_transactions(
+            frame,
+            strategies,
+            signals_by_id,
+            global_proxy=global_proxy,
+            cost_bps=allocation.cost_bps,
+        )
+        payload["positions"] = _positions_payload(
+            replay,
+            comparison_equity=frame["RollingPnL"].to_numpy(dtype=float),
+            # The old Trades table's own numbers, taken from the unchanged overlay code.
+            legacy_returns={
+                trade["entry_date"]: float(trade["trade_pnl"]) for trade in payload["trades"]
+            },
+        )
     payload["contribution"] = compute_portfolio_contribution(
         strategies,
         signals_by_id,
@@ -1198,8 +1695,94 @@ def simulate_portfolio(request) -> dict:
         track_changes=track_changes,
         close_series=close_series,
         strategy_order=strategy_ids,
+        allocation=allocation,
     )
     return payload
+
+
+def simulate_portfolio_allocation_comparison(request) -> dict:
+    """All-in versus each proportional mode on the same signals. Computed only when asked.
+
+    Every model is cut to the same window (first bar any strategy is eligible) and rebased
+    to the same starting capital, so equity curves and ratios compare directly. The All-In
+    row is the saved portfolio's existing behavior (its overlap mode), unchanged.
+    """
+    strategy_ids = list(request.strategy_ids)
+    if not strategy_ids:
+        raise ValueError("At least one strategy is required")
+
+    (
+        strategies,
+        strategy_ids,
+        signals_by_id,
+        overlap_mode,
+        global_proxy,
+        track_changes,
+        close_series,
+    ) = _prepare_portfolio_simulation(request, years=request.years, use_cache=True)
+
+    cost_bps = allocation_settings(request).cost_bps
+    master_dates = _master_dates_for(signals_by_id, None)
+    if len(master_dates) == 0:
+        raise ValueError("No overlapping market data for selected strategies")
+
+    def run(model: AllocationModel) -> AllocationSimulation:
+        return simulate_portfolio_allocation(
+            strategies,
+            signals_by_id,
+            model=model,
+            cost_bps=cost_bps,
+            global_proxy=global_proxy,
+            track_changes=track_changes,
+            close_series=close_series,
+            master_dates=master_dates,
+        )
+
+    reference = run(resolve_allocation_model(ALL_IN))
+    start = reference.start_index
+    legacy = _costed_overlay(
+        strategies,
+        signals_by_id,
+        cost_bps=cost_bps,
+        overlap_mode=overlap_mode,
+        global_proxy=global_proxy,
+        track_changes=track_changes,
+        close_series=close_series,
+        strategy_order=strategy_ids,
+        master_dates=master_dates,
+    )
+
+    rows: list[dict[str, Any]] = []
+    curves: list[tuple[str, pd.DataFrame]] = []
+    for model in comparison_models():
+        if model.id == ALL_IN:
+            frame = legacy
+            book = arrays_from_overlay(legacy, start=start)
+            attribution = None
+        else:
+            simulation = run(model)
+            frame = simulation.frame
+            book = arrays_from_simulation(simulation)
+            attribution = allocation_attribution(simulation, reference)
+        comparable = rebased_comparison_frame(frame, start, START_CAPITAL)
+        curves.append((model.id, comparable))
+        rows.append(
+            {
+                "model": model.id,
+                "label": model.label,
+                "metrics": extract_contribution_metrics(comparable),
+                "analytics": exposure_analytics(book),
+                "attribution": attribution,
+            }
+        )
+
+    return {
+        "start_date": pd.Timestamp(master_dates[start]).strftime("%Y-%m-%d"),
+        "start_capital": START_CAPITAL,
+        "transaction_cost_bps": cost_bps,
+        "models": rows,
+        "equity_curves": merged_equity_curves(curves),
+    }
 
 
 def _portfolio_atr_symbol(strategies: list, global_proxy: str | None) -> str | None:
@@ -1272,9 +1855,11 @@ def simulate_portfolio_regimes(request) -> dict:
         keep_executed=True,
     )
 
-    full_frame = simulate_portfolio_overlay(
+    allocation = allocation_settings(request)
+    full_frame = simulate_portfolio_frame(
         strategies,
         signals_by_id,
+        allocation=allocation,
         overlap_mode=overlap_mode,
         global_proxy=global_proxy,
         track_changes=track_changes,
@@ -1301,9 +1886,10 @@ def simulate_portfolio_regimes(request) -> dict:
         remaining = [item for item in strategies if item.id != strategy_id]
         remaining_order = [item_id for item_id in strategy_ids if item_id != strategy_id]
         if remaining:
-            reduced_frame = simulate_portfolio_overlay(
+            reduced_frame = simulate_portfolio_frame(
                 remaining,
                 {item.id: signals_by_id[item.id] for item in remaining},
+                allocation=allocation,
                 overlap_mode=overlap_mode,
                 global_proxy=global_proxy,
                 track_changes=track_changes,

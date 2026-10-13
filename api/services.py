@@ -1045,6 +1045,12 @@ def run_portfolio_shapley(request) -> dict:
     return simulate_portfolio_shapley(request)
 
 
+def run_portfolio_allocation_comparison(request) -> dict:
+    from api.portfolio_service import simulate_portfolio_allocation_comparison
+
+    return simulate_portfolio_allocation_comparison(request)
+
+
 def run_portfolio_regimes(request) -> dict:
     from api.portfolio_service import simulate_portfolio_regimes
 

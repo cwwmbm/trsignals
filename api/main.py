@@ -21,6 +21,7 @@ from api.schemas import (
     SingleBacktestRequest,
     SymbolConfirmDetailRequest,
     SymbolConfirmSweepRequest,
+    PortfolioAllocationComparisonRequest,
     PortfolioShapleyRequest,
     PortfolioSimulateRequest,
     PortfolioRegimeRequest,
@@ -43,6 +44,7 @@ from api.services import (
     run_live_scan,
     run_quotes,
     run_monte_carlo_simulation,
+    run_portfolio_allocation_comparison,
     run_portfolio_shapley,
     run_portfolio_regimes,
     run_portfolio_simulation,
@@ -278,6 +280,11 @@ def portfolio_shapley(request: PortfolioShapleyRequest) -> dict:
 @app.post("/portfolios/regimes")
 def portfolio_regimes(request: PortfolioRegimeRequest) -> dict:
     return _handle_errors(run_portfolio_regimes, request)
+
+
+@app.post("/portfolios/allocation-comparison")
+def portfolio_allocation_comparison(request: PortfolioAllocationComparisonRequest) -> dict:
+    return _handle_errors(run_portfolio_allocation_comparison, request)
 
 
 @app.get("/portfolios")

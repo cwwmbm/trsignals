@@ -228,6 +228,8 @@ class UpdateStrategyRequest(BaseModel):
 
 
 PortfolioOverlapMode = Literal["first_signal_only", "hold_until_all_exit"]
+PortfolioAllocationModel = Literal["all_in", "proportional"]
+PortfolioProportionalMode = Literal["linear", "early_conviction", "confirmation_required"]
 
 
 class PortfolioSimulateRequest(RegimeRequestOptions):
@@ -235,6 +237,11 @@ class PortfolioSimulateRequest(RegimeRequestOptions):
     overlap_mode: PortfolioOverlapMode = "first_signal_only"
     proxy_symbol: str | None = None
     years: int = Field(default=25, ge=1, le=100)
+    # All-in is the original behavior. Proportional sizes the book by active/total strategies
+    # and ignores overlap_mode.
+    allocation_model: PortfolioAllocationModel = "all_in"
+    proportional_mode: PortfolioProportionalMode = "linear"
+    transaction_cost_bps: float = Field(default=0.0, ge=0, le=1000)
 
 
 class PortfolioShapleyRequest(PortfolioSimulateRequest):
@@ -247,6 +254,11 @@ class PortfolioRegimeRequest(PortfolioSimulateRequest):
     pass
 
 
+class PortfolioAllocationComparisonRequest(PortfolioSimulateRequest):
+    """On-demand All-In vs proportional comparison (same inputs as portfolio simulate)."""
+    pass
+
+
 class SavedPortfolio(BaseModel):
     id: str
     name: str
@@ -254,6 +266,9 @@ class SavedPortfolio(BaseModel):
     strategy_ids: list[str]
     overlap_mode: PortfolioOverlapMode = "first_signal_only"
     proxy_symbol: str | None = None
+    allocation_model: PortfolioAllocationModel = "all_in"
+    proportional_mode: PortfolioProportionalMode = "linear"
+    transaction_cost_bps: float = Field(default=0.0, ge=0, le=1000)
     scan_lane: ScanLane = "testing"
     scan_sort_order: int = 0
     created_at: str
@@ -266,6 +281,9 @@ class SavePortfolioRequest(BaseModel):
     strategy_ids: list[str] = Field(min_items=1)
     overlap_mode: PortfolioOverlapMode = "first_signal_only"
     proxy_symbol: str | None = None
+    allocation_model: PortfolioAllocationModel = "all_in"
+    proportional_mode: PortfolioProportionalMode = "linear"
+    transaction_cost_bps: float = Field(default=0.0, ge=0, le=1000)
 
 
 class UpdatePortfolioRequest(BaseModel):
@@ -276,6 +294,9 @@ class UpdatePortfolioRequest(BaseModel):
     strategy_ids: list[str] | None = None
     overlap_mode: PortfolioOverlapMode | None = None
     proxy_symbol: str | None = None
+    allocation_model: PortfolioAllocationModel | None = None
+    proportional_mode: PortfolioProportionalMode | None = None
+    transaction_cost_bps: float | None = Field(default=None, ge=0, le=1000)
 
 
 class ConditionSnapshotItem(BaseModel):

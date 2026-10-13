@@ -7,10 +7,12 @@ import {
   type RegimeOverview,
   type RegimeSource,
 } from "@/api";
+import { AllocationPanel } from "@/components/backtest/allocation-panel";
 import { ContributionPanel } from "@/components/backtest/contribution-panel";
 import { EquityDrawdownPanel } from "@/components/backtest/equity-drawdown-panel";
 import { MarketRegimesPanel } from "@/components/backtest/market-regimes-panel";
 import { MonteCarloPanel } from "@/components/backtest/monte-carlo-panel";
+import { PositionEpisodesTable } from "@/components/backtest/position-episodes-table";
 import { SeasonalityPanel } from "@/components/backtest/seasonality-panel";
 import { negativeYearRowClass, ResultsTable, tradeRowClass } from "@/components/backtest/results-table";
 import { StatCard, SUMMARY_KEYS, summaryLabel, summaryTone } from "@/components/backtest/stat-card";
@@ -21,7 +23,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
 type AnalysisTab = "equity-drawdown" | "seasonality" | "market-regimes" | "monte-carlo";
-type ResultsTab = "overview" | "contribution";
+type ResultsTab = "overview" | "contribution" | "allocation";
 
 export const DetailResults = memo(function DetailResults({
   result,
@@ -55,10 +57,13 @@ export const DetailResults = memo(function DetailResults({
   const description = String(result.summary.description ?? "");
   const contribution = result.contribution ?? null;
   const hasContribution = Array.isArray(contribution) && contribution.length > 0;
+  const allocation = result.allocation ?? null;
+  const positions = result.positions ?? null;
+  const hasTabs = hasContribution || allocation !== null;
 
   const overview = (
     <>
-      <div className={cn("grid grid-cols-2 gap-1.5 sm:grid-cols-4 lg:grid-cols-8", !embedded && !hasContribution && "mt-2")}>
+      <div className={cn("grid grid-cols-2 gap-1.5 sm:grid-cols-4 lg:grid-cols-8", !embedded && !hasTabs && "mt-2")}>
         {SUMMARY_KEYS.map((key) => (
           <StatCard
             key={key}
@@ -81,7 +86,12 @@ export const DetailResults = memo(function DetailResults({
         </p>
       ) : null}
 
-      <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-3">
+      <div
+        className={cn(
+          "mt-3 grid grid-cols-1 gap-3",
+          positions ? "xl:grid-cols-2" : "xl:grid-cols-3",
+        )}
+      >
         <div className="flex flex-col gap-1">
           <h3 className="text-xs font-medium text-muted-foreground">Yearly breakdown</h3>
           <ResultsTable compact visibleRows={30} rows={latestYears} rowClassName={negativeYearRowClass} sortable={false} />
@@ -90,18 +100,22 @@ export const DetailResults = memo(function DetailResults({
           <h3 className="text-xs font-medium text-muted-foreground">Monthly breakdown</h3>
           <ResultsTable compact visibleRows={30} rows={latestMonths} rowClassName={negativeYearRowClass} sortable={false} />
         </div>
-        <div className="flex flex-col gap-1">
-          <h3 className="text-xs font-medium text-muted-foreground">Trades</h3>
-          <ResultsTable
-            compact
-            visibleRows={30}
-            rows={latestTrades}
-            hiddenColumns={REGIME_TRADE_FIELDS}
-            rowClassName={tradeRowClass}
-            sortable={false}
-          />
-        </div>
+        {positions ? null : (
+          <div className="flex flex-col gap-1">
+            <h3 className="text-xs font-medium text-muted-foreground">Trades</h3>
+            <ResultsTable
+              compact
+              visibleRows={30}
+              rows={latestTrades}
+              hiddenColumns={REGIME_TRADE_FIELDS}
+              rowClassName={tradeRowClass}
+              sortable={false}
+            />
+          </div>
+        )}
       </div>
+
+      {positions ? <PositionEpisodesTable positions={positions} className="mt-3" /> : null}
 
       <div className="mt-3 rounded-md border border-border/60 bg-muted/20 p-3">
         <Tabs
@@ -167,7 +181,7 @@ export const DetailResults = memo(function DetailResults({
         </div>
       )}
 
-      {hasContribution ? (
+      {hasTabs ? (
         <Tabs
           value={resultsTab}
           onValueChange={(value) => value && setResultsTab(value as ResultsTab)}
@@ -180,15 +194,22 @@ export const DetailResults = memo(function DetailResults({
             <TabsTrigger value="overview" className="h-8 rounded-none px-3 text-xs">
               Overview
             </TabsTrigger>
-            <TabsTrigger value="contribution" className="h-8 rounded-none px-3 text-xs">
-              Contribution
-            </TabsTrigger>
+            {hasContribution ? (
+              <TabsTrigger value="contribution" className="h-8 rounded-none px-3 text-xs">
+                Contribution
+              </TabsTrigger>
+            ) : null}
+            {allocation ? (
+              <TabsTrigger value="allocation" className="h-8 rounded-none px-3 text-xs">
+                Allocation
+              </TabsTrigger>
+            ) : null}
           </TabsList>
           {/*
             Keep both panels in one grid cell so container height stays at the
             taller Overview size when switching tabs (avoids layout jump).
           */}
-          <div className="mt-3 grid">
+          <div className="mt-3 grid grid-cols-[minmax(0,1fr)]">
             <div
               className={cn(
                 "col-start-1 row-start-1",
@@ -205,12 +226,25 @@ export const DetailResults = memo(function DetailResults({
               )}
               aria-hidden={resultsTab !== "contribution"}
             >
-              <ContributionPanel
-                rows={contribution}
-                shapleyRequest={shapleyRequest}
-                className="min-h-0 flex-1"
-              />
+              {hasContribution ? (
+                <ContributionPanel
+                  rows={contribution}
+                  shapleyRequest={shapleyRequest}
+                  className="min-h-0 flex-1"
+                />
+              ) : null}
             </div>
+            {allocation ? (
+              <div
+                className={cn(
+                  "col-start-1 row-start-1 flex min-h-0 flex-col",
+                  resultsTab !== "allocation" && "invisible pointer-events-none",
+                )}
+                aria-hidden={resultsTab !== "allocation"}
+              >
+                <AllocationPanel allocation={allocation} request={shapleyRequest} />
+              </div>
+            ) : null}
           </div>
         </Tabs>
       ) : (
