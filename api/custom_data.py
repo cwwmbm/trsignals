@@ -51,6 +51,8 @@ def unavailable_indicator_ids() -> list[str]:
             ids.append(item["id"])
     if "SPYBull" not in ids:
         ids.append("SPYBull")
+    # Derived from Vix, which a custom dataset does not carry.
+    ids.append("VixChange")
     return sorted(set(ids))
 
 

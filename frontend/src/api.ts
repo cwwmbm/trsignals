@@ -135,9 +135,20 @@ export type PositionEvent = {
 };
 
 /** A continuous period of nonzero exposure to one instrument. */
+/** What a position held: the leveraged stand-in for a symbol, or its real leverage symbol. */
+export type EpisodeInstrument = {
+  symbol: string;
+  underlying: string;
+  kind: "synthetic" | "vehicle";
+  leverage: number | null;
+  /** The underlying has a leverage-settings entry. */
+  configured: boolean;
+};
+
 export type PositionEpisode = {
   id: string;
   symbol: string;
+  instrument?: EpisodeInstrument | null;
   status: "Open" | "Closed";
   start: string;
   end: string | null;
@@ -172,7 +183,19 @@ export type PositionsPayload = {
   price_basis: { leverage: number; description: string };
 };
 
+/** Present when the backtest traded a symbol with a leverage-settings entry. */
+export type TradedVehicle = {
+  symbol: string;
+  leverage_symbol: string;
+  leverage: number;
+  first_date: string | null;
+  available: boolean;
+  trades_on_leverage_symbol: number;
+  trades_on_stand_in: number;
+};
+
 export interface DetailedResult {
+  vehicle?: TradedVehicle;
   summary: Record<string, number | string | null>;
   yearly: Array<Record<string, number | string | null>>;
   monthly: Array<Record<string, number | string | null>>;
@@ -189,7 +212,7 @@ export interface DetailedResult {
 
 export type MarketRegimeCurrent = {
   as_of: string | null;
-  regimes: Partial<Record<string, string | null>>;
+  regimes: Partial<Record<string, string | string[] | null>>;
   readings?: Partial<Record<string, number | null>>;
 };
 
@@ -208,6 +231,8 @@ export type RegimeSharpeBucket = {
   regime_score_return: number | null;
   regime_score_drawdown: number | null;
   regime_score_robustness: number | null;
+  /** Average-trade and robustness parts only; the default regime score. */
+  robustness_score: number | null;
 };
 
 export type MarketRegimeSharpe = Partial<Record<string, RegimeSharpeBucket[]>>;
@@ -271,6 +296,7 @@ export type RegimeStrategyAnalysis = {
     states: RegimeGranularState[];
     rows: RegimeStrategyYearRow[];
     base_score: number | null;
+    base_robustness_score: number | null;
   };
 };
 
@@ -509,14 +535,28 @@ export type ScanRow = {
 
 export type PortfolioOverlapMode = "first_signal_only" | "hold_until_all_exit";
 
-/** All-in is the original behavior. Proportional sizes the book by active / total strategies. */
-export type PortfolioAllocationModel = "all_in" | "proportional";
+/**
+ * All-in is the original behavior. Proportional sizes the book by active / total strategies.
+ * Regime-adjusted scales the position by how well the current market regimes have treated the
+ * active strategies and the portfolio.
+ */
+export type PortfolioAllocationModel = "all_in" | "proportional" | "regime_adjusted";
 export type PortfolioProportionalMode = "linear" | "early_conviction" | "confirmation_required";
+export type RegimeScoreKind = "robustness" | "portfolio";
+/** How hard a regime state that has scored poorly is punished. */
+export type RegimePenaltyPreset = "harsh" | "strict" | "medium" | "low";
 
-export type SavePortfolioPayload = {
+/** Regime-adjusted settings. Ignored by other models. */
+export type RegimePenaltyFields = {
+  regime_score?: RegimeScoreKind;
+  regime_penalty?: RegimePenaltyPreset;
+};
+
+export type SavePortfolioPayload = RegimePenaltyFields & {
   name: string;
   description?: string;
   strategy_ids: string[];
+  portfolio_ids?: string[];
   overlap_mode: PortfolioOverlapMode;
   proxy_symbol?: string;
   allocation_model?: PortfolioAllocationModel;
@@ -532,12 +572,13 @@ export type SavedPortfolio = SavePortfolioPayload & {
   updated_at: string;
 };
 
-export type UpdatePortfolioPayload = {
+export type UpdatePortfolioPayload = RegimePenaltyFields & {
   name?: string;
   description?: string;
   scan_lane?: ScanLane;
   scan_sort_order?: number;
   strategy_ids?: string[];
+  portfolio_ids?: string[];
   overlap_mode?: PortfolioOverlapMode;
   proxy_symbol?: string | null;
   allocation_model?: PortfolioAllocationModel;
@@ -545,8 +586,9 @@ export type UpdatePortfolioPayload = {
   transaction_cost_bps?: number;
 };
 
-export type PortfolioSimulatePayload = {
+export type PortfolioSimulatePayload = RegimePenaltyFields & {
   strategy_ids: string[];
+  portfolio_ids?: string[];
   overlap_mode: PortfolioOverlapMode;
   proxy_symbol?: string;
   years?: number;
@@ -619,9 +661,33 @@ export type AllocationLedger = {
 };
 
 export type AllocationSummary = {
+  nested_cash_policy?: "respect_child_rejection";
+  members?: Array<{ id: string; name: string; budget_weight: number; invested_weight: number; cash_weight: number }>;
   model: string;
   label: string;
   transaction_cost_bps: number;
+  /** The instruments the portfolio trades (after proxies). More than one means a mixed book. */
+  trading_symbols?: string[];
+  general_leverage?: number;
+  /** One row per symbol with a leverage-settings entry: which leverage symbol, and since when. */
+  vehicles?: Array<{
+    symbol: string;
+    leverage_symbol: string;
+    leverage: number;
+    first_date: string | null;
+    /** False: the leverage symbol has no price history, so the stand-in carried every trade. */
+    available: boolean;
+  }>;
+  /** The penalties the run used; present for regime-adjusted only. Penalties are in percent. */
+  regime?: {
+    preset: RegimePenaltyPreset | null;
+    score: RegimeScoreKind;
+    low_cutoff: number;
+    low_penalty: number;
+    high_cutoff: number;
+    high_penalty: number;
+    min_trades: number;
+  };
   analytics: AllocationAnalytics;
   /** Null for all-in, which is its own reference. */
   attribution: AllocationAttribution | null;
@@ -648,6 +714,10 @@ export type AllocationComparison = {
   start_date: string;
   start_capital: number;
   transaction_cost_bps: number;
+  /** The score the regime-adjusted rows read. */
+  regime_score?: RegimeScoreKind;
+  trading_symbols?: string[];
+  single_symbol?: boolean;
   models: AllocationComparisonRow[];
   /** One row per date: `date` plus each model id's rebased equity. */
   equity_curves: Array<Record<string, number | string>>;
@@ -666,6 +736,7 @@ export type PortfolioShapleyResult = {
 
 export type RegimeBookMetrics = {
   regime_score: number | null;
+  robustness_score: number | null;
   sortino: number | null;
   avg_trade_return: number | null;
   max_drawdown: number | null;
@@ -677,6 +748,7 @@ export type RegimeBookMetrics = {
 
 export type RegimeMetricDelta = {
   regime_score: number | null;
+  robustness_score: number | null;
   sortino: number | null;
   avg_trade_return: number | null;
   max_drawdown: number | null;
@@ -721,13 +793,27 @@ export async function getIndicators(builderOnly = true): Promise<IndicatorInfo[]
   return response.json();
 }
 
+/** The server's `detail` message when it sent one, otherwise the raw body. */
+async function requestError(response: Response): Promise<Error> {
+  const text = await response.text();
+  try {
+    const body = JSON.parse(text) as { detail?: unknown };
+    if (typeof body.detail === "string" && body.detail.trim()) {
+      return new Error(body.detail);
+    }
+  } catch {
+    // Response body is already plain text.
+  }
+  return new Error(text || response.statusText);
+}
+
 async function postJson<T>(path: string, payload: unknown): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) throw await requestError(response);
   return response.json();
 }
 
@@ -737,7 +823,17 @@ async function patchJson<T>(path: string, payload: unknown): Promise<T> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) throw await requestError(response);
+  return response.json();
+}
+
+async function putJson<T>(path: string, payload: unknown): Promise<T> {
+  const response = await fetch(`${API_URL}${path}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw await requestError(response);
   return response.json();
 }
 
@@ -745,7 +841,7 @@ async function deleteJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
     method: "DELETE",
   });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) throw await requestError(response);
   return response.json();
 }
 
@@ -892,6 +988,27 @@ export async function getQuote(): Promise<QuoteSnapshot> {
   return response.json();
 }
 
+const quoteRequestError = requestError;
+
+export async function addQuoteSymbol(symbol: string): Promise<QuoteSnapshot> {
+  const response = await fetch(`${API_URL}/api/quote/symbols`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ symbol }),
+  });
+  if (!response.ok) throw await quoteRequestError(response);
+  return response.json();
+}
+
+export async function deleteQuoteSymbol(symbol: string): Promise<QuoteSnapshot> {
+  const response = await fetch(
+    `${API_URL}/api/quote/symbols/${encodeURIComponent(symbol)}`,
+    { method: "DELETE" },
+  );
+  if (!response.ok) throw await quoteRequestError(response);
+  return response.json();
+}
+
 export async function uploadCustomDataset(file: File): Promise<CustomDatasetInfo> {
   const formData = new FormData();
   formData.append("file", file);
@@ -905,4 +1022,53 @@ export async function uploadCustomDataset(file: File): Promise<CustomDatasetInfo
 
 export async function deleteCustomDataset(datasetId: string): Promise<{ deleted: boolean }> {
   return deleteJson<{ deleted: boolean }>(`/datasets/custom/${datasetId}`);
+}
+
+/** One symbol and the leveraged product traded in its place. */
+export type SymbolLeverage = {
+  symbol: string;
+  leverage_symbol: string;
+  leverage: number;
+  /** Effective beta of the stand-in used before the leverage symbol exists; null means `leverage`. */
+  beta: number | null;
+  /** Fraction per year (0.019 = 1.9%). */
+  annual_fee: number;
+  /** Multiples of the 3-month T-bill rate, per year. */
+  financing_multiple: number;
+};
+
+export type LeverageSettings = {
+  general_leverage: number;
+  symbols: SymbolLeverage[];
+};
+
+export type LeverageEstimate = {
+  beta: number;
+  fee: number;
+  financing_multiple: number;
+  days: number;
+  first_date: string;
+  last_date: string;
+  correlation: number;
+  tracking_error: number;
+  symbol_first_date: string;
+  leverage_symbol_first_date: string;
+};
+
+export function getLeverageSettings(): Promise<LeverageSettings> {
+  return fetch(`${API_URL}/settings/leverage`).then(async (response) => {
+    if (!response.ok) throw await requestError(response);
+    return response.json();
+  });
+}
+
+export function saveLeverageSettings(settings: LeverageSettings): Promise<LeverageSettings> {
+  return putJson<LeverageSettings>("/settings/leverage", settings);
+}
+
+export function estimateLeverage(symbol: string, leverageSymbol: string): Promise<LeverageEstimate> {
+  return postJson<LeverageEstimate>("/settings/leverage/estimate", {
+    symbol,
+    leverage_symbol: leverageSymbol,
+  });
 }

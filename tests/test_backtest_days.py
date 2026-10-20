@@ -70,6 +70,36 @@ class BacktestDaysTests(unittest.TestCase):
         self.assertTrue(bool(last["HoldLong"]))
         self.assertFalse(pd.isna(last["TradePnL"]))
 
+    @patch("stats.ExcludeBestReturnYear", False)
+    def test_indicator_sweep_yearly_uses_proxy_pnl_column(self):
+        rows = 1500
+        data = _sample_signal_data(rows)
+        buy = np.zeros(rows, dtype=bool)
+        buy[10::25] = True
+        data["Buy"] = buy
+        data["Vix"] = np.random.default_rng(1).uniform(10, 30, rows)
+        data["PROXY"] = 50 * np.exp(np.cumsum(np.random.default_rng(2).normal(0.001, 0.03, rows)))
+
+        sweep = bt.backtest_sell_ind(
+            data, 20, 100, True, "Vix", "less", 15, 15, 1,
+            include_yearly=False, pnl_column="PROXY",
+        )
+        top = sweep.head(1)
+        expected = bt._run_indicator_threshold(
+            data, 20, 100, True, top.iloc[0]["Indicator"], top.iloc[0]["Buysell"],
+            top.iloc[0]["Condition"], top.iloc[0]["Value"], pnl_column="PROXY",
+        )["Yearly"]
+
+        with_proxy = bt.add_yearly_to_indicator_rows(
+            top, data, 20, 100, True, pnl_column="PROXY"
+        ).iloc[0]["Yearly"]
+        without_proxy = bt.add_yearly_to_indicator_rows(
+            top, data, 20, 100, True
+        ).iloc[0]["Yearly"]
+
+        self.assertEqual(with_proxy, expected)
+        self.assertNotEqual(with_proxy, without_proxy)
+
 
 if __name__ == "__main__":
     unittest.main()

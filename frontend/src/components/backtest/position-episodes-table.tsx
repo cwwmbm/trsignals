@@ -197,8 +197,11 @@ export function PositionEpisodesTable({
 
   // Newest first. Events inside an episode stay oldest first.
   const episodes = useMemo(() => [...positions.episodes].reverse(), [positions.episodes]);
+  // The asset column also shows when a leverage symbol is in play, so a stand-in is labelled as one.
   const multiAsset = useMemo(
-    () => new Set(positions.episodes.map((episode) => episode.symbol)).size > 1,
+    () =>
+      new Set(positions.episodes.map((episode) => episode.symbol)).size > 1 ||
+      positions.episodes.some((episode) => episode.instrument?.configured),
     [positions.episodes],
   );
   const visible = episodes.slice(0, shown);
@@ -308,7 +311,25 @@ export function PositionEpisodesTable({
                         )}
                       />
                     </TableCell>
-                    {multiAsset ? <TableCell className={cell}>{episode.symbol}</TableCell> : null}
+                    {multiAsset ? (
+                      <TableCell className={cell}>
+                        {episode.symbol}
+                        {episode.instrument?.configured ? (
+                          <span
+                            className="ml-1 text-[10px] text-muted-foreground"
+                            title={
+                              episode.instrument.kind === "vehicle"
+                                ? `The real ${episode.symbol} traded in place of ${episode.instrument.underlying}`
+                                : `${episode.instrument.underlying} times ${episode.instrument.leverage}, used before its leverage symbol existed`
+                            }
+                          >
+                            {episode.instrument.kind === "vehicle"
+                              ? "leverage symbol"
+                              : `×${episode.instrument.leverage} stand-in`}
+                          </span>
+                        ) : null}
+                      </TableCell>
+                    ) : null}
                     <TableCell className={cell}>{episode.start}</TableCell>
                     <TableCell className={cell}>{episode.end ?? "Open"}</TableCell>
                     <TableCell className={cn(cell, "text-right")}>{episode.days}</TableCell>

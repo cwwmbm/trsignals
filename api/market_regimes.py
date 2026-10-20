@@ -17,12 +17,15 @@ of the rate shock with the sign of the dollar shock, and zero counts as ≤ 0.
 Inflation trend is SMA(log(TIP/IEF), 20) minus SMA(log(TIP/IEF), 100). Inflation and
 yield crosses the sign of the rate shock with the sign of that trend.
 SPY bull/bear uses SMA(50) vs SMA(200) and is separate from the existing SPYBull flag.
+VIX daily change is the close-to-close % change of the VIX. Its buckets overlap (a -12% day is in
+≤ -10%, ≤ -5% and ≤ 0%), so a day or a trade's entry bar carries a set of states, not one.
 """
 
 from __future__ import annotations
 
 import logging
 import math
+from collections import Counter
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -63,6 +66,22 @@ CURVE_CHANGE_HORIZON = 20
 
 VIX_KEYS = ("le_15", "15_20", "20_30", "gt_30")
 VXN_KEYS = VIX_KEYS
+# Overlapping buckets: (key, comparison, threshold in %). A day is in every bucket it satisfies,
+# so 0% is in both ≤ 0% and ≥ 0%.
+VIX_CHANGE_TESTS = (
+    ("le_neg_15", "<=", -15.0),
+    ("le_neg_10", "<=", -10.0),
+    ("le_neg_5", "<=", -5.0),
+    ("le_0", "<=", 0.0),
+    ("ge_0", ">=", 0.0),
+    ("ge_5", ">=", 5.0),
+    ("ge_10", ">=", 10.0),
+    ("ge_15", ">=", 15.0),
+    ("ge_20", ">=", 20.0),
+)
+VIX_CHANGE_KEYS = tuple(key for key, _, _ in VIX_CHANGE_TESTS)
+# Regimes whose buckets overlap: their label is a tuple of keys instead of one key.
+OVERLAPPING_DIMENSIONS = frozenset({"vix_change"})
 SECTOR_BREADTH_KEYS = ("le_25", "25_50", "50_75", "gt_75")
 ATR_EXPANDING = "expanding"
 ATR_CONTRACTING = "contracting"
@@ -97,6 +116,7 @@ INFLATION_SLOW = 100
 MARKET_REGIME_KEYS = (
     "vix_regime",
     "vxn_regime",
+    "vix_change_regime",
     "spy_regime",
     "market_breadth_regime",
     "semis_breadth_regime",
@@ -170,6 +190,35 @@ def _classify_upper_inclusive(value, cuts: tuple[float, ...], keys: tuple[str, .
 def classify_vix(value) -> str | None:
     """<= 15, 15–20, 20–30, > 30. Shared edges belong to the lower bucket."""
     return _classify_upper_inclusive(value, (15, 20, 30), VIX_KEYS, first_inclusive=True)
+
+
+def classify_vix_change(value) -> tuple[str, ...] | None:
+    """Every overlapping bucket the VIX's daily % change falls in, in ``VIX_CHANGE_KEYS`` order."""
+    number = _finite(value)
+    if number is None:
+        return None
+    return tuple(
+        key
+        for key, operator, threshold in VIX_CHANGE_TESTS
+        if (number <= threshold if operator == "<=" else number >= threshold)
+    )
+
+
+def _label_keys(value) -> tuple[str, ...]:
+    """State keys in a day's label: one for a partition, any number for an overlapping regime."""
+    if isinstance(value, str):
+        return (value,) if value else ()
+    if isinstance(value, (tuple, list, frozenset, set)):
+        return tuple(item for item in value if isinstance(item, str) and item)
+    return ()
+
+
+def _label_mask(values, key: str) -> np.ndarray:
+    """True where the label holds ``key`` (an exact match, or membership for overlapping labels)."""
+    items = values.to_numpy(dtype=object) if isinstance(values, pd.Series) else values
+    if not any(isinstance(item, (tuple, list, frozenset, set)) for item in items):
+        return np.fromiter((item == key for item in items), dtype=bool, count=len(items))
+    return np.fromiter((key in _label_keys(item) for item in items), dtype=bool, count=len(items))
 
 
 def classify_vxn(value) -> str | None:
@@ -539,6 +588,7 @@ def build_regime_calendar(
         {
             "vix": vix_close,
             "vxn": vxn_close,
+            "vix_change": vix_close.pct_change(fill_method=None) * 100,
             "spy_sma50": spy_close.rolling(SPY_SMA_FAST).mean(),
             "spy_sma200": spy_close.rolling(SPY_SMA_SLOW).mean(),
             "breadth": _log_ratio_shock(rsp_close, spy_close, spy_close.index),
@@ -566,6 +616,10 @@ def build_regime_calendar(
     return frame
 
 
+def _as_list(keys: tuple[str, ...] | None) -> list[str] | None:
+    return None if keys is None else list(keys)
+
+
 def _empty_market_regimes() -> dict[str, None]:
     return {key: None for key in MARKET_REGIME_KEYS}
 
@@ -583,6 +637,7 @@ def market_regimes_for_timestamp(value, calendar: pd.DataFrame | None) -> dict[s
     return {
         "vix_regime": classify_vix(row.get("vix")),
         "vxn_regime": classify_vxn(row.get("vxn")),
+        "vix_change_regime": _as_list(classify_vix_change(row.get("vix_change"))),
         "spy_regime": classify_spy(row.get("spy_sma50"), row.get("spy_sma200")),
         "market_breadth_regime": classify_rate_shock(row.get("breadth")),
         "semis_breadth_regime": classify_rate_shock(row.get("breadth_semis")),
@@ -611,6 +666,7 @@ def market_regimes_for_timestamp(value, calendar: pd.DataFrame | None) -> dict[s
 _SHARPE_BUCKETS: dict[str, tuple[str, ...]] = {
     "vix": VIX_KEYS,
     "vxn": VXN_KEYS,
+    "vix_change": VIX_CHANGE_KEYS,
     "atr": (ATR_EXPANDING, ATR_CONTRACTING),
     "spy": (SPY_BULL, SPY_BEAR),
     "market_breadth": RATE_SHOCK_KEYS,
@@ -637,6 +693,17 @@ _SHARPE_BUCKETS: dict[str, tuple[str, ...]] = {
 }
 
 _VIX_BUCKET_LABELS = {"le_15": "≤ 15", "15_20": "15–20", "20_30": "20–30", "gt_30": "> 30"}
+_VIX_CHANGE_LABELS = {
+    "le_neg_15": "≤ -15%",
+    "le_neg_10": "≤ -10%",
+    "le_neg_5": "≤ -5%",
+    "le_0": "≤ 0%",
+    "ge_0": "≥ 0%",
+    "ge_5": "≥ 5%",
+    "ge_10": "≥ 10%",
+    "ge_15": "≥ 15%",
+    "ge_20": "≥ 20%",
+}
 _SHOCK_BUCKET_LABELS = {"lt_neg_1": "< -1", "neg_1_to_1": "-1 to 1", "gt_1": "> 1"}
 _SECTOR_BUCKET_LABELS = {"le_25": "≤ 25%", "25_50": "25–50%", "50_75": "50–75%", "gt_75": "> 75%"}
 _RATE_CURVE_LABELS = {
@@ -689,6 +756,14 @@ def _log_ratio_hint(pair: str, high: str | None = None, low: str | None = None) 
 _REGIME_DIMENSION_META: tuple[dict[str, Any], ...] = (
     {"id": "vix", "title": "VIX", "hint": "VIX close that day", "labels": _VIX_BUCKET_LABELS, "market_wide": True},
     {"id": "vxn", "title": "VXN", "hint": "VXN close that day", "labels": _VIX_BUCKET_LABELS, "market_wide": True},
+    {
+        "id": "vix_change",
+        "title": "VIX daily change",
+        "hint": "VIX close-to-close % change that day. Buckets overlap: a -12% day is in ≤ -10%, ≤ -5% and ≤ 0%",
+        "labels": _VIX_CHANGE_LABELS,
+        "market_wide": True,
+        "overlapping": True,
+    },
     {
         "id": "atr",
         "title": "ATR",
@@ -1033,6 +1108,10 @@ def _hold_entry_labels(
 
 
 _REGIME_SCORE_COMPONENT_FLOOR = 0.05
+# A Sortino of this size earns the full Sortino part of the regime score.
+REGIME_SCORE_SORTINO_FULL_MARKS = 3.0
+# Robustness score: the average-trade and robustness parts of the regime score alone.
+ROBUSTNESS_SCORE_WEIGHTS = {"return": 0.25, "robustness": 0.30}
 
 
 def _clamp(value: float, low: float, high: float) -> float:
@@ -1059,6 +1138,29 @@ def _robustness_score(year_returns: dict) -> float:
     remaining.pop(remaining.index(max(remaining)))
     without_best = sum(remaining) / len(remaining)
     return _clamp(without_best / all_years, 0.0, 1.0)
+
+
+def invested_bar_sortino(
+    returns: np.ndarray,
+    mask: np.ndarray,
+    periods_per_year: int = 252,
+) -> float | None:
+    """Sortino over the bars a book was actually invested, not over every bar.
+
+    Flat bars count as zero returns, which shrinks both the mean (by the share of time
+    invested) and the downside risk (by its square root). A full-path Sortino is therefore
+    the invested-bar Sortino times about the square root of the time share, so a regime that
+    occurs rarely scores low however good its trades are. This one is not scaled that way.
+    None when nothing was invested; 0 when there were no losing bars.
+    """
+    selected = np.asarray(returns, dtype=float)[np.asarray(mask, dtype=bool)]
+    selected = selected[np.isfinite(selected)]
+    if selected.size == 0:
+        return None
+    downside = math.sqrt(float(np.mean(np.minimum(selected, 0.0) ** 2)))
+    if downside == 0:
+        return 0.0
+    return math.sqrt(periods_per_year) * float(selected.mean()) / downside
 
 
 def _empty_regime_score() -> dict[str, float | None]:
@@ -1100,7 +1202,7 @@ def regime_score(
         or not math.isfinite(drawdown_value)
     ):
         return _empty_regime_score()
-    sortino_score = _clamp(sortino_value / 3.0, 0.0, 1.0)
+    sortino_score = _clamp(sortino_value / REGIME_SCORE_SORTINO_FULL_MARKS, 0.0, 1.0)
     return_score = _clamp(trade_value / 0.03, 0.0, 1.0)
     drawdown_score = _clamp((0.70 - drawdown_value) / (0.70 - 0.30), 0.0, 1.0)
     robustness = _robustness_score(year_returns)
@@ -1123,6 +1225,37 @@ def regime_score(
     }
 
 
+def robustness_regime_score(
+    avg_trade_return: float | None,
+    year_returns: dict,
+) -> dict[str, float | None]:
+    """0-100 blend of average trade return and robustness only.
+
+    The two parts are the same 0-1 parts the regime score uses (a 3% average trade scores 1;
+    robustness is the share of the average yearly log return that survives dropping the best
+    year). They combine as a weighted geometric mean, floored at 0.05 each, with the regime
+    score's own 0.25 / 0.30 weights rescaled to sum to 1. Sortino and max drawdown are left
+    out: Sortino mostly tracks how often a regime occurs, and drawdown carried no
+    information in testing.
+    """
+    try:
+        trade_value = float(avg_trade_return) if avg_trade_return is not None else None
+    except (TypeError, ValueError):
+        trade_value = None
+    if trade_value is None or not math.isfinite(trade_value):
+        return {"score": None, "return": None, "robustness": None}
+    return_score = _clamp(trade_value / 0.03, 0.0, 1.0)
+    robustness = _robustness_score(year_returns)
+    parts = {"return": return_score, "robustness": robustness}
+    total = sum(ROBUSTNESS_SCORE_WEIGHTS.values())
+    score = 100.0
+    for name, weight in ROBUSTNESS_SCORE_WEIGHTS.items():
+        score *= max(parts[name], _REGIME_SCORE_COMPONENT_FLOOR) ** (weight / total)
+    if not math.isfinite(score):
+        return {"score": None, "return": None, "robustness": None}
+    return {"score": score, "return": return_score, "robustness": robustness}
+
+
 def _finite_metric(value) -> float | None:
     try:
         number = float(value)
@@ -1138,12 +1271,17 @@ def _summary_metrics_of_trades(
     returns: np.ndarray,
     mask: np.ndarray,
     periods_per_year: int,
+    invested_mask: np.ndarray | None = None,
 ) -> dict[str, float | None]:
     """Summary-card metrics for the equity curve of trades entered in one regime.
 
     Unselected bars stay flat, the same path as re-running the strategy with that
     regime as an entry filter. Sharpe, Sortino, CAGR, Calmar, and max drawdown then
     go through the summary formulas, including dropping the best return year.
+
+    ``score_sortino`` is different: it is the Sortino over the invested bars only
+    (``invested_mask``, which defaults to ``mask``), so it does not depend on how often
+    the regime occurs. The summary Sortino above still compounds the flat path.
     """
     empty = {
         "sharpe": None,
@@ -1177,14 +1315,19 @@ def _summary_metrics_of_trades(
     )
     metrics = compute_aggregate_metrics(frame, periods_per_year=periods_per_year)
     # Score inputs keep the best year. Robustness is what measures dependence on it.
-    score_frame = frame.copy()
     return {
         "sharpe": _finite_metric(metrics["sharpe"]),
         "sortino": _finite_metric(metrics["sortino"]),
         "max_drawdown": _finite_metric(metrics["max_drawdown"]),
         "cagr": _finite_metric(metrics["cagr_decimal"]),
         "calmar": _finite_metric(metrics["calmar"]),
-        "score_sortino": _finite_metric(ind.sortino_ratio(score_frame, periods_per_year=periods_per_year)),
+        "score_sortino": _finite_metric(
+            invested_bar_sortino(
+                returns,
+                mask if invested_mask is None else invested_mask,
+                periods_per_year,
+            )
+        ),
         "score_max_drawdown": _finite_metric(frame["Drawdown"].max()),
         "year_returns": yearly_returns(frame),
     }
@@ -1195,6 +1338,7 @@ def _regime_label_sets(data: pd.DataFrame, calendar: pd.DataFrame | None) -> dic
     return {
         "vix": _calendar_label_series(dates, calendar, "vix", classify_vix),
         "vxn": _calendar_label_series(dates, calendar, "vxn", classify_vxn),
+        "vix_change": _calendar_label_series(dates, calendar, "vix_change", classify_vix_change),
         "spy": _spy_labels(dates, calendar),
         "market_breadth": _calendar_label_series(dates, calendar, "breadth", classify_rate_shock),
         "semis_breadth": _calendar_label_series(dates, calendar, "breadth_semis", classify_rate_shock),
@@ -1234,7 +1378,7 @@ def regime_coverage(data: pd.DataFrame, calendar: pd.DataFrame | None) -> dict[s
         first = None
         last = None
         for i, value in enumerate(series.to_numpy()):
-            if not isinstance(value, str) or not value:
+            if not _label_keys(value):
                 continue
             stamp = dates.iloc[i]
             if pd.isna(stamp):
@@ -1250,6 +1394,7 @@ def regime_coverage(data: pd.DataFrame, calendar: pd.DataFrame | None) -> dict[s
 _READING_COLUMN = {
     "vix": "vix",
     "vxn": "vxn",
+    "vix_change": "vix_change",
     "market_breadth": "breadth",
     "semis_breadth": "breadth_semis",
     "equity_risk_breadth": "breadth_equity_risk",
@@ -1317,7 +1462,7 @@ def current_market_regimes(data: pd.DataFrame, calendar: pd.DataFrame | None) ->
     """Latest labeled session for each regime, plus the raw reading on that session."""
     labels = _regime_label_sets(data, calendar)
     dates = data["Date"]
-    regimes: dict[str, str | None] = {}
+    regimes: dict[str, str | list[str] | None] = {}
     readings: dict[str, float | None] = {}
     latest = None
     for dimension, series in labels.items():
@@ -1328,8 +1473,9 @@ def current_market_regimes(data: pd.DataFrame, calendar: pd.DataFrame | None) ->
         stamped = pd.to_datetime(dates, errors="coerce")
         for i in range(len(values) - 1, -1, -1):
             value = values[i]
-            if isinstance(value, str) and value:
-                key = value
+            held = _label_keys(value)
+            if held:
+                key = value if isinstance(value, str) else list(held)
                 found_i = i
                 found_at = stamped.iloc[i]
                 break
@@ -1378,10 +1524,10 @@ def _bucket_rows(
     )
     rows: list[dict[str, Any]] = []
     for key in keys:
-        in_bucket = labels == key
+        in_bucket = _label_mask(labels, key)
         finite_days = arrays["daily"][in_bucket]
         finite_days = finite_days[np.isfinite(finite_days.to_numpy(dtype=float))]
-        trade_bars = held_as == key
+        trade_bars = _label_mask(held_as, key)
         metrics = _summary_metrics_of_trades(
             data["Date"], arrays["bar_returns"], trade_bars, periods_per_year
         )
@@ -1393,6 +1539,7 @@ def _bucket_rows(
             metrics["score_max_drawdown"],
             metrics["year_returns"],
         )
+        robust = robustness_regime_score(avg_trade, metrics["year_returns"])
         rows.append(
             {
                 "key": key,
@@ -1407,6 +1554,7 @@ def _bucket_rows(
                 "regime_score_return": scored["return"],
                 "regime_score_drawdown": scored["drawdown"],
                 "regime_score_robustness": scored["robustness"],
+                "robustness_score": robust["score"],
                 "trades": int(np.count_nonzero(closed)),
                 "profitable": int(np.count_nonzero(closed & (trade_pnl > 0))),
                 "avg_trade_return": avg_trade,
@@ -1440,6 +1588,7 @@ def compute_market_regime_sharpe(
 
 _BOOK_METRIC_FIELDS = (
     "regime_score",
+    "robustness_score",
     "sortino",
     "avg_trade_return",
     "max_drawdown",
@@ -1452,6 +1601,7 @@ _BOOK_METRIC_FIELDS = (
 def _empty_book_metrics() -> dict[str, float | int | None]:
     return {
         "regime_score": None,
+        "robustness_score": None,
         "sortino": None,
         "avg_trade_return": None,
         "max_drawdown": None,
@@ -1485,6 +1635,7 @@ def _book_metrics_for_mask(
     days_in_trade: np.ndarray,
     closed: np.ndarray,
     periods_per_year: int,
+    invested_mask: np.ndarray | None = None,
 ) -> dict[str, float | int | None]:
     """Regime-score inputs for one book.
 
@@ -1493,7 +1644,9 @@ def _book_metrics_for_mask(
     Sortino and max drawdown are the score inputs (best year kept), not the
     summary-card figures that drop it.
     """
-    summary = _summary_metrics_of_trades(dates, bar_returns, equity_mask, periods_per_year)
+    summary = _summary_metrics_of_trades(
+        dates, bar_returns, equity_mask, periods_per_year, invested_mask=invested_mask
+    )
     finite_closed = closed & np.isfinite(trade_pnl)
     count = int(np.count_nonzero(finite_closed))
     avg_trade = float(np.mean(trade_pnl[finite_closed])) if count else None
@@ -1503,8 +1656,10 @@ def _book_metrics_for_mask(
         summary["score_max_drawdown"],
         summary["year_returns"],
     )
+    robust = robustness_regime_score(avg_trade, summary["year_returns"])
     return {
         "regime_score": scored["score"],
+        "robustness_score": robust["score"],
         "sortino": summary["score_sortino"],
         "avg_trade_return": avg_trade,
         "max_drawdown": summary["score_max_drawdown"],
@@ -1561,6 +1716,7 @@ def score_regime_book(
         days_in_trade,
         all_closed,
         periods_per_year,
+        invested_mask=hold,
     )
 
     label_sets = _regime_label_sets(data, calendar)
@@ -1570,7 +1726,7 @@ def score_regime_book(
         held_as = _hold_entry_labels(labels.to_numpy(dtype=object), long_in, hold, long_out)
         buckets: dict[str, dict[str, float | int | None]] = {}
         for key in keys:
-            trade_bars = held_as == key
+            trade_bars = _label_mask(held_as, key)
             closed = trade_bars & long_out & np.isfinite(trade_pnl)
             buckets[key] = _book_metrics_for_mask(
                 dates,
@@ -1633,8 +1789,9 @@ def _flag_series(labels: pd.Series, key: str) -> pd.Series:
     """1 in the bucket, -1 in another defined bucket, 0 when the day is unlabeled."""
     flags = np.zeros(len(labels), dtype=int)
     for index, value in enumerate(labels.to_numpy(dtype=object)):
-        if isinstance(value, str) and value:
-            flags[index] = 1 if value == key else -1
+        held = _label_keys(value)
+        if held:
+            flags[index] = 1 if key in held else -1
     return pd.Series(flags, index=labels.index)
 
 
@@ -1881,23 +2038,27 @@ def _year_table(day_labels: pd.Series, keys: tuple[str, ...] | list[str]) -> dic
     A change is counted in the year of the session that moves to a different
     state than the previous labeled session, so a change on the first session of
     January belongs to that January. Unlabeled sessions are skipped, not counted
-    as a state.
+    as a state. For overlapping buckets a session counts once in every bucket it
+    is in (so the bucket days can add up to more than ``total_days``), and a
+    change is any difference in the set of buckets.
     """
     table: dict[int, dict[str, Any]] = {}
     previous = None
     for stamp, label in zip(day_labels.index, day_labels.to_numpy(dtype=object)):
-        if not isinstance(label, str) or not label:
+        held = _label_keys(label)
+        if not held:
             continue
         row = table.setdefault(
             int(stamp.year),
             {"days": {key: 0 for key in keys}, "total_days": 0, "changes": 0},
         )
-        if label in row["days"]:
-            row["days"][label] += 1
+        for state in held:
+            if state in row["days"]:
+                row["days"][state] += 1
         row["total_days"] += 1
-        if previous is not None and label != previous:
+        if previous is not None and held != previous:
             row["changes"] += 1
-        previous = label
+        previous = held
     return table
 
 
@@ -1915,7 +2076,7 @@ def analyze_market_regime(dimension_id: str, calendar: pd.DataFrame | None) -> d
     keys = tuple(meta["labels"])
     day_labels = _calendar_day_labels(dimension_id, calendar)
     table = _year_table(day_labels, keys)
-    labeled = day_labels[[isinstance(value, str) and bool(value) for value in day_labels.to_numpy(dtype=object)]]
+    labeled = day_labels[[bool(_label_keys(value)) for value in day_labels.to_numpy(dtype=object)]]
     return {
         "regime": {"id": dimension_id, "title": meta["title"], "hint": meta["hint"]},
         "states": _state_defs(meta),
@@ -1931,8 +2092,12 @@ def analyze_market_regime(dimension_id: str, calendar: pd.DataFrame | None) -> d
     }
 
 
-def _closed_trades_by_entry(data: pd.DataFrame, labels: pd.Series) -> list[tuple[int, str | None, float]]:
-    """(entry year, entry-bar label, trade return) for each closed trade."""
+def _closed_trades_by_entry(data: pd.DataFrame, labels: pd.Series) -> list[tuple[int, tuple[str, ...], float]]:
+    """(entry year, entry-bar states, trade return) for each closed trade.
+
+    The states are empty when the entry bar is unlabeled and hold several keys for an
+    overlapping regime.
+    """
     long_in = _bool_column(data, "LongTradeIn")
     long_out = _bool_column(data, "LongTradeOut")
     pnl = (
@@ -1942,22 +2107,21 @@ def _closed_trades_by_entry(data: pd.DataFrame, labels: pd.Series) -> list[tuple
     )
     years = pd.to_datetime(data["Date"]).dt.year.to_numpy()
     values = labels.to_numpy(dtype=object)
-    trades: list[tuple[int, str | None, float]] = []
+    trades: list[tuple[int, tuple[str, ...], float]] = []
     entry: int | None = None
     for i in range(len(data)):
         if long_in[i]:
             entry = i
         if long_out[i] and entry is not None:
             if np.isfinite(pnl[i]):
-                label = values[entry]
-                trades.append(
-                    (int(years[entry]), label if isinstance(label, str) and label else None, float(pnl[i]))
-                )
+                trades.append((int(years[entry]), _label_keys(values[entry]), float(pnl[i])))
             entry = None
     return trades
 
 
-def _base_regime_score(data: pd.DataFrame, arrays: dict[str, Any], periods_per_year: int) -> float | None:
+def _base_regime_scores(
+    data: pd.DataFrame, arrays: dict[str, Any], periods_per_year: int
+) -> dict[str, float | None]:
     if "DaysInTrade" in data.columns:
         days_in_trade = pd.to_numeric(data["DaysInTrade"], errors="coerce").to_numpy(dtype=float)
     else:
@@ -1971,8 +2135,12 @@ def _base_regime_score(data: pd.DataFrame, arrays: dict[str, Any], periods_per_y
         days_in_trade,
         closed,
         periods_per_year,
+        invested_mask=arrays["hold"],
     )
-    return _finite_metric(base["regime_score"])
+    return {
+        "regime_score": _finite_metric(base["regime_score"]),
+        "robustness_score": _finite_metric(base["robustness_score"]),
+    }
 
 
 def analyze_strategy_regime(
@@ -2012,6 +2180,7 @@ def analyze_strategy_regime(
     rows = _strategy_year_rows(data, period_labels, entry_labels, keys, returns)
 
     arrays = _trade_arrays(data)
+    base_scores = _base_regime_scores(data, arrays, periods_per_year)
     refined = dimension_id in _SHOCK_GRANULAR_COLUMN
     if refined:
         column = _SHOCK_GRANULAR_COLUMN[dimension_id]
@@ -2026,7 +2195,7 @@ def analyze_strategy_regime(
         fine_entry = entry_labels
         fine_days = period_labels
         fine_rows = rows
-    day_counts = fine_days.value_counts()
+    day_counts = Counter(state for value in fine_days.to_numpy(dtype=object) for state in _label_keys(value))
     states = []
     for row in _bucket_rows(data, arrays, fine_entry, fine_keys, periods_per_year):
         states.append(
@@ -2046,7 +2215,8 @@ def analyze_strategy_regime(
             "refined": refined,
             "states": states,
             "rows": fine_rows,
-            "base_score": _base_regime_score(data, arrays, periods_per_year),
+            "base_score": base_scores["regime_score"],
+            "base_robustness_score": base_scores["robustness_score"],
         },
     }
 
@@ -2065,14 +2235,15 @@ def _strategy_year_rows(
         return {"states": {key: {"trades": 0, "profitable": 0} for key in keys}, "total": 0, "profitable": 0}
 
     trade_years: dict[int, dict[str, Any]] = {}
-    for year, label, pnl in _closed_trades_by_entry(data, entry_labels):
+    for year, held, pnl in _closed_trades_by_entry(data, entry_labels):
         bucket = trade_years.setdefault(year, blank_trade_row())
         won = pnl > 0
         bucket["total"] += 1
         bucket["profitable"] += int(won)
-        if label in bucket["states"]:
-            bucket["states"][label]["trades"] += 1
-            bucket["states"][label]["profitable"] += int(won)
+        for state in held:
+            if state in bucket["states"]:
+                bucket["states"][state]["trades"] += 1
+                bucket["states"][state]["profitable"] += int(won)
 
     years = sorted(set(table) | set(trade_years) | {int(year) for year in returns})
     rows = []

@@ -24,6 +24,7 @@ import numpy as np
 import pandas as pd
 
 from api.allocation import AllocationModel, SignalState
+from api.instruments import InstrumentBook
 from api.position_episodes import ENTERED, EXITED, SignalChange, TransactionRecord
 from api.rebalancer import PortfolioLedger
 
@@ -91,6 +92,13 @@ class AllocationSimulation:
     start_capital: float = 0.0
     # Bars where a strategy's state changed but nothing was traded.
     signal_changes_without_transaction: int = 0
+    # Populated by the hierarchical engine; weights include cash reserved to each member.
+    member_weight_post: dict[str, np.ndarray] = field(default_factory=dict)
+    member_details: list[dict] = field(default_factory=list)
+    # Per instrument the book can hold: whether it is the stand-in or the real leverage symbol.
+    instruments: dict[str, dict] = field(default_factory=dict)
+    # One row per symbol with a leverage-settings entry: which leverage symbol, and since when.
+    vehicle_report: list[dict] = field(default_factory=list)
 
     @property
     def start_index(self) -> int:
@@ -165,6 +173,7 @@ def simulate_allocation(
     slippage_bps: float = 0.0,
     strategy_labels: Sequence[tuple[str, str]] | None = None,
     signal_context: tuple[np.ndarray, np.ndarray] | None = None,
+    decisions: Mapping[int, Mapping[str, float]] | None = None,
 ) -> AllocationSimulation:
     """Run the book bar by bar.
 
@@ -176,7 +185,11 @@ def simulate_allocation(
     ``active`` and ``eligible`` are ``(strategies, bars)`` boolean matrices from
     ``effective_state``; ``pnl_symbols[k]`` is the instrument strategy ``k`` books P&L on.
     The model is consulted, and the ledger rebalanced, only on bars where the effective
-    state (who is active, who is eligible) changed. Between changes positions drift.
+    state (who is active, who is eligible) changed. Between changes positions drift. A model
+    that sets ``reacts_to_eligibility = False`` is consulted only when who is active changes.
+
+    ``decisions`` maps a bar to the extra numbers the model reads on that bar
+    (``SignalState.context``); bars it does not list get an empty context.
     """
     dates = pd.DatetimeIndex(dates)
     n = len(dates)
@@ -187,22 +200,12 @@ def simulate_allocation(
     if active.shape != eligible.shape or active.shape[1] != n or active.shape[0] != len(pnl_symbols):
         raise ValueError("Signal state must be (strategies, bars) and match pnl_symbols and dates")
 
-    symbols = sorted(set(pnl_symbols))
-    price_paths = {
-        symbol: _synthetic_prices(_symbol_returns(symbol, track_changes, dates))
-        for symbol in symbols
-    }
-    raw_close = {
-        symbol: (
-            close_series[symbol][~close_series[symbol].index.duplicated(keep="last")]
-            .reindex(dates)
-            .ffill()
-            .to_numpy(dtype=float)
-            if symbol in close_series
-            else np.full(n, np.nan)
-        )
-        for symbol in symbols
-    }
+    # Strategies speak in underlyings; the ledger holds instruments (the leveraged stand-in and,
+    # when the leverage settings name one, the real leverage symbol).
+    book = InstrumentBook(pnl_symbols, track_changes, close_series, dates)
+    symbols = book.keys
+    price_paths = book.paths
+    raw_close = book.display_close
 
     ledger = PortfolioLedger(
         cash=float(start_capital), cost_bps=cost_bps, slippage_bps=slippage_bps
@@ -245,6 +248,7 @@ def simulate_allocation(
     close_out = np.zeros(n)
 
     display_symbol = symbols[0]
+    reacts_to_eligibility = getattr(model, "reacts_to_eligibility", True)
     prev_key: bytes | None = None
     prev_invested = 0.0
     prev_equity = float(start_capital)
@@ -265,19 +269,27 @@ def simulate_allocation(
         shares_before = {symbol: ledger.shares(symbol) for symbol in symbols}
         cash_before = ledger.cash
 
-        key = active[:, i].tobytes() + eligible[:, i].tobytes()
+        key = active[:, i].tobytes()
+        if reacts_to_eligibility:
+            key += eligible[:, i].tobytes()
         if key != prev_key:
             prev_key = key
             state = SignalState(
                 active_count=int(active_count[i]),
                 eligible_count=int(eligible_count[i]),
+                context=dict(decisions.get(i, {})) if decisions else {},
             )
             exposure = model.target_exposure(state)
             target_exposure[i] = exposure
             active_symbols = [
                 pnl_symbols[k] for k in range(len(pnl_symbols)) if active[k, i]
             ]
-            result = ledger.rebalance(_target_weights(exposure, active_symbols), prices)
+            routed = book.route(i, ledger.shares)
+            weights = {
+                routed[underlying]: weight
+                for underlying, weight in _target_weights(exposure, active_symbols).items()
+            }
+            result = ledger.rebalance(weights, prices)
             if result.traded:
                 rebalanced[i] = True
                 traded_notional[i] = result.traded_notional
@@ -414,6 +426,8 @@ def simulate_allocation(
         final_marks=last_prices,
         start_capital=float(start_capital),
         signal_changes_without_transaction=without_transaction,
+        instruments=book.metadata(),
+        vehicle_report=book.report(),
     )
 
 

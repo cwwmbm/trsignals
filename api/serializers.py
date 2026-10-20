@@ -264,6 +264,16 @@ def detailed_backtest_payload(
         "equity_curve_total_points": total_bars,
         "equity_curve_shown_points": len(equity_curve),
     }
+    traded = data.attrs.get("traded") if hasattr(data, "attrs") else None
+    if traded and "VehicleHold" in data.columns:
+        # Which instrument each closed trade earned its return in.
+        closed = data["LongTradeOut"].to_numpy(dtype=bool)
+        on_leverage_symbol = data["VehicleHold"].to_numpy(dtype=bool)[closed]
+        payload["vehicle"] = {
+            **traded,
+            "trades_on_leverage_symbol": int(on_leverage_symbol.sum()),
+            "trades_on_stand_in": int((~on_leverage_symbol).sum()),
+        }
     if years is not None:
         payload["market_regime_sharpe"] = compute_market_regime_sharpe(
             scored,

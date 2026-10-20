@@ -688,7 +688,6 @@ export const StrategyBuilderSetup = forwardRef<
           eodExit,
           backtestAllData,
           holdOnBuySignal,
-          years,
         ),
       buildRefineDraft: () =>
         buildPayload(

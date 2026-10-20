@@ -18,6 +18,7 @@ from api.builder_strategy import (
     regime_trial_metrics,
     regime_trial_metrics_full_path,
 )
+from api import leverage_settings, vehicle_data, vehicles
 from api.indicator_catalog import is_market_wide_indicator, list_indicators
 from api.proxy_symbol import proxy_column, with_proxy_description
 from api.sample_window import (
@@ -1027,10 +1028,38 @@ def run_live_scan(*, data_source: str = "yahoo") -> list[dict]:
     return run_scan()
 
 
-def run_quotes() -> dict:
+def run_quotes(store_path=None) -> dict:
     from api.quote_service import build_quote_snapshot
+    from api.quote_store import list_quote_symbols
 
-    return build_quote_snapshot()
+    return build_quote_snapshot(symbols=list_quote_symbols(store_path))
+
+
+def add_saved_quote_symbol(symbol: str, store_path=None) -> dict:
+    from api.quote_store import add_quote_symbol, normalize_quote_symbol, remove_quote_symbol
+
+    display, _yf_symbol = normalize_quote_symbol(symbol)
+    add_quote_symbol(symbol, store_path=store_path)
+    try:
+        snapshot = run_quotes(store_path)
+    except ValueError:
+        remove_quote_symbol(display, store_path=store_path)
+        raise
+    except Exception as exc:
+        remove_quote_symbol(display, store_path=store_path)
+        raise ValueError("Couldn't download quotes from Yahoo") from exc
+    row = next((item for item in snapshot["quotes"] if item.get("symbol") == display), None)
+    if row is None or row.get("close") is None:
+        remove_quote_symbol(display, store_path=store_path)
+        raise ValueError(f"No Yahoo data for {display}")
+    return snapshot
+
+
+def remove_saved_quote_symbol(symbol: str, store_path=None) -> dict:
+    from api.quote_store import remove_quote_symbol
+
+    remove_quote_symbol(symbol, store_path=store_path)
+    return run_quotes(store_path)
 
 
 def run_portfolio_simulation(request) -> dict:
@@ -1112,3 +1141,34 @@ def delete_custom_dataset(dataset_id: str) -> dict:
     if not deleted:
         raise ValueError(f"Custom dataset not found: {dataset_id}")
     return {"deleted": True}
+
+
+def _dump(model) -> dict:
+    return model.model_dump() if hasattr(model, "model_dump") else model.dict()
+
+
+def read_leverage_settings() -> dict:
+    return leverage_settings.load_settings().to_dict()
+
+
+def write_leverage_settings(request) -> dict:
+    body = _dump(request)
+    settings = leverage_settings.normalize_settings(body["general_leverage"], body["symbols"])
+    return leverage_settings.save_settings(settings).to_dict()
+
+
+def estimate_leverage_costs(request) -> dict:
+    """Fit the stand-in's cost model from the days the leverage symbol and its symbol both traded."""
+    symbol = leverage_settings.normalize_entry(
+        dict(symbol=request.symbol, leverage_symbol=request.leverage_symbol, leverage=1)
+    )
+    underlying = vehicle_data.load_close(symbol.symbol)
+    if underlying is None:
+        raise ValueError(f"No price history found for {symbol.symbol}")
+    vehicle = vehicle_data.load_close(symbol.leverage_symbol)
+    if vehicle is None:
+        raise ValueError(f"No price history found for {symbol.leverage_symbol}")
+    fit = vehicles.estimate_cost_model(underlying, vehicle, vehicle_data.load_rates())
+    fit["leverage_symbol_first_date"] = vehicle.index.min().strftime("%Y-%m-%d")
+    fit["symbol_first_date"] = underlying.index.min().strftime("%Y-%m-%d")
+    return fit

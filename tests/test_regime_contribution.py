@@ -63,6 +63,8 @@ class ScoreRegimeBookTests(unittest.TestCase):
             returns,
             np.ones(len(self.data), dtype=bool),
             252,
+            # The score's Sortino is over the bars the book was in trade.
+            invested_mask=self.data["HoldLong"].to_numpy(dtype=bool),
         )
         closed = self.data["LongTradeOut"].to_numpy(dtype=bool)
         pnl = self.data["TradePnL"].to_numpy(dtype=float)

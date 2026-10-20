@@ -175,6 +175,7 @@ class MarketDataCacheTests(unittest.TestCase):
         pd.testing.assert_frame_equal(dataset["SPY"], primary)
         pd.testing.assert_frame_equal(dataset["QQQ"], confirm)
 
+    @patch("api.builder_strategy.attach_strategy_entry_ready")
     @patch("api.scan_service.execute_with_proxy")
     @patch("api.scan_service.bt.apply_cross_symbol_signal")
     @patch("api.builder_strategy.builder_signal_callable")
@@ -185,7 +186,10 @@ class MarketDataCacheTests(unittest.TestCase):
         mock_builder_signal,
         mock_apply_cross_symbol,
         mock_execute_with_proxy,
+        mock_attach_entry_ready,
     ):
+        # The strategy below is a bare mock with no conditions; the entry-readiness step would
+        # compile them and refuse. That step is not what this test is about, so it is replaced.
         from api.scan_service import execute_saved_strategy
 
         primary = _sample_frame("SPY")
@@ -218,6 +222,7 @@ class MarketDataCacheTests(unittest.TestCase):
         )
 
         mock_load_symbol_dataset.assert_called_once_with(["SPY", "QQQ"], years=1, use_cache=False)
+        mock_attach_entry_ready.assert_called_once()
 
 
 if __name__ == "__main__":

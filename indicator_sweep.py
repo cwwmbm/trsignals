@@ -56,6 +56,7 @@ PRICE_SWEEPS = [
     ('Close_SMA50', 'Close_SMA50', 'both', 0, 0, 1),
     ('Close_SMA20', 'Close_SMA20', 'both', 0, 0, 1),
     ('Vix', 'Vix', 'both', 10, 50, 5),
+    ('VixChange', 'VixChange', 'both', -15, 20, 5),
     ('Stoch', 'Stoch', 'both', 10, 90, 10),
     ('RSI14', 'RSI14', 'both', 20, 90, 10),
     ('RSI5', 'RSI5', 'both', 20, 90, 10),
@@ -132,7 +133,7 @@ def _collect_sweeps(running_rows, data, days, profit, is_long, is_sell, og, spec
     for spec in specs:
         started = perf_counter()
         results = _run_one_sweep(data, days, profit, is_long, is_sell, og, spec, pnl_column=pnl_column)
-        top_results = bt.add_yearly_to_indicator_rows(results.head(3), data, days, profit, is_long)
+        top_results = bt.add_yearly_to_indicator_rows(results.head(3), data, days, profit, is_long, pnl_column=pnl_column)
         if timing:
             buy_col, sell_col = spec[0], spec[1]
             label = sell_col if is_sell else buy_col

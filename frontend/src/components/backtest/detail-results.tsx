@@ -80,6 +80,15 @@ export const DetailResults = memo(function DetailResults({
           {description}
         </p>
       ) : null}
+      {result.vehicle ? (
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          {result.vehicle.available
+            ? `${result.vehicle.symbol} is traded as ${result.vehicle.leverage_symbol} from ${result.vehicle.first_date}: ` +
+              `${result.vehicle.trades_on_leverage_symbol} trades in ${result.vehicle.leverage_symbol}, ` +
+              `${result.vehicle.trades_on_stand_in} in ${result.vehicle.symbol} × ${result.vehicle.leverage} (opened before then).`
+            : `${result.vehicle.leverage_symbol} has no price history, so ${result.vehicle.symbol} × ${result.vehicle.leverage} stood in for every trade.`}
+        </p>
+      ) : null}
       {typeof result.summary.metrics_start === "string" && result.summary.metrics_start ? (
         <p className="mt-1 text-[11px] text-muted-foreground">
           Performance starts {result.summary.metrics_start}, the first day the entry conditions could be evaluated.

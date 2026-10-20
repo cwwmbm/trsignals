@@ -10,10 +10,10 @@ from numpy import cumsum, log, polyfit, sqrt, std, subtract
 from hurst import compute_Hc
 
 # Bump when computed indicator columns change so disk cache entries are rebuilt.
-INDICATOR_CACHE_VERSION = 2
+INDICATOR_CACHE_VERSION = 3
 
 #Calculate Sharpe Ratio
-def sharpes_ratio(data, risk_free_rate=0, periods_per_year=252):
+def sharpes_ratio(data, risk_free_rate=0, periods_per_year=252, exclude_year=None):
     """
     Calculate the Sharpe ratio of a set of returns.
 
@@ -26,6 +26,12 @@ def sharpes_ratio(data, risk_free_rate=0, periods_per_year=252):
         Constant risk-free return throughout the period.
     periods_per_year : int, optional
         Number of periods per year.
+    exclude_year : int, optional
+        Calendar year whose own daily returns are left out. Returns are computed on the
+        whole series first, so the first session after that year is still measured against
+        the last close of the year before it. Dropping the year's rows *before* taking
+        returns would instead book the whole year's gain as one phantom daily return.
+        Needs a ``Date`` column.
 
     Returns
     -------
@@ -35,6 +41,8 @@ def sharpes_ratio(data, risk_free_rate=0, periods_per_year=252):
     """
     # Calculate daily returns
     data['DailyReturn'] = data['RollingPnL'].pct_change()
+    if exclude_year is not None:
+        data = data[data['Date'].dt.year != exclude_year]
     # Drop NaN values from the 'DailyReturn' column
     data = data.dropna(subset=['DailyReturn'])
     # Calculate the average daily return considering only non-zero RollingPnL values
@@ -52,7 +60,7 @@ def sharpes_ratio(data, risk_free_rate=0, periods_per_year=252):
     return sharpe_ratio
 
 #Calculate Sortino Ratio
-def sortino_ratio(data, risk_free_rate=0, periods_per_year=252):
+def sortino_ratio(data, risk_free_rate=0, periods_per_year=252, exclude_year=None):
     """
     Calculate the Sortino ratio of a set of returns.
 
@@ -64,6 +72,8 @@ def sortino_ratio(data, risk_free_rate=0, periods_per_year=252):
         Constant risk-free return throughout the period.
     periods_per_year : int, optional
         Number of periods per year.
+    exclude_year : int, optional
+        Calendar year whose own daily returns are left out; see ``sharpes_ratio``.
 
     Returns
     -------
@@ -73,6 +83,8 @@ def sortino_ratio(data, risk_free_rate=0, periods_per_year=252):
     """
     # Calculate daily returns
     data['DailyReturn'] = data['RollingPnL'].pct_change()
+    if exclude_year is not None:
+        data = data[data['Date'].dt.year != exclude_year]
     # Drop NaN values from the 'DailyReturn' column
     data = data.dropna(subset=['DailyReturn'])
     # Calculate the average daily return considering only non-zero RollingPnL values
@@ -360,6 +372,17 @@ def rolling_linreg_slope_pct(series: pd.Series, window: int) -> pd.Series:
     return series.rolling(window).apply(slope, raw=True)
 
 
+def vix_daily_change_pct(vix: pd.Series) -> pd.Series:
+    """Close-to-close % change of the VIX, in percent points (-10 means -10%).
+
+    Taken over the days the VIX has a close, so a symbol bar on a day the VIX did not trade
+    reads the change since the last VIX close and a gap is never bridged by filling. Bars
+    without a VIX close are NaN.
+    """
+    closes = pd.to_numeric(vix, errors='coerce').astype(float)
+    return (closes.dropna().pct_change() * 100).reindex(closes.index)
+
+
 def rolling_percentile_rank(series: pd.Series, window: int) -> pd.Series:
     def percentile_rank(values):
         if len(values) < window:
@@ -620,6 +643,7 @@ def add_indicators(data, periods_per_year=252, source_timezone=None):
     tail = pd.DataFrame(
         {
             'ChangeVelocity': (close - close.shift(1)) / data['ATR20'].shift(1),
+            'VixChange': vix_daily_change_pct(data['Vix']),
             'HigherCloses2': np.where(
                 (close > close.shift(1)) & (close.shift(1) > close.shift(2)), 1, -1
             ),

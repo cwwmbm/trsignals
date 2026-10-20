@@ -89,6 +89,7 @@ _SWEEP = {
     "ValueCharts": {"min": -12, "max": 12},
     "ER": {"min": 0.1, "max": 0.9},
     "Vix": {"min": 10, "max": 50},
+    "VixChange": {"min": -15, "max": 20},
     "ChangeVelocity": {"min": -2, "max": 2},
     "Close_EMA8": {"min": -10, "max": 10},
     "VFI10": {"min": -8, "max": 8},
@@ -140,6 +141,7 @@ _DEFAULT_COMPARE_NUMBER: dict[str, str] = {
     "RSI14": "50",
     "CCI": "0",
     "Vix": "20",
+    "VixChange": "0",
     "BBPercentB": "0.5",
     "VWAPPercentB": "0.5",
     "Stoch": "20",
@@ -279,6 +281,7 @@ INDICATOR_CATALOG: list[IndicatorDef] = [
     ),
     # Volatility / risk
     _entry("Vix", "VIX", "Volatility / risk", "volatility", "continuous", typical_range=_range("Vix"), aliases=["VIX"], description="CBOE Volatility Index closing level — a measure of expected market volatility."),
+    _entry("VixChange", "VIX daily change", "Volatility / risk", "volatility", "continuous", typical_range=_range("VixChange"), description="VIX close-to-close change, in percent points (-10 means the VIX fell 10% that day). Blank on the first VIX day and after a missing VIX close."),
     _entry("%Change", "% change", "Volatility / risk", "volatility", "percent", typical_range=_range("%Change"), description="Leveraged daily percent change in close (leverage factor from config)."),
     _entry("ATR20", "ATR(20)", "Volatility / risk", "volatility", "continuous", description="20-day Average True Range — average daily price range in price units."),
     _entry("ATR50", "ATR(50)", "Volatility / risk", "volatility", "continuous", description="50-day Average True Range — average daily price range in price units."),
@@ -654,6 +657,7 @@ def builder_eligible_ids() -> list[str]:
 _MARKET_WIDE_INDICATOR_IDS = frozenset(
     {
         "Vix",
+        "VixChange",
         "SPYBull",
         *(item["id"] for item in INDICATOR_CATALOG if item.get("kind") == "breadth"),
         *(spec.id for spec in REGIME_INDICATOR_SPECS if spec.market_wide),

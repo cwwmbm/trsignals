@@ -23,7 +23,7 @@ const SECTION_HELP = [
   {
     icon: LineChart,
     title: 'Quote',
-    body: 'Yahoo snapshot of SPY, QQQ, SOXX, and VIX: percent change (VIX as level with change in brackets), IBR, RSI2, RSI5, and Stochastic. Weekdays in the last five calendar days with no bar are highlighted; weekends are ignored. Exchange holidays may light up so you can judge them. On a phone, open /quote (the mobile header also links Scan and Quote).',
+    body: 'Yahoo snapshot of the symbols you keep here, starting with SPY, QQQ, SOXX, and VIX. Add or remove a ticker and the list stays saved. Shows percent change (VIX as level with change in brackets), IBR, RSI2, RSI5, and Stochastic. Weekdays in the last five calendar days with no bar are highlighted; weekends are ignored. Exchange holidays may light up so you can judge them. On a phone, open /quote (the mobile header also links Scan and Quote).',
   },
 ]
 

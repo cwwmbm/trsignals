@@ -644,6 +644,21 @@ class AnalyticsTests(unittest.TestCase):
         )
 
 
+class _NeutralRegimeContext:
+    """No regime evidence: the regime-adjusted model then behaves like all-in."""
+
+    def decisions(self, ids, active, dates=None, settings=None):
+        return {}
+
+
+def _bind_neutral(allocation, *args, **kwargs):
+    from dataclasses import replace
+
+    if not allocation.is_regime_adjusted:
+        return allocation
+    return replace(allocation, regime_context=_NeutralRegimeContext())
+
+
 def _patched_portfolio(test, request_kwargs=None):
     strategies, signals = _two_strategy_case()
     track, close = _market()
@@ -655,6 +670,7 @@ def _patched_portfolio(test, request_kwargs=None):
         close,
     )
     patches = [
+        patch("api.portfolio_service.bind_regime_context", side_effect=_bind_neutral),
         patch("api.portfolio_service.get_strategy_by_id", side_effect=lambda sid: by_id[sid]),
         patch("api.portfolio_service._load_portfolio_market_data", return_value=market),
         patch(
@@ -722,6 +738,10 @@ class PortfolioPayloadTests(unittest.TestCase):
             [row["model"] for row in payload["models"]],
             [
                 "all_in",
+                "regime_adjusted_harsh",
+                "regime_adjusted_strict",
+                "regime_adjusted_medium",
+                "regime_adjusted_low",
                 "proportional_linear",
                 "proportional_early_conviction",
                 "proportional_confirmation_required",

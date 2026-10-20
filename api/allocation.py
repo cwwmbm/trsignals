@@ -7,7 +7,12 @@ apart means a new sizing idea (volatility targeting, regime-adjusted sizing,
 correlation-aware weighting) is one new class here and nothing else changes.
 
 Models that need more than signal counts (volatility, regime, correlation) read the
-optional ``context`` mapping on ``SignalState``. The engine fills it; today it is empty.
+optional ``context`` mapping on ``SignalState``. The engine fills it from whatever the caller
+computed for that bar (see ``api.regime_allocation``); models that don't need it never look.
+
+Two optional class attributes tell the engine when to ask the model again:
+``reacts_to_eligibility`` (default True) - a change in who is *eligible* counts as a new
+state. Models that size from who is active, and from nothing else, set it False.
 """
 
 from __future__ import annotations
@@ -20,6 +25,7 @@ AllocationModelId = str
 
 ALL_IN = "all_in"
 PROPORTIONAL = "proportional"
+REGIME_ADJUSTED = "regime_adjusted"
 
 PROPORTIONAL_LINEAR = "linear"
 PROPORTIONAL_EARLY_CONVICTION = "early_conviction"
@@ -122,6 +128,50 @@ def proportional_model(mode: str) -> ProportionalModel:
     return ProportionalModel(mode=mode, power=PROPORTIONAL_POWERS[mode])
 
 
+# Regime-adjusted sizing reads these two numbers from ``SignalState.context``.
+STRATEGY_CONFIDENCE = "strategy_confidence"
+PORTFOLIO_CONSENSUS = "portfolio_consensus"
+# exposure = strategy confidence * (CONSENSUS_FLOOR + CONSENSUS_SPAN * portfolio consensus)
+CONSENSUS_FLOOR = 0.70
+CONSENSUS_SPAN = 0.30
+
+
+@dataclass(frozen=True)
+class RegimeAdjustedModel:
+    """Exposure scaled by how well the current regimes have treated the active strategies.
+
+    ``strategy_confidence`` (0-1) is the average confidence of the active strategies and
+    ``portfolio_consensus`` (0-1) is the confidence in the portfolio itself. Consensus can take
+    off at most 30 points: 100% consensus keeps full confidence, 0% keeps 70% of it. A missing
+    value means no evidence against, i.e. 1.0, so with no context this behaves like All-In.
+
+    Only who is *active* matters: the model is consulted when that set changes, and a strategy
+    leaving while another stays can raise the exposure again.
+    """
+
+    # Names the penalty preset when several run side by side (comparison); the model itself
+    # never reads it. The penalties act on the confidence numbers it is given.
+    preset: str | None = None
+    reacts_to_eligibility: bool = False
+
+    @property
+    def id(self) -> str:
+        return REGIME_ADJUSTED if self.preset is None else f"{REGIME_ADJUSTED}_{self.preset}"
+
+    @property
+    def label(self) -> str:
+        if self.preset is None:
+            return "Regime-adjusted"
+        return f"Regime · {self.preset.title()}"
+
+    def target_exposure(self, state: SignalState) -> float:
+        if state.active_count <= 0:
+            return 0.0
+        confidence = state.context.get(STRATEGY_CONFIDENCE, 1.0)
+        consensus = state.context.get(PORTFOLIO_CONSENSUS, 1.0)
+        return clamp_exposure(confidence * (CONSENSUS_FLOOR + CONSENSUS_SPAN * consensus))
+
+
 def resolve_allocation_model(
     allocation_model: str | None = None,
     proportional_mode: str | None = None,
@@ -132,6 +182,8 @@ def resolve_allocation_model(
         return AllInModel()
     if name == PROPORTIONAL:
         return proportional_model(proportional_mode or DEFAULT_PROPORTIONAL_MODE)
+    if name == REGIME_ADJUSTED:
+        return RegimeAdjustedModel()
     raise ValueError(f"Unsupported allocation model: {name}")
 
 

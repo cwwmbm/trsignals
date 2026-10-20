@@ -55,10 +55,16 @@ const ATR_UNAVAILABLE = "Traded-symbol ATR is not available for this result.";
 
 const METRIC_OPTIONS: { id: RegimeYMetric; label: string; subtitle: string }[] = [
   {
+    id: "robustness_score",
+    label: "Robustness score",
+    subtitle:
+      "Average trade return and how much of the average yearly log return remains after dropping the best year. The score regime-based allocation uses by default",
+  },
+  {
     id: "regime_score",
     label: "Regime score",
     subtitle:
-      "Sortino, average trade return, max drawdown, and how much of the average yearly log return remains after dropping the best year",
+      "Sortino (over the bars invested), average trade return, max drawdown, and how much of the average yearly log return remains after dropping the best year",
   },
   {
     id: "sharpe",
@@ -154,7 +160,7 @@ function exposureReturnColor(pct: number) {
 }
 
 function barColor(metric: RegimeYMetric, value: number) {
-  if (metric === "regime_score") return regimeScoreColor(value);
+  if (metric === "regime_score" || metric === "robustness_score") return regimeScoreColor(value);
   if (metric === "sharpe") return sharpeColor(value);
   if (metric === "sortino") return sortinoColor(value);
   if (metric === "calmar") return calmarColor(value);
@@ -216,11 +222,12 @@ function RegimeTooltip({
       }}
     >
       <div className="mb-0.5 font-medium">{point.label}</div>
+      <div>Robustness score {formatSharpe(point.robustnessScore)}</div>
+      <div className="pl-2 text-muted-foreground">Return part {formatPart(point.regimeScoreReturn)}</div>
+      <div className="pl-2 text-muted-foreground">Robustness part {formatPart(point.regimeScoreRobustness)}</div>
       <div>Regime score {formatSharpe(point.regimeScore)}</div>
-      <div className="pl-2 text-muted-foreground">Sortino score {formatPart(point.regimeScoreSortino)}</div>
-      <div className="pl-2 text-muted-foreground">Return score {formatPart(point.regimeScoreReturn)}</div>
-      <div className="pl-2 text-muted-foreground">Drawdown score {formatPart(point.regimeScoreDrawdown)}</div>
-      <div className="pl-2 text-muted-foreground">Robustness score {formatPart(point.regimeScoreRobustness)}</div>
+      <div className="pl-2 text-muted-foreground">Sortino part {formatPart(point.regimeScoreSortino)}</div>
+      <div className="pl-2 text-muted-foreground">Drawdown part {formatPart(point.regimeScoreDrawdown)}</div>
       <div>{point.trades} trades</div>
       <div>{point.pctPositive == null ? "— positive" : `${point.pctPositive.toFixed(0)}% positive`}</div>
       <div>Avg / exposure day {formatPct(point.avgReturnPct)}</div>
@@ -235,8 +242,12 @@ function RegimeTooltip({
   );
 }
 
-function nowCaption(dimensionId: string, regimeKey: string | null, reading: number | null) {
+function nowCaption(dimensionId: string, regimeKey: string | string[] | null, reading: number | null) {
   if (regimeKey == null) return null;
+  if (dimensionId === "vix_change") {
+    if (reading == null || !Number.isFinite(reading)) return "NOW";
+    return `NOW · ${reading > 0 ? "+" : ""}${reading.toFixed(1)}%`;
+  }
   const bucketNow = dimensionId === "spy" || dimensionId === "rate_curve" || dimensionId === "dollar_rates" || dimensionId === "inflation_yield";
   if (bucketNow) {
     const label = REGIME_DIMENSIONS.find((item) => item.id === dimensionId)?.buckets.find((bucket) => bucket.key === regimeKey)?.label;
@@ -433,13 +444,15 @@ function RegimeBarChart({
   dimension: RegimeDimension;
   points: RegimeChartPoint[];
   metric: RegimeYMetric;
-  currentKey: string | null;
+  currentKey: string | string[] | null;
   reading: number | null;
   coverage?: { start: string; end: string } | null;
   onSelectBucket: (point: RegimeChartPoint) => void;
 }) {
   const data = points.map((point) => ({ ...point, value: regimeYValue(point, metric) }));
-  const currentLabel = points.find((point) => point.key === currentKey)?.label ?? null;
+  // Overlapping regimes hold several buckets at once, so there is no single bar to outline.
+  const currentLabel =
+    typeof currentKey === "string" ? (points.find((point) => point.key === currentKey)?.label ?? null) : null;
   const currentValue = data.find((point) => point.label === currentLabel)?.value ?? null;
   const caption = nowCaption(dimension.id, currentKey, reading);
   const angledTicks = dimension.buckets.length >= 5;
@@ -492,12 +505,12 @@ function RegimeBarChart({
             domain={
               metric === "max_drawdown"
                 ? [(min: number) => (Number.isFinite(min) && min < 0 ? min : 0), 0]
-                : metric === "regime_score"
+                : metric === "regime_score" || metric === "robustness_score"
                   ? [0, 100]
                   : undefined
             }
             tickFormatter={(value: number) =>
-              metric === "regime_score"
+              metric === "regime_score" || metric === "robustness_score"
                 ? value.toFixed(0)
                 : metric === "sharpe" || metric === "sortino" || metric === "calmar"
                   ? value.toFixed(1)
@@ -598,7 +611,7 @@ function MarketRegimesCharts({
   const trades = overview.trades;
   const current = overview.market_regime_current;
   const coverage = overview.market_regime_coverage;
-  const [metric, setMetric] = useState<RegimeYMetric>("regime_score");
+  const [metric, setMetric] = useState<RegimeYMetric>("robustness_score");
   const [showSmallSamples, setShowSmallSamples] = useState(false);
   const [prompt, setPrompt] = useState<{ dimension: RegimeDimension; point: RegimeChartPoint } | null>(
     null,
@@ -687,7 +700,12 @@ function MarketRegimesCharts({
       ) : null}
 
       {analyzing && source ? (
-        <RegimeAnalysisModal dimension={analyzing} source={source} onClose={() => setAnalyzing(null)} />
+        <RegimeAnalysisModal
+          dimension={analyzing}
+          source={source}
+          onClose={() => setAnalyzing(null)}
+          scoreMetric={metric === "regime_score" ? "regime_score" : "robustness_score"}
+        />
       ) : null}
     </div>
   );

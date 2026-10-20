@@ -828,11 +828,12 @@ class PositionsPayloadTests(unittest.TestCase):
         self.assertEqual(episode["return"], trade["trade_pnl"])
         # The closing line agrees with it, so the table never contradicts itself.
         self.assertEqual(episode["events"][-1]["episode_return_to_date"], trade["trade_pnl"])
-        # The ledger's own figure is still there, and is a different (compounded) number.
+        # The ledger's own figure is still there. A trade's percent is now the equity it earned
+        # (its daily leveraged returns compounded), so the two agree for a fully invested book.
         self.assertAlmostEqual(
             episode["return_on_equity"], episode["pnl"] / episode["equity_before_entry"], places=12
         )
-        self.assertNotAlmostEqual(episode["return"], episode["return_on_equity"], places=6)
+        self.assertAlmostEqual(episode["return"], episode["return_on_equity"], places=9)
 
     def test_proportional_episode_percent_is_the_ledger_figure(self):
         request = _patched_request(self)

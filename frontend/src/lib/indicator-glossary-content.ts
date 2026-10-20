@@ -22,7 +22,7 @@ export const INDICATOR_CATEGORY_INTROS: Partial<
   'Momentum / oscillators':
     'Oscillators and momentum: RSI, Stochastic, CCI, MACD, Hurst, ADX(14), Williams %R, ROC(20), TRIX, and 20-bar linear regression slope.',
   'Volatility / risk':
-    'VIX, ATR, realized volatility, volatility percentile vs trailing 1 year, Bollinger width and %B, and change velocity.',
+    'VIX and its daily % change, ATR, realized volatility, volatility percentile vs trailing 1 year, Bollinger width and %B, and change velocity.',
   Volume:
     'Share volume, OBV and OBV slope, Chaikin Money Flow (20), volume EMA diff, and VFI variants.',
   'Efficiency / flow': 'IBR, Kaufman efficiency ratio, and volume flow (VFI) indicators.',

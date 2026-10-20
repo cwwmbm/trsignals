@@ -9,6 +9,8 @@ from contextlib import contextmanager
 from time import perf_counter
 import os
 
+from api import leverage_settings, vehicles
+
 
 TIMING_ENABLED = os.getenv("BACKTEST_TIMING", "").lower() in {"1", "true", "yes"}
 HoldOnBuySignal = False
@@ -159,7 +161,7 @@ def _run_indicator_threshold(
     return row
 
 
-def add_yearly_to_indicator_rows(results, data, days_in_trade, profitable_close, is_long):
+def add_yearly_to_indicator_rows(results, data, days_in_trade, profitable_close, is_long, *, pnl_column=None):
     if results.empty:
         return results
     results = results.copy()
@@ -175,6 +177,7 @@ def add_yearly_to_indicator_rows(results, data, days_in_trade, profitable_close,
             row['Condition'],
             row['Value'],
             include_yearly=True,
+            pnl_column=pnl_column,
         )
         yearly.append(detail['Yearly'])
     results['Yearly'] = yearly
@@ -311,7 +314,7 @@ def build_symbol_dataset(full_data, symbols, symbol_to_yf=None):
     dataset = {}
     for symbol in symbols:
         data = dt.symbol_frame_from_bulk(full_data, symbol_to_yf[symbol], market_context)
-        dataset[symbol] = ind.add_indicators(data)
+        dataset[symbol] = vehicles.stamp(ind.add_indicators(data), symbol)
     return dataset
 
 
@@ -327,7 +330,7 @@ def load_symbol_dataset(symbols, years=25, *, use_cache=True):
         for symbol in normalized:
             cached = load_cached_frame(symbol, years, PROFILE_BULK)
             if cached is not None:
-                dataset[symbol] = cached
+                dataset[symbol] = vehicles.stamp(cached, symbol)
             else:
                 missing.append(symbol)
     else:
@@ -494,10 +497,10 @@ def backtest_symbol_confirmation_sweep(
     results['Profit'] = results['Profit'].astype(int)
     return results
 
-def execute_strategy (data, days, profit, is_long = True, *, pnl_column=None):
+def execute_strategy (data, days, profit, is_long = True, *, pnl_column=None, trading_symbol=None):
     with timed("execute_strategy"):
         if days > 0:
-            results = long_strat(data, days, profit, is_long, pnl_column=pnl_column)
+            results = long_strat(data, days, profit, is_long, pnl_column=pnl_column, trading_symbol=trading_symbol)
         else:
             if UseProxyUnderlying:
                 results = long_og_strat_proxy(data = data, days = days, profit = profit)
@@ -772,22 +775,47 @@ def long_og_strat_proxy(data, days = 0, profit = 0, start_capital = 15000):
 
     return data
 
-def long_strat(data, days, prof_closes, is_long = True, start_capital = 15000, point_multiplier = point_multiplier, *, pnl_column=None):
+def long_strat(data, days, prof_closes, is_long = True, start_capital = 15000, point_multiplier = point_multiplier, *, pnl_column=None, trading_symbol=None):
+    """Run one strategy bar by bar.
+
+    Signals and exits read the unlevered trading symbol's closes (``pnl_column``, or the frame's
+    own ``Close``). What the position *earns* comes from the leverage settings: the general
+    leverage times the symbol's return, or, for a symbol with a settings entry, the leverage
+    symbol's real return (the stand-in before it exists, and for any trade opened before then).
+    A trade's return compounds the daily returns it actually earned.
+    """
     signals = data
     n = len(signals)
+    general = leverage_settings.general_leverage()
 
     if pnl_column:
-        split_change = (data[pnl_column] - data[pnl_column].shift(1))*Leverage / data[pnl_column].shift(1) if data[pnl_column].shift(1).any() > 0 else 0
+        split_change = (data[pnl_column] - data[pnl_column].shift(1))*general / data[pnl_column].shift(1) if data[pnl_column].shift(1).any() > 0 else 0
         signals['TrackChange'] = split_change
     elif not UseProxyUnderlying:
-        signals['TrackChange'] = signals['%Change']
+        # %Change is the legacy 3x indicator; rescale it to the general leverage.
+        signals['TrackChange'] = signals['%Change'] * (general / Leverage)
     else:
-        split_change = (data[ProxySymbol] - data[ProxySymbol].shift(1))*Leverage / data[ProxySymbol].shift(1) if data[ProxySymbol].shift(1).any() > 0 else 0
+        split_change = (data[ProxySymbol] - data[ProxySymbol].shift(1))*general / data[ProxySymbol].shift(1) if data[ProxySymbol].shift(1).any() > 0 else 0
         if SplitLong:
-            underlying_change = data['%Change']
+            underlying_change = data['%Change'] * (general / Leverage)
             signals['TrackChange'] = (split_change + underlying_change)/2
         else:
             signals['TrackChange'] = split_change
+
+    stream = None
+    if is_long:
+        symbol = trading_symbol or pnl_column or getattr(data, "attrs", {}).get("symbol")
+        if symbol:
+            underlying = data[pnl_column] if pnl_column else data['Close']
+            stream = vehicles.stream_for(data['Date'], underlying.to_numpy(dtype=float), symbol)
+    if stream is not None:
+        signals.attrs["traded"] = {
+            "symbol": stream.symbol,
+            "leverage_symbol": stream.vehicle_symbol,
+            "leverage": stream.leverage,
+            "first_date": None if stream.first_vehicle_date is None else stream.first_vehicle_date.strftime("%Y-%m-%d"),
+            "available": stream.vehicle_available,
+        }
 
     buy = np.asarray(signals['Buy'].values, dtype=bool)
     sell = np.asarray(signals['Sell'].values, dtype=bool)
@@ -804,6 +832,16 @@ def long_strat(data, days, prof_closes, is_long = True, start_capital = 15000, p
     rolling_pnl = np.zeros(n, dtype=float)
     trade_pnl = np.zeros(n, dtype=float)
     trade_entry = np.zeros(n, dtype=float)
+    compounded_trade_pnl = np.zeros(n, dtype=float)
+    used_change = track_change.copy()
+    used_vehicle = np.zeros(n, dtype=bool)
+    in_vehicle = False
+    trade_return = 0.0
+    if stream is not None:
+        vehicle_ok = stream.vehicle_ok_list
+        vehicle_usable = stream.vehicle_usable_list
+        vehicle_return = stream.vehicle_list
+        synthetic_return = stream.synthetic_list
 
     def mark_price(i: int) -> float:
         price = close[i]
@@ -820,6 +858,10 @@ def long_strat(data, days, prof_closes, is_long = True, start_capital = 15000, p
             hold_long[i] = (hold_long[i - 1] and not long_out[i - 1]) or long_in[i - 1]
 
         long_in[i] = buy[i] and not hold_long[i]
+        if long_in[i]:
+            # The traded instrument is chosen when the position opens and kept until it closes.
+            in_vehicle = bool(stream is not None and vehicle_ok[i])
+            trade_return = 0.0
         # DaysInTrade: total bars held since original entry (for reporting).
         days_in_trade[i] = days_in_trade[i - 1] + 1 if hold_long[i] and i > 0 else 0
         # days_for_exit: hold-limit timer; may reset when hold-on-buy suppresses an exit.
@@ -848,17 +890,31 @@ def long_strat(data, days, prof_closes, is_long = True, start_capital = 15000, p
         if i == 0:
             rolling_pnl[i] = start_capital
         elif hold_long[i]:
-            change = track_change[i]
+            if stream is not None:
+                if in_vehicle and vehicle_usable[i]:
+                    change = vehicle_return[i]
+                    used_vehicle[i] = True
+                else:
+                    change = synthetic_return[i]
+                used_change[i] = change
+            else:
+                change = track_change[i]
             if np.isnan(change):
                 change = 0.0
             if is_long:
                 rolling_pnl[i] = (1 + change) * rolling_pnl[i - 1]
+                trade_return = (1 + trade_return) * (1 + change) - 1
+                compounded_trade_pnl[i] = trade_return
             else:
                 rolling_pnl[i] = (1 - change) * rolling_pnl[i - 1]
         else:
             rolling_pnl[i] = rolling_pnl[i - 1]
 
-    trade_pnl = Leverage * trade_pnl if is_long else -1 * Leverage * trade_pnl
+    # Longs report what the position earned; shorts keep the simple leveraged price move.
+    trade_pnl = compounded_trade_pnl if is_long else -1 * general * trade_pnl
+    if stream is not None:
+        signals['TrackChange'] = np.where(hold_long, used_change, np.where(np.isfinite(stream.synthetic), stream.synthetic, 0.0))
+        signals['VehicleHold'] = used_vehicle
 
     signals['LongTradeIn'] = long_in
     signals['LongTradeOut'] = long_out

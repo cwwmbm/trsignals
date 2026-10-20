@@ -6,6 +6,7 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 
+import config
 from api.builder_strategy import (
     backtest_builder_signal_combinations,
     backtest_builder_signal_sweep,
@@ -21,6 +22,11 @@ from api.schemas import (
 )
 from api.services import run_builder_backtest, run_builder_refine, run_builder_refine_outcome
 from api.strategy_store import create_strategy, get_strategy_by_id
+
+
+# Refine drops rows with fewer in-sample trades than config.MIN_IN_SAMPLE_TRADES, and a row with no
+# trade count counts as zero. Mocked sweep rows therefore carry a count that clears it.
+ENOUGH_TRADES = config.MIN_IN_SAMPLE_TRADES
 
 
 def _draft_request(**overrides) -> BuilderBacktestRequest:
@@ -163,10 +169,10 @@ class BuilderRefineServiceTests(unittest.TestCase):
             captured_secondaries.extend(secondaries)
             return pd.DataFrame(
                 [
-                    {"Primary": "Draft RSI", "Secondary": "Secondary A", "Mode": "AND", "Sharpe": 1.2},
-                    {"Primary": "Draft RSI", "Secondary": "Secondary A", "Mode": "OR", "Sharpe": 1.0},
-                    {"Primary": "Draft RSI", "Secondary": "Secondary B", "Mode": "AND", "Sharpe": 0.9},
-                    {"Primary": "Draft RSI", "Secondary": "Secondary B", "Mode": "OR", "Sharpe": 0.8},
+                    {"Primary": "Draft RSI", "Secondary": "Secondary A", "Mode": "AND", "Sharpe": 1.2, "Trades": ENOUGH_TRADES},
+                    {"Primary": "Draft RSI", "Secondary": "Secondary A", "Mode": "OR", "Sharpe": 1.0, "Trades": ENOUGH_TRADES},
+                    {"Primary": "Draft RSI", "Secondary": "Secondary B", "Mode": "AND", "Sharpe": 0.9, "Trades": ENOUGH_TRADES},
+                    {"Primary": "Draft RSI", "Secondary": "Secondary B", "Mode": "OR", "Sharpe": 0.8, "Trades": ENOUGH_TRADES},
                 ]
             )
 
@@ -202,7 +208,7 @@ class BuilderRefineServiceTests(unittest.TestCase):
         ) as prepare:
             with patch("api.services.bt.backtest_days") as backtest_days:
                 backtest_days.return_value = pd.DataFrame(
-                    [{"Days": 2, "Prf": 1, "Sharpe": 1.0}]
+                    [{"Days": 2, "Prf": 1, "Sharpe": 1.0, "Trades": ENOUGH_TRADES}]
                 )
                 payload = run_builder_refine(request)
 
@@ -230,8 +236,8 @@ class BuilderRefineServiceTests(unittest.TestCase):
             with patch("api.services.indicator_tryout") as tryout:
                 tryout.return_value = pd.DataFrame(
                     [
-                        {"Indicator": "RSI2", "Value": 20, "Sharpe": 1.1},
-                        {"Indicator": "RSI5", "Value": 25, "Sharpe": 0.9},
+                        {"Indicator": "RSI2", "Value": 20, "Sharpe": 1.1, "Trades": ENOUGH_TRADES},
+                        {"Indicator": "RSI5", "Value": 25, "Sharpe": 0.9, "Trades": ENOUGH_TRADES},
                     ]
                 )
                 payload = run_builder_refine(request)
@@ -260,7 +266,7 @@ class BuilderRefineServiceTests(unittest.TestCase):
             store.load_backtest_frame.return_value = data.copy()
             with patch("api.services.indicator_tryout") as tryout:
                 tryout.return_value = pd.DataFrame(
-                    [{"Indicator": "RSI2", "Value": 20, "Sharpe": 1.1}]
+                    [{"Indicator": "RSI2", "Value": 20, "Sharpe": 1.1, "Trades": ENOUGH_TRADES}]
                 )
                 payload = run_builder_refine(request)
 
@@ -292,7 +298,7 @@ class BuilderRefineServiceTests(unittest.TestCase):
             store.load_backtest_frame.return_value = data.copy()
             with patch("api.services.indicator_tryout") as tryout:
                 tryout.return_value = pd.DataFrame(
-                    [{"Indicator": "Close_VWAP", "Value": 0.5, "Sharpe": 1.2}]
+                    [{"Indicator": "Close_VWAP", "Value": 0.5, "Sharpe": 1.2, "Trades": ENOUGH_TRADES}]
                 )
                 payload = run_builder_refine(request)
 
@@ -394,6 +400,33 @@ class BuilderRefineServiceTests(unittest.TestCase):
         filtered = _filter_rows_by_min_in_sample_trades(rows, minimum=100)
         self.assertEqual([row["Indicator"] for row in filtered], ["RSI2", "ADX14"])
 
+    def test_refine_counts_a_row_without_a_trade_count_as_zero_trades(self):
+        from api.services import _filter_rows_by_min_in_sample_trades
+
+        rows = [
+            {"Indicator": "RSI2", "Sharpe": 1.2},
+            {"Indicator": "RSI5", "Trades": None, "Sharpe": 1.1},
+            {"Indicator": "ADX14", "Trades": ENOUGH_TRADES, "Sharpe": 1.0},
+        ]
+        self.assertEqual([r["Indicator"] for r in _filter_rows_by_min_in_sample_trades(rows)], ["ADX14"])
+        self.assertEqual(len(_filter_rows_by_min_in_sample_trades(rows, minimum=0)), 3)
+
+    def test_refine_applies_the_configured_minimum_and_reports_it(self):
+        request = BuilderRefineRequest(
+            mode="indicator-sweep", strategy=_draft_request(), check_both=False, check_breadth=False
+        )
+        rows = pd.DataFrame(
+            [
+                {"Indicator": "RSI2", "Value": 20, "Sharpe": 1.1, "Trades": ENOUGH_TRADES},
+                {"Indicator": "RSI5", "Value": 25, "Sharpe": 1.5, "Trades": ENOUGH_TRADES - 1},
+            ]
+        )
+        with patch("api.services.load_ticker_data", return_value=_sample_data()):
+            with patch("api.services.indicator_tryout", return_value=rows):
+                payload = run_builder_refine(request)
+        self.assertEqual([row["Indicator"] for row in payload["rows"]], ["RSI2"])
+        self.assertEqual(payload["meta"]["min_in_sample_trades"], ENOUGH_TRADES)
+
     def test_refine_attaches_full_period_for_rows_with_yearly(self):
         request = BuilderRefineRequest(
             mode="indicator-sweep",
@@ -420,6 +453,7 @@ class BuilderRefineServiceTests(unittest.TestCase):
                                 "Value": 20,
                                 "Buysell": "Buy",
                                 "Sharpe": 1.1,
+                                "Trades": ENOUGH_TRADES,
                                 "Yearly": [{"year": 2020, "pnl_percent": 1.0}],
                             },
                             {
@@ -428,6 +462,7 @@ class BuilderRefineServiceTests(unittest.TestCase):
                                 "Value": 25,
                                 "Buysell": "Buy",
                                 "Sharpe": 0.9,
+                                "Trades": ENOUGH_TRADES,
                             },
                         ]
                     )

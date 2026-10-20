@@ -209,7 +209,8 @@ function ScanTableRowContent({
                 onClick={() =>
                   onOpenPortfolio?.({
                     strategyIds: portfolio.strategy_ids,
-                    overlapMode: portfolio.overlap_mode,
+                    portfolioIds: portfolio.portfolio_ids,
+                    allocation: portfolio,
                     name: portfolio.name,
                     description: portfolio.description ?? '',
                     ...(portfolio.proxy_symbol ? { proxySymbol: portfolio.proxy_symbol } : {}),

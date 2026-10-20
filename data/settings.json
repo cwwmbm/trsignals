@@ -1,0 +1,13 @@
+{
+  "general_leverage": 3.0,
+  "symbols": [
+    {
+      "symbol": "SOXX",
+      "leverage_symbol": "SOXL",
+      "leverage": 3.0,
+      "beta": 2.9634,
+      "annual_fee": 0.01938,
+      "financing_multiple": 2.3508
+    }
+  ]
+}

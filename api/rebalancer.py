@@ -133,16 +133,28 @@ class PortfolioLedger:
         self,
         target_weights: Mapping[str, float],
         prices: Mapping[str, float],
+        *,
+        buy_cost_bps: Mapping[str, float] | None = None,
+        sell_cost_bps: Mapping[str, float] | None = None,
     ) -> RebalanceResult:
         """Trade existing positions to ``target_weights`` at ``prices``.
 
         Symbols that are held but absent from ``target_weights`` are liquidated. Returns the
-        fills, which are empty when every position is already at target.
+        fills, which are empty when every position is already at target. Optional per-symbol
+        buy/sell fee schedules override cost_bps for net orders from nested portfolios.
         """
         if any(weight < -1e-12 for weight in target_weights.values()):
             raise ValueError("Target weights must be non-negative")
         if sum(target_weights.values()) > 1.0 + 1e-9:
             raise ValueError("Target weights must sum to at most 1")
+
+        for schedule in (buy_cost_bps, sell_cost_bps):
+            if schedule and any(not math.isfinite(rate) or rate < 0 for rate in schedule.values()):
+                raise ValueError("Execution cost rates must be finite and non-negative")
+
+        def fee_rate(symbol, delta):
+            schedule = buy_cost_bps if delta > 0 else sell_cost_bps
+            return (schedule or {}).get(symbol, self.cost_bps) / 10_000.0
 
         equity = self.equity(prices)
         if equity <= 0:
@@ -164,8 +176,9 @@ class PortfolioLedger:
             }
             deltas = {s: d for s, d in deltas.items() if abs(d) > threshold}
             # Fee on the executed notional plus slippage, both estimated from mark value.
-            all_in_rate = self.cost_rate * (1.0 + self.slippage_rate) + self.slippage_rate
-            next_cost = all_in_rate * sum(abs(d) for d in deltas.values())
+            next_cost = sum(abs(delta) * (
+                fee_rate(symbol, delta) * (1.0 + self.slippage_rate) + self.slippage_rate
+            ) for symbol, delta in deltas.items())
             if abs(next_cost - cost) <= 1e-12 * equity:
                 cost = next_cost
                 break
@@ -185,14 +198,14 @@ class PortfolioLedger:
                 units = -self.shares(symbol)
             else:
                 units = delta / price
-            fills.append(self._fill(symbol, units, price))
+            fills.append(self._fill(symbol, units, price, cost_rate=fee_rate(symbol, units)))
         result = RebalanceResult(tuple(fills))
         if result.traded:
             self.rebalance_count += 1
             self.traded_notional += result.traded_notional
         return result
 
-    def _fill(self, symbol: str, shares: float, mark: float) -> Fill:
+    def _fill(self, symbol: str, shares: float, mark: float, *, cost_rate: float | None = None) -> Fill:
         slip = self.slippage_rate
         position = self.positions.setdefault(symbol, Position())
         units_before = position.shares
@@ -214,7 +227,7 @@ class PortfolioLedger:
             self.cash += notional
             self.realized_pnl += realized
             signed = -sold
-        fee = notional * self.cost_rate
+        fee = notional * (self.cost_rate if cost_rate is None else cost_rate)
         units_after = position.shares
         avg_cost_after = position.avg_cost
         # Dust is relative to the size traded: 1 ulp of 100,000 units is far above 1e-12.

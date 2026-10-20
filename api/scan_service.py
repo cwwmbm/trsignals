@@ -7,6 +7,7 @@ import backtest as bt
 import getdata as dt
 import indicators as ind
 
+from api import vehicles
 from api.indicator_catalog import list_indicators
 from api.proxy_symbol import execute_with_proxy, with_proxy_description
 from api.strategy_compiler import (
@@ -77,16 +78,26 @@ def _collect_portfolio_symbols(portfolios) -> set[str]:
     from api.portfolio_service import _collect_symbols, _resolve_portfolio_strategies
 
     symbols: set[str] = set()
+    by_id = {item.id: item for item in portfolios}
+    visited = set()
+
+    def collect(portfolio):
+        if portfolio.id in visited:
+            return
+        visited.add(portfolio.id)
+        if portfolio.strategy_ids:
+            strategies = _resolve_portfolio_strategies(list(portfolio.strategy_ids))
+            proxy = getattr(portfolio, "proxy_symbol", None)
+            symbols.update(_collect_symbols(strategies, proxy.strip().upper() if proxy else None))
+        for identity in getattr(portfolio, "portfolio_ids", []):
+            if identity in by_id:
+                collect(by_id[identity])
+
     for portfolio in portfolios:
         try:
-            portfolio_strategies = _resolve_portfolio_strategies(list(portfolio.strategy_ids))
+            collect(portfolio)
         except ValueError:
             continue
-        proxy = getattr(portfolio, "proxy_symbol", None)
-        global_proxy = str(proxy).strip().upper() if proxy else None
-        if not global_proxy:
-            global_proxy = None
-        symbols.update(_collect_symbols(portfolio_strategies, global_proxy))
     return symbols
 
 
@@ -241,7 +252,7 @@ def _prepare_symbol_frame(full_data: pd.DataFrame, symbol: str, yf_symbol: str) 
     if "Adj close" in data.columns:
         data = data.drop(columns=["Adj close"])
     data = dt.clean_holidays(data)
-    return ind.add_indicators(data)
+    return vehicles.stamp(ind.add_indicators(data), symbol)
 
 
 def _legacy_scan_row(
@@ -457,7 +468,7 @@ def _portfolio_scan_row(
     bulk_data: pd.DataFrame | None = None,
     symbol_dataset: dict[str, pd.DataFrame] | None = None,
 ) -> dict | None:
-    from api.portfolio_service import build_portfolio_overlay_frame
+    from api.portfolio_service import build_portfolio_overlay_frame, signal_symbols
 
     try:
         frame, strategies, description, max_hold, max_profit = build_portfolio_overlay_frame(
@@ -466,6 +477,7 @@ def _portfolio_scan_row(
             use_cache=False,
             bulk_data=bulk_data,
             symbol_dataset=symbol_dataset,
+            signals_only=True,
         )
     except ValueError:
         return None
@@ -473,7 +485,7 @@ def _portfolio_scan_row(
     if frame.empty:
         return None
 
-    symbols = sorted({strategy.symbol.strip().upper() for strategy in strategies})
+    symbols = signal_symbols(strategies)
     return {
         "id": f"portfolio:{portfolio.id}",
         "source": "portfolio",

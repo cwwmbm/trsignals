@@ -4,6 +4,7 @@ import backtest as bt
 from stats import print_stats
 import pandas as pd
 
+from api import vehicles
 from api.market_data_cache import PROFILE_SINGLE, load as load_cached_frame, save as save_cached_frame
 
 
@@ -12,7 +13,7 @@ def load_ticker_data(symbol, years=25, *, use_cache=True):
     if use_cache:
         cached = load_cached_frame(normalized, years, PROFILE_SINGLE)
         if cached is not None:
-            return cached
+            return vehicles.stamp(cached, normalized)
 
     yfticker = dt.to_yf_symbol(normalized)
     data = dt.get_data_yf(yfticker, years=years, Local=False)
@@ -23,7 +24,7 @@ def load_ticker_data(symbol, years=25, *, use_cache=True):
     prepared = ind.add_indicators(data)
     if use_cache:
         save_cached_frame(normalized, years, PROFILE_SINGLE, prepared)
-    return prepared
+    return vehicles.stamp(prepared, normalized)
 
 
 def attach_proxy_column(

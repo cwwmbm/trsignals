@@ -227,14 +227,30 @@ class UpdateStrategyRequest(BaseModel):
     scan_sort_order: int | None = None
 
 
+# Portfolios always hold until every strategy exits. The field is still accepted (and stored
+# portfolios keep theirs) so older clients and files load, but it is ignored.
 PortfolioOverlapMode = Literal["first_signal_only", "hold_until_all_exit"]
-PortfolioAllocationModel = Literal["all_in", "proportional"]
+PortfolioAllocationModel = Literal["all_in", "proportional", "regime_adjusted"]
 PortfolioProportionalMode = Literal["linear", "early_conviction", "confirmation_required"]
+RegimeScoreKind = Literal["robustness", "portfolio"]
+RegimePenaltyPreset = Literal["harsh", "strict", "medium", "low"]
 
 
-class PortfolioSimulateRequest(RegimeRequestOptions):
-    strategy_ids: list[str] = Field(min_items=1)
-    overlap_mode: PortfolioOverlapMode = "first_signal_only"
+class RegimePenaltyFields(BaseModel):
+    """Regime-adjusted allocation settings, used only when allocation_model is regime_adjusted.
+
+    ``regime_penalty`` picks how hard a poorly-scoring regime state is punished (see
+    ``api.regime_allocation.PENALTY_PRESETS``); ``regime_score`` picks the score that is read.
+    """
+
+    regime_score: RegimeScoreKind = "robustness"
+    regime_penalty: RegimePenaltyPreset = "medium"
+
+
+class PortfolioSimulateRequest(RegimePenaltyFields, RegimeRequestOptions):
+    strategy_ids: list[str] = Field(default_factory=list)
+    portfolio_ids: list[str] = Field(default_factory=list)
+    overlap_mode: PortfolioOverlapMode = "hold_until_all_exit"
     proxy_symbol: str | None = None
     years: int = Field(default=25, ge=1, le=100)
     # All-in is the original behavior. Proportional sizes the book by active/total strategies
@@ -259,12 +275,13 @@ class PortfolioAllocationComparisonRequest(PortfolioSimulateRequest):
     pass
 
 
-class SavedPortfolio(BaseModel):
+class SavedPortfolio(RegimePenaltyFields):
     id: str
     name: str
     description: str = ""
     strategy_ids: list[str]
-    overlap_mode: PortfolioOverlapMode = "first_signal_only"
+    portfolio_ids: list[str] = Field(default_factory=list)
+    overlap_mode: PortfolioOverlapMode = "hold_until_all_exit"
     proxy_symbol: str | None = None
     allocation_model: PortfolioAllocationModel = "all_in"
     proportional_mode: PortfolioProportionalMode = "linear"
@@ -275,11 +292,12 @@ class SavedPortfolio(BaseModel):
     updated_at: str
 
 
-class SavePortfolioRequest(BaseModel):
+class SavePortfolioRequest(RegimePenaltyFields):
     name: str = Field(min_length=1)
     description: str = ""
-    strategy_ids: list[str] = Field(min_items=1)
-    overlap_mode: PortfolioOverlapMode = "first_signal_only"
+    strategy_ids: list[str] = Field(default_factory=list)
+    portfolio_ids: list[str] = Field(default_factory=list)
+    overlap_mode: PortfolioOverlapMode = "hold_until_all_exit"
     proxy_symbol: str | None = None
     allocation_model: PortfolioAllocationModel = "all_in"
     proportional_mode: PortfolioProportionalMode = "linear"
@@ -292,11 +310,35 @@ class UpdatePortfolioRequest(BaseModel):
     scan_lane: ScanLane | None = None
     scan_sort_order: int | None = None
     strategy_ids: list[str] | None = None
+    portfolio_ids: list[str] | None = None
     overlap_mode: PortfolioOverlapMode | None = None
     proxy_symbol: str | None = None
     allocation_model: PortfolioAllocationModel | None = None
     proportional_mode: PortfolioProportionalMode | None = None
     transaction_cost_bps: float | None = Field(default=None, ge=0, le=1000)
+    regime_score: RegimeScoreKind | None = None
+    regime_penalty: RegimePenaltyPreset | None = None
+
+
+class SymbolLeverageModel(BaseModel):
+    """One symbol and the leveraged product traded in its place (see api.leverage_settings)."""
+
+    symbol: str
+    leverage_symbol: str
+    leverage: float
+    beta: float | None = None
+    annual_fee: float = 0.0
+    financing_multiple: float = 0.0
+
+
+class LeverageSettingsModel(BaseModel):
+    general_leverage: float
+    symbols: list[SymbolLeverageModel] = Field(default_factory=list)
+
+
+class LeverageEstimateRequest(BaseModel):
+    symbol: str
+    leverage_symbol: str
 
 
 class ConditionSnapshotItem(BaseModel):
@@ -349,3 +391,7 @@ class QuoteSymbolResponse(BaseModel):
 class QuoteResponse(BaseModel):
     as_of: str | None = None
     quotes: list[QuoteSymbolResponse] = Field(default_factory=list)
+
+
+class QuoteSymbolRequest(BaseModel):
+    symbol: str

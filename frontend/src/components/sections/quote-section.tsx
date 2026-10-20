@@ -1,9 +1,8 @@
 'use client'
 
-import { useQuery } from '@tanstack/react-query'
 import { Loader2, RefreshCw } from 'lucide-react'
-import { getQuote } from '@/api'
 import { ChangeCell, formatMissingDay } from '@/components/quote/quote-metrics'
+import { QuoteAddForm, QuoteRemoveButton, useQuoteBoard } from '@/components/quote/quote-symbol-actions'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import {
@@ -21,18 +20,14 @@ const compactHead = 'h-7 px-1.5 py-0 text-[11px] font-medium'
 const compactCell = 'px-1.5 py-0.5'
 
 export function QuoteSection() {
-  const { data, isLoading, isFetching, error, refetch } = useQuery({
-    queryKey: ['quote'],
-    queryFn: getQuote,
-  })
-  const quotes = data?.quotes ?? []
-  const missingCount = quotes.reduce((count, row) => count + row.missing_days.length, 0)
+  const board = useQuoteBoard()
+  const { quotes, asOf, missingCount, isLoading, isFetching, error, refetch } = board
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-xs text-muted-foreground">
-          {data?.as_of ? `As of ${data.as_of}` : 'Yahoo snapshot'}
+          {asOf ? `As of ${asOf}` : 'Yahoo snapshot'}
           {missingCount > 0 ? (
             <span className="text-amber-700 dark:text-amber-400">
               {' '}
@@ -42,7 +37,11 @@ export function QuoteSection() {
             <span> · last 5 days complete</span>
           ) : null}
         </p>
-        <div className="ml-auto">
+        <div className="ml-auto flex flex-wrap items-center gap-1.5">
+          <QuoteAddForm
+            board={board}
+            inputClassName="h-7 px-2 text-xs"
+          />
           <Button
             variant="outline"
             size="sm"
@@ -59,6 +58,9 @@ export function QuoteSection() {
           </Button>
         </div>
       </div>
+      {board.actionError ? (
+        <p className="text-xs text-destructive">{board.actionError}</p>
+      ) : null}
 
       {error ? (
         <Card className="border-destructive/50 bg-destructive/5 p-2">
@@ -85,9 +87,17 @@ export function QuoteSection() {
                 <TableHead className={cn(compactHead, 'text-right')}>RSI5</TableHead>
                 <TableHead className={cn(compactHead, 'text-right')}>Stoch</TableHead>
                 <TableHead className={compactHead}>Missing (last 5d)</TableHead>
+                <TableHead className={cn(compactHead, 'w-8')} />
               </TableRow>
             </TableHeader>
             <TableBody>
+              {quotes.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="py-6 text-center text-muted-foreground">
+                    No symbols yet. Add one above.
+                  </TableCell>
+                </TableRow>
+              ) : null}
               {quotes.map((row) => (
                 <TableRow
                   key={row.symbol}
@@ -126,6 +136,9 @@ export function QuoteSection() {
                         ))}
                       </span>
                     )}
+                  </TableCell>
+                  <TableCell className={cn(compactCell, 'text-right')}>
+                    <QuoteRemoveButton symbol={row.symbol} board={board} />
                   </TableCell>
                 </TableRow>
               ))}

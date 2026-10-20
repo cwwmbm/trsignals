@@ -34,11 +34,16 @@ import { cn } from "@/lib/utils";
 const compactHead = "h-7 px-1.5 py-0 text-[11px] font-medium";
 const compactCell = "px-1.5 py-0.5 font-mono text-[11px] tabular-nums";
 
+// Regime rows are four shades of one hue, from the darkest (Harsh) to the lightest (Low).
 const MODEL_COLORS: Record<string, string> = {
   all_in: "var(--chart-5)",
-  proportional_linear: "var(--chart-1)",
-  proportional_early_conviction: "var(--chart-3)",
-  proportional_confirmation_required: "var(--chart-4)",
+  regime_adjusted_harsh: "oklch(0.42 0.14 158)",
+  regime_adjusted_strict: "oklch(0.56 0.16 158)",
+  regime_adjusted_medium: "oklch(0.7 0.17 158)",
+  regime_adjusted_low: "oklch(0.84 0.15 158)",
+  proportional_linear: "var(--chart-3)",
+  proportional_early_conviction: "var(--chart-4)",
+  proportional_confirmation_required: "var(--chart-2)",
 };
 
 /** Percentage-point delta, with float noise around zero shown as a plain 0 rather than "-0.0". */
@@ -89,12 +94,14 @@ function AnalyticsCards({ analytics }: { analytics: AllocationAnalytics }) {
   );
 }
 
-function AttributionBlock({ attribution }: { attribution: AllocationAttribution }) {
+function AttributionBlock({ attribution, nested = false }: { attribution: AllocationAttribution; nested?: boolean }) {
   const rows: Array<[string, string, string]> = [
     [
       "Allocation effect",
       formatPpDelta(attribution.allocation_effect_pp),
-      "Return given up (or gained) by holding less than everything on days all-in was fully invested.",
+      nested
+        ? "Return difference from parent sizing, with child allocation models unchanged."
+        : "Return given up (or gained) by holding less than everything on days all-in was fully invested.",
     ],
     [
       "Cost effect",
@@ -137,7 +144,7 @@ function AttributionBlock({ attribution }: { attribution: AllocationAttribution 
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className={compactHead}>Active strategies</TableHead>
+              <TableHead className={compactHead}>{nested ? "Active members" : "Active strategies"}</TableHead>
               <TableHead className={cn(compactHead, "text-right")}>Days</TableHead>
               <TableHead className={cn(compactHead, "text-right")}>Avg exposure</TableHead>
               <TableHead className={cn(compactHead, "text-right")}>Allocation effect</TableHead>
@@ -165,17 +172,17 @@ function AttributionBlock({ attribution }: { attribution: AllocationAttribution 
   );
 }
 
-function EligibilityBlock({ rows }: { rows: NonNullable<AllocationSummary["eligibility"]> }) {
+function EligibilityBlock({ rows, nested = false }: { rows: NonNullable<AllocationSummary["eligibility"]>; nested?: boolean }) {
   return (
     <div className="flex flex-col gap-1">
       <h3 className="text-xs font-medium text-muted-foreground">
-        Strategy warmup (counted in the denominator once eligible)
+        {nested ? "Member" : "Strategy"} warmup (counted in the denominator once eligible)
       </h3>
       <div className="overflow-x-auto rounded-md border border-border/60">
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className={compactHead}>Strategy</TableHead>
+              <TableHead className={compactHead}>{nested ? "Member" : "Strategy"}</TableHead>
               <TableHead className={cn(compactHead, "text-right")}>Eligible from</TableHead>
               <TableHead className={cn(compactHead, "text-right")}>Warmup bars</TableHead>
               <TableHead className={cn(compactHead, "text-right")}>Data ends</TableHead>
@@ -243,12 +250,12 @@ export function quarterlyAverageExposure(
   }));
 }
 
-function ExposureChart({ steps }: { steps: AllocationSummary["exposure_steps"] }) {
+function ExposureChart({ steps, nested = false }: { steps: AllocationSummary["exposure_steps"]; nested?: boolean }) {
   const data = useMemo(() => quarterlyAverageExposure(steps), [steps]);
   return (
     <div className="flex flex-col gap-1">
       <h3 className="text-xs font-medium text-muted-foreground">
-        Average target exposure by quarter
+        {nested ? "Average actual exposure by quarter" : "Average target exposure by quarter"}
       </h3>
       <ChartContainer config={exposureConfig} className="h-[160px] w-full">
         <AreaChart data={data} margin={{ left: 8, right: 8, top: 8 }}>
@@ -292,7 +299,7 @@ function ExposureChart({ steps }: { steps: AllocationSummary["exposure_steps"] }
   );
 }
 
-function ComparisonBlock({ comparison }: { comparison: AllocationComparison }) {
+function ComparisonBlock({ comparison, nested = false }: { comparison: AllocationComparison; nested?: boolean }) {
   const config = useMemo(() => {
     const entries: ChartConfig = {};
     for (const row of comparison.models) {
@@ -305,8 +312,18 @@ function ComparisonBlock({ comparison }: { comparison: AllocationComparison }) {
     <div className="flex flex-col gap-3">
       <p className="text-[11px] text-muted-foreground">
         All models use the same signals from {comparison.start_date}, rebased to{" "}
-        {money(comparison.start_capital)}.
-        {comparison.transaction_cost_bps > 0
+        {money(comparison.start_capital)}.{" "}
+        {nested
+          ? "Parent All-in assigns its full budget to active members; child allocations and reserved cash remain unchanged."
+          : `All-in is 100% while any strategy is active${comparison.single_symbol === false
+              ? `, split across ${(comparison.trading_symbols ?? []).join(" and ")} by how many strategies are active in each`
+              : ""}.`}
+
+        Regime rows read the {comparison.regime_score === "portfolio" ? "regime" : "robustness"}{" "}
+        score.
+        {nested
+          ? ` Direct strategies use ${comparison.transaction_cost_bps} bps; children retain their own trading costs.`
+          : comparison.transaction_cost_bps > 0
           ? ` Each pays ${comparison.transaction_cost_bps} bps on traded notional.`
           : " No trading costs."}
       </p>
@@ -428,18 +445,61 @@ export function AllocationPanel({
         <div>
           <h3 className="text-sm font-semibold">{allocation.label}</h3>
           <p className="text-[11px] text-muted-foreground">
-            {proportional
+            {allocation.nested_cash_policy
+              ? "Each member receives a capital budget. Child models control investment within that budget; rejected allocations stay in cash."
+              : proportional
               ? "Exposure is a target share of portfolio equity. Each change in who is active rebalances the position."
-              : "100% invested while any strategy is active, otherwise cash."}
+              : (allocation.trading_symbols?.length ?? 1) > 1
+                ? `100% invested while any strategy is active, split across ${allocation.trading_symbols?.join(" and ")} by how many strategies are active in each.`
+                : "100% invested while any strategy is active, otherwise cash."}
           </p>
         </div>
       </div>
 
+      {allocation.vehicles?.length ? (
+        <ul className="space-y-0.5 text-[11px] text-muted-foreground">
+          {allocation.vehicles.map((vehicle) => (
+            <li key={vehicle.symbol}>
+              {vehicle.available
+                ? `${vehicle.symbol} is traded as ${vehicle.leverage_symbol} from ${vehicle.first_date}; ${vehicle.symbol} × ${vehicle.leverage} before that, and for any trade already open on that day.`
+                : `${vehicle.leverage_symbol} has no price history, so ${vehicle.symbol} × ${vehicle.leverage} stood in for every trade.`}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       <AnalyticsCards analytics={allocation.analytics} />
-      <ExposureChart steps={allocation.exposure_steps} />
+      <ExposureChart steps={allocation.exposure_steps} nested={!!allocation.nested_cash_policy} />
+      {allocation.members ? (
+        <div className="overflow-x-auto">
+          <h3 className="mb-1 text-xs font-medium">Member allocation at end · % of total equity</h3>
+          <Table>
+            <TableHeader><TableRow>
+              <TableHead className={compactHead}>Member</TableHead>
+              <TableHead className={compactHead}>Budget</TableHead>
+              <TableHead className={compactHead}>Invested</TableHead>
+              <TableHead className={compactHead}>Cash</TableHead>
+            </TableRow></TableHeader>
+            <TableBody>{allocation.members.map((member) => (
+              <TableRow key={member.id}>
+                <TableCell className={compactCell}>{member.name}</TableCell>
+                <TableCell className={compactCell}>{pct(member.budget_weight * 100)}</TableCell>
+                <TableCell className={compactCell}>{pct(member.invested_weight * 100)}</TableCell>
+                <TableCell className={compactCell}>{pct(member.cash_weight * 100)}</TableCell>
+              </TableRow>
+            ))}
+              <TableRow>
+                <TableCell className={compactCell}>Parent unallocated cash</TableCell>
+                <TableCell className={compactCell}>{pct(Math.max(0, 1 - allocation.members.reduce((sum, member) => sum + member.budget_weight, 0)) * 100)}</TableCell>
+                <TableCell className={compactCell}>0.0%</TableCell>
+                <TableCell className={compactCell}>{pct(Math.max(0, 1 - allocation.members.reduce((sum, member) => sum + member.budget_weight, 0)) * 100)}</TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </div>
+      ) : null}
 
-      {allocation.attribution ? <AttributionBlock attribution={allocation.attribution} /> : null}
-      {allocation.eligibility ? <EligibilityBlock rows={allocation.eligibility} /> : null}
+      {allocation.attribution ? <AttributionBlock attribution={allocation.attribution} nested={!!allocation.nested_cash_policy} /> : null}
+      {allocation.eligibility ? <EligibilityBlock rows={allocation.eligibility} nested={!!allocation.nested_cash_policy} /> : null}
 
       {allocation.ledger ? (
         <p className="font-mono text-[11px] text-muted-foreground">
@@ -464,10 +524,15 @@ export function AllocationPanel({
             {comparison ? "Recalculate" : "Calculate"}
           </Button>
         </div>
+        {allocation.nested_cash_policy ? (
+          <p className="text-[11px] text-muted-foreground">
+            Comparisons change only the parent model. Child models stay unchanged, so parent All-in can still hold child cash.
+          </p>
+        ) : null}
         {comparisonMutation.error ? (
           <p className="text-xs text-destructive">{String(comparisonMutation.error)}</p>
         ) : null}
-        {comparison ? <ComparisonBlock comparison={comparison} /> : null}
+        {comparison ? <ComparisonBlock comparison={comparison} nested={!!allocation.nested_cash_policy} /> : null}
       </div>
     </div>
   );

@@ -177,8 +177,16 @@ def compute_aggregate_metrics(data, periods_per_year=252):
         sharpe = None
         sortino = None
     else:
-        sharpe = ind.sharpes_ratio(metrics_data, periods_per_year=periods_per_year)
-        sortino = ind.sortino_ratio(metrics_data, periods_per_year=periods_per_year)
+        # Daily returns come from the unbroken series and the best year's own returns are
+        # then left out. Taking returns from metrics_data would bridge the removed year in
+        # one phantom daily return and wreck the standard deviation.
+        returns_source = data[['Date', 'RollingPnL']]
+        sharpe = ind.sharpes_ratio(
+            returns_source.copy(), periods_per_year=periods_per_year, exclude_year=excluded_year
+        )
+        sortino = ind.sortino_ratio(
+            returns_source.copy(), periods_per_year=periods_per_year, exclude_year=excluded_year
+        )
 
     return {
         'excluded_year': excluded_year,
