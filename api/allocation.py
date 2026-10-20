@@ -26,6 +26,7 @@ AllocationModelId = str
 ALL_IN = "all_in"
 PROPORTIONAL = "proportional"
 REGIME_ADJUSTED = "regime_adjusted"
+TIERED = "tiered"
 
 PROPORTIONAL_LINEAR = "linear"
 PROPORTIONAL_EARLY_CONVICTION = "early_conviction"
@@ -33,6 +34,8 @@ PROPORTIONAL_CONFIRMATION_REQUIRED = "confirmation_required"
 
 DEFAULT_ALLOCATION_MODEL = ALL_IN
 DEFAULT_PROPORTIONAL_MODE = PROPORTIONAL_LINEAR
+# Tiered: the weight when exactly one strategy is active, in percent. Two or more is always 100%.
+DEFAULT_TIER_SINGLE_PCT = 55.0
 
 # exposure = (active / total) ** power
 PROPORTIONAL_POWERS: dict[str, float] = {
@@ -128,6 +131,40 @@ def proportional_model(mode: str) -> ProportionalModel:
     return ProportionalModel(mode=mode, power=PROPORTIONAL_POWERS[mode])
 
 
+@dataclass(frozen=True)
+class TieredModel:
+    """One strategy active: ``single`` of the book. Two or more active: all of it.
+
+    The count that matters is how many strategies agree, so it fits a flat portfolio of
+    strategies. In a portfolio of child portfolios it counts the children. Only who is active
+    matters, so a change in who is eligible does not trigger a new rebalance.
+    """
+
+    single: float = DEFAULT_TIER_SINGLE_PCT / 100.0
+    reacts_to_eligibility: bool = False
+    id: str = TIERED
+
+    def __post_init__(self) -> None:
+        if not math.isfinite(self.single) or not 0.0 <= self.single <= 1.0:
+            raise ValueError("The single-strategy weight must be between 0% and 100%")
+
+    @property
+    def label(self) -> str:
+        return f"Tiered ({self.single * 100:g}% / 100%)"
+
+    def target_exposure(self, state: SignalState) -> float:
+        if state.active_count <= 0:
+            return 0.0
+        return self.single if state.active_count == 1 else 1.0
+
+
+def tiered_model(single_pct: float | None = None) -> TieredModel:
+    pct = DEFAULT_TIER_SINGLE_PCT if single_pct is None else float(single_pct)
+    if not math.isfinite(pct) or not 0.0 <= pct <= 100.0:
+        raise ValueError("The single-strategy weight must be between 0% and 100%")
+    return TieredModel(single=pct / 100.0)
+
+
 # Regime-adjusted sizing reads these two numbers from ``SignalState.context``.
 STRATEGY_CONFIDENCE = "strategy_confidence"
 PORTFOLIO_CONSENSUS = "portfolio_consensus"
@@ -175,6 +212,7 @@ class RegimeAdjustedModel:
 def resolve_allocation_model(
     allocation_model: str | None = None,
     proportional_mode: str | None = None,
+    tier_single_pct: float | None = None,
 ) -> AllocationModel:
     """Map the request/storage fields onto a model. Unset means the legacy default."""
     name = allocation_model or DEFAULT_ALLOCATION_MODEL
@@ -184,9 +222,15 @@ def resolve_allocation_model(
         return proportional_model(proportional_mode or DEFAULT_PROPORTIONAL_MODE)
     if name == REGIME_ADJUSTED:
         return RegimeAdjustedModel()
+    if name == TIERED:
+        return tiered_model(tier_single_pct)
     raise ValueError(f"Unsupported allocation model: {name}")
 
 
-def comparison_models() -> list[AllocationModel]:
+def comparison_models(tier_single_pct: float | None = None) -> list[AllocationModel]:
     """Every built-in model, in the order the comparison view lists them."""
-    return [AllInModel(), *(proportional_model(mode) for mode in PROPORTIONAL_POWERS)]
+    return [
+        AllInModel(),
+        *(proportional_model(mode) for mode in PROPORTIONAL_POWERS),
+        tiered_model(tier_single_pct),
+    ]

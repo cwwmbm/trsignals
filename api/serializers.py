@@ -5,6 +5,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from api.drawdown_risk import drawdown_risk_for_frame
 from api.market_regimes import (
     analyze_strategy_regime,
     atr_regime_from_row,
@@ -264,6 +265,7 @@ def detailed_backtest_payload(
         "equity_curve_total_points": total_bars,
         "equity_curve_shown_points": len(equity_curve),
     }
+    payload["drawdown_risk"] = drawdown_risk_for_frame(data, periods_per_year=periods_per_year)
     traded = data.attrs.get("traded") if hasattr(data, "attrs") else None
     if traded and "VehicleHold" in data.columns:
         # Which instrument each closed trade earned its return in.

@@ -10,6 +10,7 @@ import {
   type AllocationSummary,
   type PortfolioSimulatePayload,
 } from "@/api";
+import { formatRisk, riskLabel } from "@/components/backtest/drawdown-risk-panel";
 import { StatCard } from "@/components/backtest/stat-card";
 import { Button } from "@/components/ui/button";
 import {
@@ -44,6 +45,7 @@ const MODEL_COLORS: Record<string, string> = {
   proportional_linear: "var(--chart-3)",
   proportional_early_conviction: "var(--chart-4)",
   proportional_confirmation_required: "var(--chart-2)",
+  tiered: "var(--chart-1)",
 };
 
 /** Percentage-point delta, with float noise around zero shown as a plain 0 rather than "-0.0". */
@@ -308,6 +310,11 @@ function ComparisonBlock({ comparison, nested = false }: { comparison: Allocatio
     return entries;
   }, [comparison.models]);
 
+  const riskThresholds = useMemo(
+    () => comparison.models.find((row) => row.drawdown_risk)?.drawdown_risk?.thresholds.map((row) => row.drawdown) ?? [],
+    [comparison.models],
+  );
+
   return (
     <div className="flex flex-col gap-3">
       <p className="text-[11px] text-muted-foreground">
@@ -326,6 +333,9 @@ function ComparisonBlock({ comparison, nested = false }: { comparison: Allocatio
           : comparison.transaction_cost_bps > 0
           ? ` Each pays ${comparison.transaction_cost_bps} bps on traded notional.`
           : " No trading costs."}
+        {riskThresholds.length
+          ? " P(DD > x) is the chance that the worst drawdown of a path as long as the backtest goes beyond x, from reshuffled daily returns."
+          : ""}
       </p>
       <div className="overflow-x-auto rounded-md border border-border/60">
         <Table>
@@ -336,6 +346,15 @@ function ComparisonBlock({ comparison, nested = false }: { comparison: Allocatio
               <TableHead className={cn(compactHead, "text-right")}>CAGR</TableHead>
               <TableHead className={cn(compactHead, "text-right")}>Sharpe</TableHead>
               <TableHead className={cn(compactHead, "text-right")}>Max DD</TableHead>
+              {riskThresholds.map((threshold) => (
+                <TableHead
+                  key={threshold}
+                  className={cn(compactHead, "text-right")}
+                  title="Chance that the worst drawdown of a backtest-length path goes beyond this depth, from reshuffled daily returns"
+                >
+                  {riskLabel(threshold)}
+                </TableHead>
+              ))}
               <TableHead className={cn(compactHead, "text-right")}>Avg exposure</TableHead>
               <TableHead className={cn(compactHead, "text-right")}>Rebalances</TableHead>
               <TableHead className={cn(compactHead, "text-right")}>Turnover / yr</TableHead>
@@ -360,6 +379,14 @@ function ComparisonBlock({ comparison, nested = false }: { comparison: Allocatio
                 <TableCell className={cn(compactCell, "text-right")}>
                   {row.metrics.max_drawdown == null ? "-" : pct(row.metrics.max_drawdown * 100, 1)}
                 </TableCell>
+                {riskThresholds.map((threshold) => {
+                  const hit = row.drawdown_risk?.thresholds.find((entry) => entry.drawdown === threshold);
+                  return (
+                    <TableCell key={threshold} className={cn(compactCell, "text-right")}>
+                      {hit ? formatRisk(hit.probability) : "-"}
+                    </TableCell>
+                  );
+                })}
                 <TableCell className={cn(compactCell, "text-right")}>
                   {pct(row.analytics.average_exposure_pct)}
                 </TableCell>

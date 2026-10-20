@@ -257,7 +257,7 @@ class NestedIntegrationTests(unittest.TestCase):
         self.assertEqual(len(payload['contribution']), 1)
         self.assertEqual(payload['contribution'][0]['strategy_id'], 'portfolio:child')
         comparison = simulate_portfolio_allocation_comparison(request)
-        self.assertEqual(len(comparison['models']), 8)
+        self.assertEqual(len(comparison['models']), 9)
         self.assertAlmostEqual(comparison['models'][0]['analytics']['average_exposure_when_invested_pct'], 50)
         self.assertTrue(simulate_portfolio_shapley(request))
 

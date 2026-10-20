@@ -194,6 +194,23 @@ export type TradedVehicle = {
   trades_on_stand_in: number;
 };
 
+/** How likely the worst drawdown of a backtest-length path is to pass each depth (all fractions). */
+export type DrawdownRisk = {
+  method: "block_bootstrap";
+  paths: number;
+  block_days: number;
+  /** The block length in bars; more than block_days when the bars are intraday. */
+  block_bars?: number;
+  horizon_bars: number;
+  /** Bars per year of the history, to turn horizon_bars into years. */
+  periods_per_year?: number;
+  seed: number;
+  historical_max_drawdown: number;
+  median_max_drawdown: number;
+  p95_max_drawdown: number;
+  thresholds: Array<{ drawdown: number; probability: number; std_error: number }>;
+};
+
 export interface DetailedResult {
   vehicle?: TradedVehicle;
   summary: Record<string, number | string | null>;
@@ -208,6 +225,8 @@ export interface DetailedResult {
   allocation?: AllocationSummary | null;
   /** Present on portfolio simulations: episodes and their rebalance events. */
   positions?: PositionsPayload | null;
+  /** Present on portfolio simulations with enough history to resample. */
+  drawdown_risk?: DrawdownRisk | null;
 }
 
 export type MarketRegimeCurrent = {
@@ -538,9 +557,10 @@ export type PortfolioOverlapMode = "first_signal_only" | "hold_until_all_exit";
 /**
  * All-in is the original behavior. Proportional sizes the book by active / total strategies.
  * Regime-adjusted scales the position by how well the current market regimes have treated the
- * active strategies and the portfolio.
+ * active strategies and the portfolio. Tiered puts `tier_single_pct` of the book in when exactly
+ * one member is active and all of it when two or more are.
  */
-export type PortfolioAllocationModel = "all_in" | "proportional" | "regime_adjusted";
+export type PortfolioAllocationModel = "all_in" | "proportional" | "regime_adjusted" | "tiered";
 export type PortfolioProportionalMode = "linear" | "early_conviction" | "confirmation_required";
 export type RegimeScoreKind = "robustness" | "portfolio";
 /** How hard a regime state that has scored poorly is punished. */
@@ -561,6 +581,8 @@ export type SavePortfolioPayload = RegimePenaltyFields & {
   proxy_symbol?: string;
   allocation_model?: PortfolioAllocationModel;
   proportional_mode?: PortfolioProportionalMode;
+  /** Tiered only: percent of the book when exactly one member is active (default 55). */
+  tier_single_pct?: number;
   transaction_cost_bps?: number;
 };
 
@@ -583,6 +605,7 @@ export type UpdatePortfolioPayload = RegimePenaltyFields & {
   proxy_symbol?: string | null;
   allocation_model?: PortfolioAllocationModel;
   proportional_mode?: PortfolioProportionalMode;
+  tier_single_pct?: number;
   transaction_cost_bps?: number;
 };
 
@@ -594,6 +617,7 @@ export type PortfolioSimulatePayload = RegimePenaltyFields & {
   years?: number;
   allocation_model?: PortfolioAllocationModel;
   proportional_mode?: PortfolioProportionalMode;
+  tier_single_pct?: number;
   transaction_cost_bps?: number;
 };
 
@@ -708,6 +732,7 @@ export type AllocationComparisonRow = {
   metrics: Record<string, number | null>;
   analytics: AllocationAnalytics;
   attribution: AllocationAttribution | null;
+  drawdown_risk?: DrawdownRisk | null;
 };
 
 export type AllocationComparison = {

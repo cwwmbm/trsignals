@@ -552,6 +552,7 @@ class ComparisonTests(unittest.TestCase):
                 "proportional_linear",
                 "proportional_early_conviction",
                 "proportional_confirmation_required",
+                "tiered",
             ],
         )
         labels = {row["model"]: row["label"] for row in payload["models"]}

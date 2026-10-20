@@ -423,8 +423,11 @@ A portfolio combines saved long strategies into one book. How much of that book 
 | **Proportional, early conviction** | `(active / total) ^ 0.5` |
 | **Proportional, confirmation required** | `(active / total) ^ 2` |
 | **Regime-adjusted** | `strategy confidence x (70% + 30% x portfolio confidence)`, both from how the current market regimes have scored. See below. |
+| **Tiered** | One strategy active: `tier_single_pct` of the book (default **55%**, editable, 0-100). Two or more active: **100%**, fixed. 0% with nothing active. |
 
-All proportional modes give 0% with nothing active and 100% with everything active. Proportional and regime-adjusted let every strategy keep its own entries and exits, and each counts toward exposure.
+All proportional modes give 0% with nothing active and 100% with everything active. Proportional, regime-adjusted and tiered let every strategy keep its own entries and exits, and each counts toward exposure.
+
+**Tiered** exists because how many strategies agree is the one thing that held up in research on the SOXX book: the next-day Sharpe of the held 3x instrument rose from 1.4 with one of four strategies active to 3.3, 4.1 and 8.2 with two, three and four, in both halves of the history. Reducing only the lone-strategy days gave about early conviction's return with a shallower drawdown. It is also all that fits under a 100% cap: no margin. It counts the portfolio's **direct members**, so use a flat portfolio of strategies (a portfolio of two child portfolios counts the two children). A single weight of 100% is All-In. Lower it for a shallower drawdown and a lower return; the Drawdown risk panel shows the trade. Only who is active matters, so a change in who is eligible does not trigger a rebalance.
 
 **Several trading symbols.** A strategy trades its *proxy* if it has one (or the portfolio's proxy, which overrides every strategy), otherwise its own symbol. That trading symbol, not the signal symbol, decides whether a book is one symbol: SPY-signal strategies with a SOXX proxy and SOXX strategies are all SOXX.
 
@@ -451,7 +454,7 @@ All proportional modes give 0% with nothing active and 100% with everything acti
 - Average exposure, time invested, exposure when invested, rebalance count (entries, exits, partial adjustments), turnover (total and annualized), and trading costs.
 - Performance attributable to allocation: against an all-in book on the same signals, the gap splits into an allocation effect, a cost effect, and a remainder (basket drift), with a breakdown by number of active strategies.
 - Per-strategy warmup and eligibility.
-- **Compare allocation models** (on demand, `POST /portfolios/allocation-comparison`): All-in, regime-adjusted at each of the four penalty presets, and each proportional mode, over the same window, rebased to the same starting capital, with metrics and an equity-curve overlay. The All-in row is always 100% while any strategy is active (split across symbols on a mixed book). The regime rows share one scoring pass and read the request's `regime_score`.
+- **Compare allocation models** (on demand, `POST /portfolios/allocation-comparison`): All-in, regime-adjusted at each of the four penalty presets, each proportional mode, and Tiered at the request's `tier_single_pct`, over the same window, rebased to the same starting capital, with metrics and an equity-curve overlay. The All-in row is always 100% while any strategy is active (split across symbols on a mixed book). The regime rows share one scoring pass and read the request's `regime_score`.
 
 **Code layout** (each piece is replaceable on its own)
 
@@ -467,7 +470,7 @@ api/portfolio_service.py     wiring: eligibility from strategies, dispatch, payl
 
 To add a model (volatility targeting, correlation-aware weighting), implement `target_exposure(state)` as a class in `api/allocation.py` and register it in `resolve_allocation_model`. Signals the model needs beyond the active count can travel in `SignalState.context`. The ledger, analytics, and API do not change.
 
-Request fields on `/portfolios/simulate` and saved portfolios: `allocation_model` (`all_in` | `proportional` | `regime_adjusted`), `proportional_mode` (`linear` | `early_conviction` | `confirmation_required`), `transaction_cost_bps`, and the regime fields below. **A portfolio owns its allocation**: saving it stores all of these, loading it (also from the Scan screen) restores them, and strategies carry none of it. Portfolios saved before these existed load as all-in.
+Request fields on `/portfolios/simulate` and saved portfolios: `allocation_model` (`all_in` | `proportional` | `regime_adjusted` | `tiered`), `proportional_mode` (`linear` | `early_conviction` | `confirmation_required`), `tier_single_pct` (tiered only, 0-100, default 55), `transaction_cost_bps`, and the regime fields below. **A portfolio owns its allocation**: saving it stores all of these, loading it (also from the Scan screen) restores them, and strategies carry none of it. Portfolios saved before these existed load as all-in.
 
 ### Regime-adjusted allocation
 
@@ -570,6 +573,23 @@ python unused/test_indicator.py
 ```
 
 Change `buy_signal = ind.buy_signal11` at the top.
+
+## Drawdown risk
+
+A backtest is one path, so its maximum drawdown is one draw from a wide distribution. Every portfolio
+result carries a **Drawdown risk** panel with `P(DD > 40%)`, `P(DD > 50%)` and `P(DD > 75%)`: the share
+of paths, as long as the backtest, whose worst fall from a peak went beyond that depth. The Compare
+allocation models table has the same three columns for every model.
+
+The paths come from reshuffling the finished equity curve's daily returns in 20-day blocks
+(a circular block bootstrap, 4,000 paths, 1,500 per row in the comparison; fixed seed, so a result
+repeats). Blocks keep the clustering of good and bad days. Because it works on the curve, it applies to
+any portfolio however it was sized. It costs about 0.6 s per result.
+
+Read it as a way to compare rules, not a forecast: it resamples this history, so a regime the history
+never contained is not in it. The share has a sampling error (shown in the panel), larger for
+probabilities near 50% and relatively larger for rare tails. The code is in
+[`api/drawdown_risk.py`](api/drawdown_risk.py); the thresholds are `THRESHOLDS` there.
 
 ## Running tests
 

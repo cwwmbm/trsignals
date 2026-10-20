@@ -17,6 +17,7 @@ from api.allocation import (
     AllocationModel,
     RegimeAdjustedModel,
     PROPORTIONAL_LINEAR,
+    TIERED,
     comparison_models,
     proportional_model,
     resolve_allocation_model,
@@ -31,6 +32,7 @@ from api.allocation_analytics import (
     rebased_comparison_frame,
 )
 from api.allocation_engine import AllocationSimulation, effective_state, simulate_allocation
+from api.drawdown_risk import COMPARISON_PATHS, drawdown_risk_for_frame
 from api.position_episodes import build_position_episodes, reconcile_episodes
 from api import leverage_settings, vehicle_data, vehicles
 from api.proxy_symbol import proxy_column
@@ -413,6 +415,7 @@ def allocation_settings(source) -> AllocationSettings:
     model = resolve_allocation_model(
         getattr(source, "allocation_model", None),
         getattr(source, "proportional_mode", None),
+        getattr(source, "tier_single_pct", None),
     )
     cost = getattr(source, "transaction_cost_bps", 0.0)
     regime = RegimePenaltySettings.from_source(source) if isinstance(model, RegimeAdjustedModel) else None
@@ -861,7 +864,11 @@ def _portfolio_description(
     allocation: AllocationSettings | None = None,
 ) -> str:
     if allocation is not None and not allocation.is_all_in:
-        mode_label = allocation.model.id.replace("_", " ")
+        mode_label = (
+            allocation.model.label.lower()
+            if allocation.model.id == TIERED
+            else allocation.model.id.replace("_", " ")
+        )
         if allocation.regime is not None:
             mode_label += f", {allocation.regime.preset} penalties, {allocation.regime.score} score"
     else:
@@ -2031,7 +2038,7 @@ def simulate_portfolio_allocation_comparison(request) -> dict:
     models = [
         AllInModel(),
         *(RegimeAdjustedModel(preset=preset) for preset in PENALTY_PRESETS),
-        *(model for model in comparison_models() if model.id != ALL_IN),
+        *(model for model in comparison_models(getattr(request, "tier_single_pct", None)) if model.id != ALL_IN),
     ]
     rows: list[dict[str, Any]] = []
     curves: list[tuple[str, pd.DataFrame]] = []
@@ -2058,6 +2065,7 @@ def simulate_portfolio_allocation_comparison(request) -> dict:
                 "metrics": extract_contribution_metrics(comparable),
                 "analytics": exposure_analytics(book),
                 "attribution": attribution,
+                "drawdown_risk": drawdown_risk_for_frame(comparable, paths=COMPARISON_PATHS),
             }
         )
 

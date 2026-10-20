@@ -9,6 +9,7 @@ import {
 } from "@/api";
 import { AllocationPanel } from "@/components/backtest/allocation-panel";
 import { ContributionPanel } from "@/components/backtest/contribution-panel";
+import { DrawdownRiskPanel } from "@/components/backtest/drawdown-risk-panel";
 import { EquityDrawdownPanel } from "@/components/backtest/equity-drawdown-panel";
 import { MarketRegimesPanel } from "@/components/backtest/market-regimes-panel";
 import { MonteCarloPanel } from "@/components/backtest/monte-carlo-panel";
@@ -94,6 +95,8 @@ export const DetailResults = memo(function DetailResults({
           Performance starts {result.summary.metrics_start}, the first day the entry conditions could be evaluated.
         </p>
       ) : null}
+
+      {result.drawdown_risk ? <DrawdownRiskPanel risk={result.drawdown_risk} className="mt-3" /> : null}
 
       <div
         className={cn(

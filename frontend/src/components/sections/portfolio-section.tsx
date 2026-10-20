@@ -82,6 +82,9 @@ const PROPORTIONAL_MODES: Array<{
   },
 ]
 
+/** Matches api.allocation.DEFAULT_TIER_SINGLE_PCT. */
+const DEFAULT_TIER_SINGLE_PCT = 55
+
 const PROPORTIONAL_LABELS: Record<PortfolioProportionalMode, string> = {
   linear: 'Linear',
   early_conviction: 'Early conviction',
@@ -90,10 +93,13 @@ const PROPORTIONAL_LABELS: Record<PortfolioProportionalMode, string> = {
 
 /** Everything a portfolio stores about how its book is sized. Strategies carry none of it. */
 export type AllocationSettingsFields = RegimePenaltyFields &
-  Pick<SavedPortfolio, 'allocation_model' | 'proportional_mode' | 'transaction_cost_bps'>
+  Pick<SavedPortfolio, 'allocation_model' | 'proportional_mode' | 'tier_single_pct' | 'transaction_cost_bps'>
 
 function allocationLabel(portfolio: AllocationSettingsFields) {
   if (portfolio.allocation_model === 'regime_adjusted') return 'Regime-adjusted'
+  if (portfolio.allocation_model === 'tiered') {
+    return `Tiered · ${portfolio.tier_single_pct ?? DEFAULT_TIER_SINGLE_PCT}% / 100%`
+  }
   if (portfolio.allocation_model !== 'proportional') return 'All-in'
   return `Proportional · ${PROPORTIONAL_LABELS[portfolio.proportional_mode ?? 'linear']}`
 }
@@ -136,6 +142,7 @@ function groupStrategiesByLane(strategies: SavedStrategy[]) {
 type AllocationSetters = {
   setAllocationModel: (value: PortfolioAllocationModel) => void
   setProportionalMode: (value: PortfolioProportionalMode) => void
+  setTierSinglePct: (value: string) => void
   setCostBps: (value: string) => void
   setRegimeForm: (value: RegimeAllocationForm) => void
 }
@@ -144,6 +151,7 @@ function applyAllocationSettings(settings: AllocationSettingsFields, setters: Al
   // Portfolios saved before allocation models existed have none of these fields.
   setters.setAllocationModel(settings.allocation_model ?? 'all_in')
   setters.setProportionalMode(settings.proportional_mode ?? 'linear')
+  setters.setTierSinglePct(String(settings.tier_single_pct ?? DEFAULT_TIER_SINGLE_PCT))
   setters.setCostBps(String(settings.transaction_cost_bps ?? 0))
   setters.setRegimeForm(regimeFormFromSaved(settings))
 }
@@ -187,6 +195,7 @@ export function PortfolioSection({
   const [proxySymbol, setProxySymbol] = useState('')
   const [allocationModel, setAllocationModel] = useState<PortfolioAllocationModel>('all_in')
   const [proportionalMode, setProportionalMode] = useState<PortfolioProportionalMode>('linear')
+  const [tierSinglePct, setTierSinglePct] = useState(String(DEFAULT_TIER_SINGLE_PCT))
   const [costBps, setCostBps] = useState('0')
   const [regimeForm, setRegimeForm] = useState<RegimeAllocationForm>(DEFAULT_REGIME_FORM)
   const [years, setYears] = useState('25')
@@ -217,6 +226,7 @@ export function PortfolioSection({
         proxy_symbol?: string
         allocation_model: PortfolioAllocationModel
         proportional_mode: PortfolioProportionalMode
+        tier_single_pct: number
         transaction_cost_bps: number
       } & RegimePenaltyFields
       existingId?: string
@@ -248,6 +258,7 @@ export function PortfolioSection({
       applyAllocationSettings(initialState.allocation, {
         setAllocationModel,
         setProportionalMode,
+        setTierSinglePct,
         setCostBps,
         setRegimeForm,
       })
@@ -264,10 +275,18 @@ export function PortfolioSection({
     Number.isFinite(parsedCostBps) &&
     parsedCostBps >= 0 &&
     parsedCostBps <= 1000
+  const parsedTierPct = Number(tierSinglePct)
+  const tierPctValid =
+    tierSinglePct.trim() !== '' &&
+    Number.isFinite(parsedTierPct) &&
+    parsedTierPct >= 0 &&
+    parsedTierPct <= 100
+  const tieredActive = allocationModel === 'tiered'
   const regimeActive = allocationModel === 'regime_adjusted'
   const allocationFields = {
     allocation_model: allocationModel,
     proportional_mode: proportionalMode,
+    tier_single_pct: tierPctValid ? parsedTierPct : DEFAULT_TIER_SINGLE_PCT,
     transaction_cost_bps: costBpsValid ? parsedCostBps : 0,
     ...regimeFields(regimeForm),
   }
@@ -333,11 +352,13 @@ export function PortfolioSection({
     (selectedInOrder.length + selectedPortfolioIds.size) > 0 &&
     !selectedShort &&
     costBpsValid &&
+    (!tieredActive || tierPctValid) &&
     !mutation.isPending
   const canSave =
     (selectedInOrder.length + selectedPortfolioIds.size) > 0 &&
     !selectedShort &&
     costBpsValid &&
+    (!tieredActive || tierPctValid) &&
     portfolioName.trim().length > 0 &&
     selectedBlocked.length === 0 &&
     !saveMutation.isPending
@@ -408,6 +429,7 @@ export function PortfolioSection({
       setProxySymbol,
       setAllocationModel,
       setProportionalMode,
+      setTierSinglePct,
       setCostBps,
       setRegimeForm,
     })
@@ -654,7 +676,40 @@ export function PortfolioSection({
                   </p>
                 </div>
               </div>
+              <div className="flex items-start gap-2">
+                <RadioGroupItem value="tiered" id="alloc-tiered" className="mt-0.5" />
+                <div>
+                  <Label htmlFor="alloc-tiered" className="text-sm font-normal">
+                    Tiered
+                  </Label>
+                  <p className="text-[11px] text-muted-foreground">
+                    One member active takes the share set below; two or more take the full budget.
+                    Best with a flat portfolio of strategies, since it counts direct members.
+                  </p>
+                </div>
+              </div>
             </RadioGroup>
+
+            {tieredActive ? (
+              <div className="mt-3 ml-6 flex flex-wrap items-center gap-2 text-sm">
+                <Label htmlFor="tier-single" className="text-sm font-normal">
+                  One member active:
+                </Label>
+                <Input
+                  id="tier-single"
+                  inputMode="decimal"
+                  value={tierSinglePct}
+                  onChange={(e) => setTierSinglePct(e.target.value)}
+                  aria-invalid={!tierPctValid}
+                  className={cn('h-8 w-20 font-mono text-sm', !tierPctValid && 'border-destructive')}
+                />
+                <span className="text-sm">% of the book</span>
+                <span className="text-[11px] text-muted-foreground">· two or more: 100%</span>
+                {!tierPctValid ? (
+                  <span className="text-[11px] text-destructive">Enter a number from 0 to 100.</span>
+                ) : null}
+              </div>
+            ) : null}
 
             {regimeActive ? (
               <RegimePenaltyInputs form={regimeForm} onChange={setRegimeForm} />

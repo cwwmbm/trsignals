@@ -156,6 +156,7 @@ def create_portfolio(
         proxy_symbol=_normalize_proxy_symbol(request.proxy_symbol),
         allocation_model=request.allocation_model,
         proportional_mode=request.proportional_mode,
+        tier_single_pct=request.tier_single_pct,
         transaction_cost_bps=request.transaction_cost_bps,
         **{key: getattr(request, key) for key in REGIME_FIELDS},
         scan_lane="testing",
@@ -205,7 +206,7 @@ def update_portfolio(
                 updated["overlap_mode"] = payload["overlap_mode"]
             if "proxy_symbol" in payload:
                 updated["proxy_symbol"] = _normalize_proxy_symbol(payload["proxy_symbol"])
-            for key in ("allocation_model", "proportional_mode", "transaction_cost_bps", *REGIME_FIELDS):
+            for key in ("allocation_model", "proportional_mode", "tier_single_pct", "transaction_cost_bps", *REGIME_FIELDS):
                 if key in payload and payload[key] is not None:
                     updated[key] = payload[key]
             _check_regime_settings(updated)

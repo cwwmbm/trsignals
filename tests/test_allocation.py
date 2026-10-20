@@ -169,6 +169,7 @@ class AllocationModelTests(unittest.TestCase):
                 "proportional_linear",
                 "proportional_early_conviction",
                 "proportional_confirmation_required",
+                "tiered",
             ],
         )
 
@@ -745,6 +746,7 @@ class PortfolioPayloadTests(unittest.TestCase):
                 "proportional_linear",
                 "proportional_early_conviction",
                 "proportional_confirmation_required",
+                "tiered",
             ],
         )
         curves = payload["equity_curves"]

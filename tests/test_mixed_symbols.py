@@ -252,7 +252,7 @@ class MixedComparisonTests(unittest.TestCase):
         self.assertFalse(payload["single_symbol"])
         self.assertEqual(payload["trading_symbols"], ["AAA", "BBB"])
         rows = {row["model"]: row for row in payload["models"]}
-        self.assertEqual(len(payload["models"]), 8)
+        self.assertEqual(len(payload["models"]), 9)
         self.assertEqual(payload["models"][0]["model"], "all_in")
         self.assertAlmostEqual(rows["all_in"]["analytics"]["average_exposure_when_invested_pct"], 100.0, places=4)
         # The split book earned less than the first-holder-only overlay would have.
