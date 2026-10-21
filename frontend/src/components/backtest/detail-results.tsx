@@ -8,6 +8,7 @@ import {
   type RegimeSource,
 } from "@/api";
 import { AllocationPanel } from "@/components/backtest/allocation-panel";
+import { BenchmarkComparison } from "@/components/backtest/benchmark-comparison";
 import { ContributionPanel } from "@/components/backtest/contribution-panel";
 import { DrawdownRiskPanel } from "@/components/backtest/drawdown-risk-panel";
 import { EquityDrawdownPanel } from "@/components/backtest/equity-drawdown-panel";
@@ -16,8 +17,7 @@ import { MonteCarloPanel } from "@/components/backtest/monte-carlo-panel";
 import { PositionEpisodesTable } from "@/components/backtest/position-episodes-table";
 import { SeasonalityPanel } from "@/components/backtest/seasonality-panel";
 import { negativeYearRowClass, ResultsTable, tradeRowClass } from "@/components/backtest/results-table";
-import { StatCard, SUMMARY_KEYS, summaryLabel, summaryTone } from "@/components/backtest/stat-card";
-import { formatMetric } from "@/lib/format-metric";
+import { excludedYearNote, StatCard, summaryStats } from "@/components/backtest/stat-card";
 import { REGIME_TRADE_FIELDS } from "@/lib/market-regimes";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -65,16 +65,17 @@ export const DetailResults = memo(function DetailResults({
   const overview = (
     <>
       <div className={cn("grid grid-cols-2 gap-1.5 sm:grid-cols-4 lg:grid-cols-8", !embedded && !hasTabs && "mt-2")}>
-        {SUMMARY_KEYS.map((key) => (
-          <StatCard
-            key={key}
-            compact
-            label={summaryLabel(key)}
-            value={formatMetric(result.summary[key], key)}
-            tone={summaryTone(key, result.summary[key])}
-          />
+        {summaryStats(result.summary).map((stat) => (
+          <StatCard key={stat.label} compact label={stat.label} value={stat.value} tone={stat.tone} />
         ))}
       </div>
+      {excludedYearNote(result.summary) ? (
+        <p className="mt-1 text-[11px] text-muted-foreground">{excludedYearNote(result.summary)}</p>
+      ) : null}
+
+      {result.benchmark && result.benchmark.series.length > 0 ? (
+        <BenchmarkComparison summary={result.summary} curve={result.equity_curve} benchmark={result.benchmark} />
+      ) : null}
 
       {description ? (
         <p className="mt-2 truncate font-mono text-[11px] text-muted-foreground" title={description}>
@@ -159,6 +160,7 @@ export const DetailResults = memo(function DetailResults({
               <EquityDrawdownPanel
                 data={result.equity_curve}
                 totalPoints={result.equity_curve_total_points}
+                benchmark={result.benchmark}
               />
             ) : null}
           </TabsContent>

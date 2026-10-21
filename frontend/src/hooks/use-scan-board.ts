@@ -89,13 +89,17 @@ export function useScanBoard(initialExpanded: string[] = ['active', 'legacy']) {
     isFetching,
     error,
     refetch,
+    dataUpdatedAt,
   } = useQuery({
     queryKey: ['scan', dataSource],
     queryFn: () => getScan(dataSource),
-    // A scan takes seconds. Reuse the last one for a minute, don't re-run it on every window focus,
-    // and keep showing the previous rows while a refresh (the Refresh button) is running.
-    staleTime: 60_000,
-    refetchOnWindowFocus: false,
+    // Prices move, so the board refreshes itself: every minute while the tab is visible (React Query
+    // pauses this in a background tab) and when the window regains focus once the data is 30 s old.
+    // Interactive Brokers scans open a Gateway connection each time, so only Yahoo auto-refreshes.
+    // The previous rows stay on screen while a refresh runs.
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
+    refetchInterval: dataSource === 'yahoo' ? 60_000 : false,
     placeholderData: keepPreviousData,
   })
   const { data: savedStrategies = [] } = useQuery({
@@ -355,6 +359,7 @@ export function useScanBoard(initialExpanded: string[] = ['active', 'legacy']) {
     isFetching,
     error,
     refetch,
+    dataUpdatedAt,
     handleLaneChange,
     handlePortfolioLaneChange,
     handleDragEnd,

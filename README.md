@@ -269,7 +269,19 @@ Runs the draft strategy on other symbols over their full history to see whether 
 - Data is downloaded one symbol at a time (yfinance breaks under concurrent downloads) and cached, so a new basket takes a few seconds per symbol the first time.
 - Stocks in a basket move together, so rows are related checks, not independent proof.
 
+### Draft baseline in refinement results
+
+Every refinement result except the basket test opens with **Draft as it stands**: the unmodified draft scored with the same frame preparation and metric code as the sweep rows, on the window the rows are ranked on (in-sample) and on the full period (`meta.draft` in the `/backtests/builder/refine` response, from `services._draft_baseline`). The columns match the table below it, so a row can be read straight against it, and a line counts how many rows score above the draft's in-sample Sharpe. Like the rows, these figures leave out each series' best year. A draft that cannot be scored gives no baseline (`null`) and the sweep still runs. A basket test already shows the draft's own symbol as its reference row.
+
 ### Aggregate metrics & outlier exclusion
+
+A result's cards mix two bases on purpose:
+
+- **CAGR, Sharpe and Sortino leave out the best year** (described next). This is also what sweeps, refine tables, regime scores and the contribution table use.
+- **Max drawdown covers every year**, so the worst fall shows whichever year it happened in. It comes from the full-period block (`full_max_drawdown` in the summary payload, from `stats.full_period_metrics`). Sweep tables, which rank on the ex-best-year figures, still show the ex-best-year drawdown.
+- A **best year share** card shows how much of the summed yearly log return the best year supplies (it can pass 100% when the other years lose money). A line under the cards gives CAGR, Sharpe and Sortino with the best year left in, and says what the drawdown would be without it when that differs.
+
+The full-period block is computed only on request (`compute_aggregate_metrics(..., include_full=True)`), so sweeps pay nothing for it.
 
 When `ExcludeBestReturnYear = True` in `config.py`, aggregate stats (Sharpe, Sortino, CAGR, MaxDD, trade count, win rate, Kelly) **exclude the single calendar year with the highest positive return**. This keeps one extreme upside year from dominating comparisons.
 
@@ -279,6 +291,17 @@ When `ExcludeBestReturnYear = True` in `config.py`, aggregate stats (Sharpe, Sor
 - A note is printed when a year is excluded, e.g. `(Aggregate metrics exclude 2020 — best year at 906.88%)`
 
 Set `ExcludeBestReturnYear = False` to restore the original behavior.
+
+### Buy-and-hold benchmark
+
+Every daily backtest and portfolio result is compared with holding the instrument all the time (`api/benchmark.py`, `benchmark` in the payload, `benchmark_underlying` and `benchmark_vehicle` on each equity-curve point). Two benchmarks are drawn on the equity chart (each has a switch) and listed in the **Versus buy & hold** table under the cards:
+
+- **Underlying**: the traded symbol, unleveraged (`SOXX buy & hold`).
+- **Vehicle**: holding the traded product the whole time, which is what the engine would have earned with no signals: the leverage symbol's real returns where it exists, the leveraged stand-in before that (`SOXL buy & hold (as SOXX 3x before 2010-03-11)`). A symbol with no leverage-settings entry earns the general leverage times its return. With leverage 1 and no product the two would be the same line, so only one is shown.
+
+Both start from the result's first scored equity value, over the bars the metrics cover, so the lines overlay directly. The table uses the same basis as the result cards (CAGR, Sharpe and Sortino without that series' own best year, drawdown over every year) and adds growth as a multiple and the share of bars the result was invested.
+
+A strategy with a proxy symbol is compared with the proxy. A portfolio is compared with the symbol most of its strategies trade (ties go alphabetically; every traded symbol is listed under `benchmark.trading_symbols`). Not shown for short strategies, custom intraday data, or the Regimes views.
 
 ### Output
 

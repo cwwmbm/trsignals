@@ -489,6 +489,90 @@ class BuilderRefineServiceTests(unittest.TestCase):
         evaluate.assert_called_once()
 
 
+class DraftBaselineTests(unittest.TestCase):
+    """The draft as it stands is scored beside the sweep rows, on the same two windows."""
+
+    @staticmethod
+    def _frames():
+        """Several years of bars, so the best-year exclusion leaves something to score."""
+        rng = np.random.default_rng(5)
+        dates = pd.bdate_range("2015-01-01", periods=900)
+        close = pd.Series(100 * np.cumprod(1 + rng.normal(0.0007, 0.012, len(dates))), index=dates)
+        buy = np.zeros(len(dates), dtype=bool)
+        buy[10::15] = True
+        full = pd.DataFrame(
+            {
+                "Date": dates,
+                "Close": close.to_numpy(),
+                "%Change": config.Leverage * close.pct_change().fillna(0.0).to_numpy(),
+                "Buy": buy,
+                "Sell": False,
+            }
+        )
+        full.attrs["symbol"] = "SOXX"
+        cut = dates[600]
+
+        def prepare(strategy, **kwargs):
+            end = kwargs.get("in_sample_end")
+            data = full if end is None else full[full["Date"] <= end].copy()
+            data.attrs["symbol"] = "SOXX"
+            return data, 3, 2, True, None
+
+        return full, cut, prepare
+
+    def test_baseline_is_the_drafts_own_ranking_metrics_on_both_windows(self):
+        from api import fast_metrics
+        from api.services import _draft_baseline
+        from tests.test_vehicles import settings
+
+        full, cut, prepare = self._frames()
+        primary = draft_to_saved_strategy(_draft_request())
+        with settings(), patch("api.services.prepare_builder_refine_frame", side_effect=prepare):
+            baseline = _draft_baseline(primary, None, years=25, labels={}, in_sample_end=cut)
+            expected = {
+                "in_sample": fast_metrics.run_metrics(full[full["Date"] <= cut].copy(), 3, 2, True),
+                "full_period": fast_metrics.run_metrics(full.copy(), 3, 2, True),
+            }
+        for key, metrics in expected.items():
+            self.assertEqual(baseline[key]["Trades"], metrics["Trades"])
+            self.assertEqual(baseline[key]["%Pstv"], round(float(metrics["%Pstv"]), 1))
+            self.assertEqual(baseline[key]["Sharpe"], round(float(metrics["Sharpe"]), 2))
+            self.assertIn("PnL", baseline[key])
+        self.assertLess(baseline["in_sample"]["Trades"], baseline["full_period"]["Trades"])
+
+    def test_a_draft_that_cannot_be_scored_gives_none_and_does_not_raise(self):
+        from api.services import _draft_baseline
+
+        primary = draft_to_saved_strategy(_draft_request())
+        with patch("api.services.prepare_builder_refine_frame", side_effect=ValueError("no data")):
+            with self.assertLogs("api.services", level="WARNING"):
+                self.assertIsNone(_draft_baseline(primary, None, years=25, labels={}, in_sample_end=None))
+
+    def test_refine_meta_carries_the_baseline_except_for_a_basket_test(self):
+        from tests.test_vehicles import settings
+
+        _, _, prepare = self._frames()
+        request = BuilderRefineRequest(
+            mode="hold-days-sweep",
+            strategy=_draft_request(confirm_symbols=["SMH"]),
+            max_days=3,
+        )
+        rows = pd.DataFrame([{"Days": 2, "Prf": 1, "Sharpe": 1.0, "Trades": ENOUGH_TRADES}])
+        with settings(), patch("api.services.prepare_builder_refine_frame", side_effect=prepare):
+            with patch("api.services.bt.backtest_days", return_value=rows):
+                payload = run_builder_refine(request)
+        draft = payload["meta"]["draft"]
+        self.assertEqual(set(draft), {"in_sample", "full_period"})
+        self.assertGreater(draft["full_period"]["Trades"], 0)
+
+        basket = BuilderRefineRequest(
+            mode="basket-sweep", strategy=_draft_request(), basket_symbols=["QQQ"]
+        )
+        with patch("api.services.load_ticker_data", return_value=_sample_data()):
+            with patch("api.services.run_basket_sweep", return_value=([{"Symbol": "QQQ"}], {})):
+                self.assertNotIn("draft", run_builder_refine(basket)["meta"])
+
+
 class BuilderComboSweepTests(unittest.TestCase):
     def test_backtest_builder_signal_combinations_produces_four_rows(self):
         primary = draft_to_saved_strategy(_draft_request())

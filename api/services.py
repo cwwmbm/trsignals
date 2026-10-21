@@ -1,3 +1,5 @@
+import logging
+
 import backtest as bt
 import config
 from backtest_runners import load_ticker_data
@@ -30,6 +32,7 @@ from api.sample_window import (
     slice_frame_to_end,
     slice_symbol_data_to_end,
 )
+from api.benchmark import inputs_from_frame as benchmark_inputs_for_frame
 from api.serializers import dataframe_records, detailed_backtest_payload, regime_request_payload
 from api.signal_registry import get_signal, resolve_signal
 from api.strategy_compiler import compile_buy_mask, compile_sell_mask, format_condition_preview
@@ -48,6 +51,9 @@ from api.portfolio_store import (
     update_portfolio,
 )
 from api.scan_service import run_scan
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _builder_condition_labels() -> dict[str, str]:
@@ -141,7 +147,13 @@ def run_single_backtest(request) -> dict:
         regimes = _regime_response(request, executed)
         if regimes is not None:
             return regimes
-        return detailed_backtest_payload(executed, days, profit, description)
+        return detailed_backtest_payload(
+            executed,
+            days,
+            profit,
+            description,
+            benchmark=benchmark_inputs_for_frame(executed, request.symbol) if is_long else None,
+        )
 
     return _with_runtime_options(request, _run)
 
@@ -183,7 +195,13 @@ def run_symbol_confirm_detail(request) -> dict:
         regimes = _regime_response(request, data)
         if regimes is not None:
             return regimes
-        return detailed_backtest_payload(data, days, profit, description)
+        return detailed_backtest_payload(
+            data,
+            days,
+            profit,
+            description,
+            benchmark=benchmark_inputs_for_frame(data, request.primary_symbol),
+        )
 
     return _with_runtime_options(request, _run)
 
@@ -326,6 +344,11 @@ def run_builder_backtest(request) -> dict:
             strategy.hold_days,
             strategy.profit,
             final_description,
+            benchmark=(
+                benchmark_inputs_for_frame(executed, proxy_column(strategy) or symbol)
+                if strategy.direction == "long"
+                else None
+            ),
         )
 
     return _with_builder_hold_on_buy(request, custom_dataset, _run)
@@ -800,6 +823,36 @@ def _wrap_refine_rows(rows, full_frame, *, in_sample_end) -> dict:
         "meta": meta,
     }
 
+def _draft_baseline(primary, data, *, years: int, labels: dict[str, str], in_sample_end) -> dict | None:
+    """The draft as it stands, scored like every sweep row, to read the rows against.
+
+    Same frame preparation and metric code as the sweeps, on the same two windows: the in-sample
+    stretch rows are ranked on, and the full period. None when the draft cannot be scored, so a
+    missing baseline never costs the sweep itself.
+    """
+    from api import fast_metrics
+
+    baseline: dict = {}
+    try:
+        for key, end in (("in_sample", in_sample_end), ("full_period", None)):
+            frame, days, profit, is_long, pnl_col = prepare_builder_refine_frame(
+                primary,
+                years=years,
+                data=data,
+                in_sample_end=end,
+                strategy_resolver=get_strategy_by_id,
+                labels=labels,
+            )
+            metrics = fast_metrics.run_metrics(
+                frame.copy(), days, profit, is_long, pnl_column=pnl_col, include_yearly=True
+            )
+            baseline[key] = _format_outcome_metrics(metrics)
+    except Exception:  # the baseline is context, not the result
+        LOGGER.warning("Could not score the draft baseline", exc_info=True)
+        return None
+    return baseline
+
+
 def run_builder_refine(request) -> dict:
     if not request.strategy.conditions:
         raise ValueError("Draft strategy must have at least one entry condition")
@@ -813,9 +866,12 @@ def run_builder_refine(request) -> dict:
     if custom_dataset is not None and request.mode == "symbol-confirm-sweep":
         raise ValueError("Symbol confirmation sweep is not supported with custom intraday data")
 
-    def _run():
+    window: dict = {}
+
+    def _run_mode():
         full_frame = _refine_reference_frame(primary, data, years=years, labels=labels)
         in_sample_end = in_sample_end_timestamp(full_frame)
+        window["in_sample_end"] = in_sample_end
         pnl_col = proxy_column(primary)
 
         if request.mode == "signal-combo-sweep":
@@ -1021,6 +1077,19 @@ def run_builder_refine(request) -> dict:
             return _wrap_refine_rows(rows, full_frame, in_sample_end=in_sample_end)
 
         raise ValueError(f"Unsupported refine mode: {request.mode}")
+
+    def _run():
+        payload = _run_mode()
+        # A basket test already reports the draft's own symbol as its reference row.
+        if request.mode != "basket-sweep":
+            payload["meta"]["draft"] = _draft_baseline(
+                primary,
+                data,
+                years=years,
+                labels=labels,
+                in_sample_end=window["in_sample_end"],
+            )
+        return payload
 
     return _with_builder_hold_on_buy(request.strategy, custom_dataset, _run)
 

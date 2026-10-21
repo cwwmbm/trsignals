@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import type { BasketSummary, SweepMeta, SweepResult } from "@/api";
+import { DraftBaselineView } from "@/components/backtest/draft-baseline";
 import { negativeYearRowClass, ResultsTable } from "@/components/backtest/results-table";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -153,6 +154,12 @@ export const SweepResults = memo(function SweepResults({
       </div>
 
       {meta?.basket && <BasketSummaryView basket={meta.basket} />}
+
+      {meta?.draft ? (
+        <div className={cn(!embedded && "mt-2")}>
+          <DraftBaselineView draft={meta.draft} meta={meta} rows={rows} />
+        </div>
+      ) : null}
 
       <div className={cn(!embedded && "mt-2")}>
         <ResultsTable

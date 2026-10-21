@@ -147,6 +147,15 @@ class ScanCacheTests(unittest.TestCase):
         ss.run_scan()
         self.assertGreater(self.prepared, used)
 
+    def test_a_three_percent_intraday_move_in_the_last_bar_invalidates(self):
+        ss.run_scan()
+        used = self.prepared
+        moved = self.bulk.copy()
+        moved.iloc[-1] = moved.iloc[-1] * 1.03
+        self.bulk = moved
+        ss.run_scan()
+        self.assertGreater(self.prepared, used)
+
     def test_a_new_bar_invalidates(self):
         ss.run_scan()
         used = self.prepared

@@ -212,12 +212,52 @@ export type DrawdownRisk = {
   thresholds: Array<{ drawdown: number; probability: number; std_error: number }>;
 };
 
+export type BenchmarkMetrics = {
+  total_return: number | null;
+  /** CAGR, Sharpe and Sortino leave out the series' own best year, like the result cards. */
+  cagr_percent: number | null;
+  sharpe: number | null;
+  sortino: number | null;
+  /** Fraction, over every year. */
+  max_drawdown: number | null;
+  full_cagr_percent: number | null;
+  full_sharpe: number | null;
+  full_sortino: number | null;
+  excluded_year: number | null;
+};
+
+export type BenchmarkSeries = {
+  id: "underlying" | "vehicle";
+  label: string;
+  symbol: string;
+  leverage: number;
+  metrics: BenchmarkMetrics;
+};
+
+/** Buy-and-hold of the traded symbol, over the same bars as the result's metrics. */
+export type BenchmarkPayload = {
+  symbol: string;
+  series: BenchmarkSeries[];
+  time_in_market_percent: number | null;
+  /** Portfolios: every symbol the book trades. The benchmark is the one most strategies trade. */
+  trading_symbols?: string[];
+};
+
+export type EquityCurvePoint = {
+  date: string;
+  rolling_pnl: number;
+  drawdown: number;
+  benchmark_underlying?: number | null;
+  benchmark_vehicle?: number | null;
+};
+
 export interface DetailedResult {
   vehicle?: TradedVehicle;
+  benchmark?: BenchmarkPayload | null;
   summary: Record<string, number | string | null>;
   yearly: Array<Record<string, number | string | null>>;
   monthly: Array<Record<string, number | string | null>>;
-  equity_curve: Array<{ date: string; rolling_pnl: number; drawdown: number }>;
+  equity_curve: EquityCurvePoint[];
   trades: Array<Record<string, number | string | null>>;
   equity_curve_total_points?: number;
   equity_curve_shown_points?: number;
@@ -447,8 +487,27 @@ export type BuilderRefinePayload = {
 
 export type RefineSampleMode = "in_sample" | "full";
 
+/** The draft scored like a sweep row: same columns, same metric code. */
+export type DraftBaselineMetrics = {
+  PnL: string;
+  MaxDD: string;
+  Trades: number;
+  "%Pstv": number;
+  CAGR: string;
+  Sharpe: number | string | null;
+  Sortino: number | string | null;
+};
+
+/** The unmodified draft on the window the rows are ranked on and on the full period. */
+export type DraftBaseline = {
+  in_sample: DraftBaselineMetrics;
+  full_period: DraftBaselineMetrics;
+};
+
 export type SweepMeta = {
   sample: RefineSampleMode;
+  /** Not sent for a basket test, whose own symbol is its reference row. */
+  draft?: DraftBaseline | null;
   in_sample_fraction: number;
   in_sample_end: string;
   period_start: string;

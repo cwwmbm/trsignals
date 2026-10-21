@@ -44,6 +44,7 @@ from api.regime_allocation import (
     regime_labels,
 )
 from api.scan_service import execute_saved_strategy
+from api import benchmark
 from api.serializers import detailed_backtest_payload, regime_request_payload
 from api.strategy_store import get_strategy_by_id
 from stats import (
@@ -639,6 +640,28 @@ def trading_symbols(strategies: list, global_proxy: str | None) -> list[str]:
         else:
             symbols.add(_strategy_pnl_symbol(strategy, global_proxy))
     return sorted(symbols)
+
+
+def _trading_symbol_counts(strategies: list, global_proxy: str | None) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for strategy in strategies:
+        spec = getattr(strategy, "nested_spec", None)
+        if spec is not None:
+            members = _trading_symbol_counts(spec.members, spec.proxy)
+        else:
+            members = {_strategy_pnl_symbol(strategy, global_proxy): 1}
+        for symbol, count in members.items():
+            counts[symbol] = counts.get(symbol, 0) + count
+    return counts
+
+
+def benchmark_inputs_for_portfolio(strategies, global_proxy, track_changes, close_series):
+    """Buy-and-hold inputs for the symbol most of the book's strategies trade (ties: alphabetical)."""
+    counts = _trading_symbol_counts(strategies, global_proxy)
+    if not counts:
+        return None
+    symbol = sorted(counts, key=lambda name: (-counts[name], name))[0]
+    return benchmark.inputs_from_series(symbol, close_series, track_changes)
 
 
 def signal_symbols(strategies: list) -> list[str]:
@@ -2057,7 +2080,10 @@ def simulate_portfolio(request) -> dict:
         max_profit,
         description,
         portfolio_equity=mixed_pnl_symbols,
+        benchmark=benchmark_inputs_for_portfolio(strategies, global_proxy, track_changes, close_series),
     )
+    if "benchmark" in payload:
+        payload["benchmark"]["trading_symbols"] = trading_symbols(strategies, global_proxy)
     payload["allocation"] = _allocation_payload(allocation, frame, simulation, reference)
     payload["allocation"]["trading_symbols"] = trading_symbols(strategies, global_proxy)
     payload["allocation"]["general_leverage"] = leverage_settings.general_leverage()

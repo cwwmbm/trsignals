@@ -492,6 +492,14 @@ export function ScanSection({
               ))}
             </SelectContent>
           </Select>
+          {board.dataUpdatedAt > 0 && (
+            <span
+              className="whitespace-nowrap font-mono text-[10px] text-muted-foreground"
+              title="When the scan data on screen was last fetched"
+            >
+              Updated {new Date(board.dataUpdatedAt).toLocaleTimeString()}
+            </span>
+          )}
           <Button
             variant="outline"
             size="sm"

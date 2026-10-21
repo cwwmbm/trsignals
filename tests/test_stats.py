@@ -4,7 +4,13 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 
-from stats import compute_aggregate_metrics, metrics_start_label, performance_frame, yearly_returns
+from stats import (
+    best_year_concentration,
+    compute_aggregate_metrics,
+    metrics_start_label,
+    performance_frame,
+    yearly_returns,
+)
 
 
 def _backtest_frame(*, years=(2018, 2019, 2020), trades_per_year=(2, 2, 5)) -> pd.DataFrame:
@@ -186,6 +192,97 @@ class ComputeAggregateMetricsTests(unittest.TestCase):
         self.assertAlmostEqual(metrics["cagr_decimal"], expected["cagr_decimal"])
         self.assertEqual(metrics["trades"], 2)
         self.assertEqual(metrics["rolling_pnl"], 12_000.0)
+
+
+def _crash_year_frame() -> pd.DataFrame:
+    """Two quiet years, then a best year that opens with a crash and recovers far past it."""
+    dates = pd.concat(
+        [pd.Series(pd.bdate_range(f"{year}-01-02", periods=252)) for year in (2018, 2019, 2020)],
+        ignore_index=True,
+    )
+    rng = np.random.default_rng(11)
+    returns = rng.normal(0.0004, 0.004, len(dates))
+    crash = np.flatnonzero(dates.dt.year == 2020)
+    returns[crash[:40]] = -0.015
+    returns[crash[40:]] = 0.012
+    returns[0] = 0.0
+    frame = pd.DataFrame({"Date": dates, "RollingPnL": 10_000.0 * np.cumprod(1.0 + returns)})
+    peak = frame["RollingPnL"].cummax()
+    frame["Drawdown"] = (peak - frame["RollingPnL"]) / peak
+    frame["LongTradeOut"] = False
+    frame["TradePnL"] = 0.0
+    return frame
+
+
+class FullPeriodMetricsTests(unittest.TestCase):
+    @patch("stats.ExcludeBestReturnYear", True)
+    def test_full_block_is_off_unless_asked_for(self):
+        self.assertNotIn("full", compute_aggregate_metrics(_crash_year_frame()))
+
+    @patch("stats.ExcludeBestReturnYear", True)
+    def test_full_drawdown_keeps_the_crash_in_the_best_year(self):
+        data = _crash_year_frame()
+        metrics = compute_aggregate_metrics(data, include_full=True)
+        self.assertEqual(metrics["excluded_year"], 2020)
+        self.assertAlmostEqual(metrics["full"]["max_drawdown"], data["Drawdown"].max())
+        self.assertGreater(metrics["full"]["max_drawdown"], 0.35)
+        # The ranking figure leaves 2020 out, and with it the crash.
+        self.assertLess(metrics["max_drawdown"], 0.10)
+
+    @patch("stats.ExcludeBestReturnYear", True)
+    def test_full_ratios_use_every_day(self):
+        data = _crash_year_frame()
+        full = compute_aggregate_metrics(data, include_full=True)["full"]
+        returns = _daily_returns(data)
+        self.assertAlmostEqual(full["sharpe"], _sharpe(returns), places=9)
+        self.assertAlmostEqual(full["sortino"], _sortino(returns), places=9)
+        expected_cagr = (data["RollingPnL"].iloc[-1] / data["RollingPnL"].iloc[0]) ** (252 / len(data)) - 1
+        self.assertAlmostEqual(full["cagr_decimal"], expected_cagr, places=9)
+        self.assertAlmostEqual(full["calmar"], full["cagr_percent"] / (full["max_drawdown"] * 100.0), places=9)
+
+    @patch("stats.ExcludeBestReturnYear", True)
+    def test_the_ranking_figures_do_not_change(self):
+        data = _crash_year_frame()
+        plain = compute_aggregate_metrics(data)
+        with_full = compute_aggregate_metrics(data, include_full=True)
+        for key, value in plain.items():
+            if pd.isna(value):  # no closed trades in this frame, so the averages are NaN
+                self.assertTrue(pd.isna(with_full[key]), key)
+            else:
+                self.assertEqual(with_full[key], value, key)
+
+    @patch("stats.ExcludeBestReturnYear", False)
+    def test_without_exclusion_full_matches_the_headline_ratios(self):
+        data = _crash_year_frame()
+        metrics = compute_aggregate_metrics(data, include_full=True)
+        self.assertAlmostEqual(metrics["full"]["sharpe"], metrics["sharpe"], places=9)
+        self.assertAlmostEqual(metrics["full"]["sortino"], metrics["sortino"], places=9)
+        self.assertAlmostEqual(metrics["full"]["max_drawdown"], metrics["max_drawdown"], places=12)
+        self.assertAlmostEqual(metrics["full"]["cagr_decimal"], metrics["cagr_decimal"], places=9)
+
+    def test_best_year_concentration(self):
+        year, best, share = best_year_concentration({2018: 0.10, 2019: 0.10, 2020: 1.00})
+        self.assertEqual((year, best), (2020, 1.00))
+        self.assertAlmostEqual(share, np.log(2.0) / (2 * np.log(1.1) + np.log(2.0)), places=12)
+
+    def test_best_year_share_is_none_without_a_gain_to_share(self):
+        self.assertEqual(best_year_concentration({}), (None, None, None))
+        self.assertIsNone(best_year_concentration({2018: -0.1, 2019: -0.2})[2])
+        # Other years net-lose: the best year supplies more than all of the return.
+        self.assertGreater(best_year_concentration({2018: -0.2, 2019: -0.2, 2020: 0.8})[2], 1.0)
+
+    @patch("stats.ExcludeBestReturnYear", True)
+    def test_summary_payload_headlines_full_period_figures(self):
+        from api.serializers import summary_payload
+
+        data = _crash_year_frame()
+        payload = summary_payload(data, 0, 0, "x")
+        self.assertEqual(payload["excluded_year"], 2020)
+        self.assertAlmostEqual(payload["full_max_drawdown"], data["Drawdown"].max())
+        self.assertLess(payload["max_drawdown"], payload["full_max_drawdown"])
+        self.assertEqual(payload["full_best_year"], 2020)
+        for key in ("cagr_percent", "sharpe", "sortino", "calmar", "ulcer_index", "best_year_share"):
+            self.assertIsNotNone(payload[f"full_{key}"], key)
 
 
 if __name__ == "__main__":
