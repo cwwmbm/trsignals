@@ -125,7 +125,7 @@ def _market_inputs_from_dataset(
         if entry is not None and entry.financing_multiple and rates is None:
             rates = vehicle_data.load_rates()
         track_changes[symbol] = vehicles.synthetic_returns(close, entry, settings.general_leverage, rates)
-        if entry is None:
+        if entry is None or not entry.has_vehicle:
             continue
         vehicle_close = vehicle_data.load_close(entry.leverage_symbol)
         if vehicle_close is None or not len(vehicle_close):
@@ -729,6 +729,64 @@ def _costed_overlay(
     return charge_overlay_costs(frame, cost_bps)
 
 
+def simulate_portfolio_book(
+    strategies: list,
+    signals_by_id: dict[str, StrategySignals],
+    *,
+    allocation: AllocationSettings | None,
+    overlap_mode: PortfolioOverlapMode,
+    global_proxy: str | None,
+    track_changes: dict[str, pd.Series],
+    close_series: dict[str, pd.Series],
+    strategy_order: list[str],
+    master_dates: pd.DatetimeIndex | None = None,
+) -> tuple[pd.DataFrame, AllocationSimulation | None]:
+    """The portfolio frame for either allocation path, and the engine run behind it.
+
+    All-in on one plain trading symbol is the original overlay, which has no engine run (``None``).
+    All-in on several symbols, or on a symbol with a leverage symbol, runs through the engine (100%
+    invested, split by active strategies).
+    """
+    if allocation is None or allocation.is_all_in:
+        cost_bps = 0.0 if allocation is None else allocation.cost_bps
+        if not uses_overlay(strategies, global_proxy):
+            simulation = simulate_portfolio_allocation(
+                strategies,
+                signals_by_id,
+                model=AllInModel(),
+                cost_bps=cost_bps,
+                global_proxy=global_proxy,
+                track_changes=track_changes,
+                close_series=close_series,
+                master_dates=master_dates,
+            )
+            return simulation.frame, simulation
+        frame = _costed_overlay(
+            strategies,
+            signals_by_id,
+            cost_bps=cost_bps,
+            overlap_mode=overlap_mode,
+            global_proxy=global_proxy,
+            track_changes=track_changes,
+            close_series=close_series,
+            strategy_order=strategy_order,
+            master_dates=master_dates,
+        )
+        return frame, None
+    simulation = simulate_portfolio_allocation(
+        strategies,
+        signals_by_id,
+        model=allocation.model,
+        cost_bps=allocation.cost_bps,
+        global_proxy=global_proxy,
+        track_changes=track_changes,
+        close_series=close_series,
+        master_dates=master_dates,
+        regime_context=allocation.regime_context,
+    )
+    return simulation.frame, simulation
+
+
 def simulate_portfolio_frame(
     strategies: list,
     signals_by_id: dict[str, StrategySignals],
@@ -741,47 +799,18 @@ def simulate_portfolio_frame(
     strategy_order: list[str],
     master_dates: pd.DatetimeIndex | None = None,
 ) -> pd.DataFrame:
-    """The portfolio frame for either allocation path.
-
-    All-in on one plain trading symbol is the original overlay. All-in on several symbols, or
-    on a symbol with a leverage symbol, runs through the engine (100% invested, split by active
-    strategies).
-    """
-    if allocation is None or allocation.is_all_in:
-        cost_bps = 0.0 if allocation is None else allocation.cost_bps
-        if not uses_overlay(strategies, global_proxy):
-            return simulate_portfolio_allocation(
-                strategies,
-                signals_by_id,
-                model=AllInModel(),
-                cost_bps=cost_bps,
-                global_proxy=global_proxy,
-                track_changes=track_changes,
-                close_series=close_series,
-                master_dates=master_dates,
-            ).frame
-        return _costed_overlay(
-            strategies,
-            signals_by_id,
-            cost_bps=cost_bps,
-            overlap_mode=overlap_mode,
-            global_proxy=global_proxy,
-            track_changes=track_changes,
-            close_series=close_series,
-            strategy_order=strategy_order,
-            master_dates=master_dates,
-        )
-    return simulate_portfolio_allocation(
+    """The portfolio frame for either allocation path (see ``simulate_portfolio_book``)."""
+    return simulate_portfolio_book(
         strategies,
         signals_by_id,
-        model=allocation.model,
-        cost_bps=allocation.cost_bps,
+        allocation=allocation,
+        overlap_mode=overlap_mode,
         global_proxy=global_proxy,
         track_changes=track_changes,
         close_series=close_series,
+        strategy_order=strategy_order,
         master_dates=master_dates,
-        regime_context=allocation.regime_context,
-    ).frame
+    )[0]
 
 
 def _aligned_signal_arrays(
@@ -934,21 +963,48 @@ def _prepare_portfolio_simulation(
     )
 
 
-def build_portfolio_overlay_frame(
+@dataclass
+class PortfolioBook:
+    """A portfolio run as the Scan page needs it: the frame, the engine run (None for the plain
+    all-in overlay), and what was not exact about the sizing."""
+
+    frame: pd.DataFrame
+    strategies: list
+    description: str
+    max_hold: int
+    max_profit: int
+    simulation: AllocationSimulation | None
+    allocation: AllocationSettings
+    signals_by_id: dict
+    global_proxy: str | None
+    approximate: str | None = None
+
+
+def _has_regime_adjusted_child(strategies: list) -> bool:
+    for member in strategies:
+        spec = getattr(member, "nested_spec", None)
+        if spec is None:
+            continue
+        if spec.allocation.is_regime_adjusted or _has_regime_adjusted_child(spec.members):
+            return True
+    return False
+
+
+APPROXIMATE_REGIME = (
+    "Regime-adjusted sizing is shown as linear here. Its regime scores need 25 years of history; "
+    "compute the exact figure to see the real size."
+)
+
+
+def _build_portfolio_book(
     portfolio,
     *,
-    years: int = 1,
-    use_cache: bool = True,
-    symbol_dataset: dict[str, pd.DataFrame] | None = None,
-    bulk_data: pd.DataFrame | None = None,
-    signals_only: bool = False,
-) -> tuple[pd.DataFrame, list, str, int, int]:
-    """The portfolio's frame, strategies, description, and its largest hold and profit settings.
-
-    ``signals_only`` is for callers that read nothing but today's buy/hold/sell flags (the
-    scan). A regime-adjusted portfolio is then sized like a linear one, which is in the market
-    exactly when any strategy is; its regime scores need history the scan does not load.
-    """
+    years: int,
+    use_cache: bool,
+    symbol_dataset: dict[str, pd.DataFrame] | None,
+    bulk_data: pd.DataFrame | None,
+    signals_only: bool,
+) -> PortfolioBook:
     (
         strategies,
         strategy_ids,
@@ -966,10 +1022,14 @@ def build_portfolio_overlay_frame(
     )
 
     allocation = allocation_settings(portfolio)
+    approximate = None
     if signals_only and allocation.is_regime_adjusted:
         allocation = AllocationSettings(
             model=proportional_model(PROPORTIONAL_LINEAR), cost_bps=allocation.cost_bps
         )
+        approximate = APPROXIMATE_REGIME
+    elif signals_only and _has_regime_adjusted_child(strategies):
+        approximate = APPROXIMATE_REGIME
     allocation = bind_regime_context(
         allocation,
         strategies,
@@ -979,7 +1039,7 @@ def build_portfolio_overlay_frame(
         close_series=close_series,
         years=years,
     )
-    frame = simulate_portfolio_frame(
+    frame, simulation = simulate_portfolio_book(
         strategies,
         signals_by_id,
         allocation=allocation,
@@ -989,17 +1049,102 @@ def build_portfolio_overlay_frame(
         close_series=close_series,
         strategy_order=strategy_ids,
     )
+    return PortfolioBook(
+        frame=frame,
+        strategies=strategies,
+        description=_portfolio_description(strategies, overlap_mode, global_proxy, allocation),
+        max_hold=max(strategy.hold_days for strategy in strategies),
+        max_profit=max(strategy.profit for strategy in strategies),
+        simulation=simulation,
+        allocation=allocation,
+        signals_by_id=signals_by_id,
+        global_proxy=global_proxy,
+        approximate=approximate,
+    )
 
+
+def build_portfolio_scan_book(
+    portfolio,
+    *,
+    symbol_dataset: dict[str, pd.DataFrame] | None = None,
+    bulk_data: pd.DataFrame | None = None,
+    exact: bool = False,
+) -> PortfolioBook:
+    """The portfolio as the Scan page runs it: one year of history, today's signals.
+
+    A regime-adjusted portfolio is sized like a linear one (and flagged ``approximate``), because its
+    regime scores need history the scan does not load. ``exact=True`` runs the full 25 years instead.
+    """
+    return _build_portfolio_book(
+        portfolio,
+        years=25 if exact else 1,
+        use_cache=exact,
+        symbol_dataset=None if exact else symbol_dataset,
+        bulk_data=None if exact else bulk_data,
+        signals_only=not exact,
+    )
+
+
+def scan_position(book: PortfolioBook) -> dict:
+    """What to do with this portfolio today (see ``api.scan_position``)."""
+    from api import leverage_settings
+    from api import scan_position as sp
+
+    label = book.allocation.model.label
+    if book.simulation is not None:
+        return sp.position_from_simulation(book.simulation, model_label=label, approximate=book.approximate)
+    dates = pd.DatetimeIndex(book.frame["Date"])
+    active, eligible, _ = _effective_signal_matrices(book.strategies, book.signals_by_id, dates)
+    now, before = active[:, -1], (active[:, -2] if active.shape[1] > 1 else np.zeros(len(active), dtype=bool))
+    names = [s.name for s, on in zip(book.strategies, now) if on]
+    entered = [s.name for s, a, b in zip(book.strategies, now, before) if a and not b]
+    exited = [s.name for s, a, b in zip(book.strategies, now, before) if b and not a]
+    symbol = trading_symbols(book.strategies, book.global_proxy)[0]
+    return sp.position_from_overlay(
+        book.frame,
+        symbol=symbol,
+        leverage=leverage_settings.general_leverage(),
+        names=names,
+        entered=entered,
+        exited=exited,
+        total=len(book.strategies),
+        model_label=label,
+        approximate=book.approximate,
+    )
+
+
+def build_portfolio_overlay_frame(
+    portfolio,
+    *,
+    years: int = 1,
+    use_cache: bool = True,
+    symbol_dataset: dict[str, pd.DataFrame] | None = None,
+    bulk_data: pd.DataFrame | None = None,
+    signals_only: bool = False,
+) -> tuple[pd.DataFrame, list, str, int, int]:
+    """The portfolio's frame, strategies, description, and its largest hold and profit settings.
+
+    ``signals_only`` is for callers that read nothing but today's buy/hold/sell flags. A
+    regime-adjusted portfolio is then sized like a linear one, which is in the market
+    exactly when any strategy is; its regime scores need history the scan does not load.
+    (The Scan page itself now uses ``build_portfolio_scan_book``.)
+    """
+    book = _build_portfolio_book(
+        portfolio,
+        years=years,
+        use_cache=use_cache,
+        symbol_dataset=symbol_dataset,
+        bulk_data=bulk_data,
+        signals_only=signals_only,
+    )
+    frame = book.frame
+    strategies = book.strategies
     if signals_only and any(getattr(member, "nested_spec", None) for member in strategies):
-        active, _, _ = _effective_signal_matrices(strategies, signals_by_id, pd.DatetimeIndex(frame["Date"]))
+        active, _, _ = _effective_signal_matrices(strategies, book.signals_by_id, pd.DatetimeIndex(frame["Date"]))
         now = active.any(axis=0)
         before = np.concatenate(([False], now[:-1]))
         frame = frame.assign(LongTradeIn=now & ~before, LongTradeOut=before & ~now, HoldLong=before)
-
-    description = _portfolio_description(strategies, overlap_mode, global_proxy, allocation)
-    max_hold = max(strategy.hold_days for strategy in strategies)
-    max_profit = max(strategy.profit for strategy in strategies)
-    return frame, strategies, description, max_hold, max_profit
+    return frame, strategies, book.description, book.max_hold, book.max_profit
 
 
 def flat_cash_frame(master_dates: pd.DatetimeIndex) -> pd.DataFrame:

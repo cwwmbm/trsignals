@@ -48,6 +48,7 @@ from api.services import (
     run_builder_refine_outcome,
     run_hold_days_sweep,
     run_indicator_sweep,
+    run_exact_scan_position,
     run_live_scan,
     add_saved_quote_symbol,
     remove_saved_quote_symbol,
@@ -265,6 +266,12 @@ def scan(source: str = Query("yahoo", pattern="^(yahoo|ib)$")) -> list[dict]:
         return run_live_scan(data_source=source)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/scan/portfolios/{portfolio_id}/position")
+def scan_exact_position(portfolio_id: str) -> dict:
+    """A portfolio's position today at its real sizing (slower than the scan row; on request)."""
+    return _handle_errors(run_exact_scan_position, portfolio_id)
 
 
 @app.get("/api/quote")

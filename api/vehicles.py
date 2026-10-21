@@ -49,7 +49,7 @@ def split_vehicle_key(key: str) -> tuple[str, str] | None:
 @dataclass
 class TradedStream:
     symbol: str
-    vehicle_symbol: str
+    vehicle_symbol: str | None  # None: no product to trade, the stand-in carries every trade
     leverage: float
     synthetic: np.ndarray
     vehicle: np.ndarray
@@ -184,7 +184,7 @@ def stream_for(
         return None
     values = np.ascontiguousarray(close_values, dtype=float)
     index = _as_index(dates)
-    vehicle_close = vehicle_data.load_close(entry.leverage_symbol)
+    vehicle_close = vehicle_data.load_close(entry.leverage_symbol) if entry.has_vehicle else None
     rates = vehicle_data.load_rates() if entry.financing_multiple else None
     key = (entry, len(index), index[0] if len(index) else None, index[-1] if len(index) else None, hash(values.tobytes()))
     hit = _stream_cache.get(key)

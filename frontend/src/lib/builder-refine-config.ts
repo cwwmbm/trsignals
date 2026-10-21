@@ -3,6 +3,8 @@ export type BuilderRefineMode =
   | "symbol-confirm-sweep"
   | "hold-days-sweep"
   | "indicator-sweep"
+  | "indicator-combo-sweep"
+  | "basket-sweep"
   | "market-regime-sweep";
 
 export type BuilderRefineModeOption = {
@@ -16,6 +18,18 @@ export const BUILDER_REFINE_MODES: BuilderRefineModeOption[] = [
     id: "indicator-sweep",
     label: "Indicator sweep",
     description: "Layer indicator threshold filters onto the draft strategy and rank results.",
+  },
+  {
+    id: "indicator-combo-sweep",
+    label: "Indicator combo sweep",
+    description:
+      "Search pairs (or trios) of indicator filters layered onto the draft strategy. Pairs are searched exhaustively, trios by extending the best pairs. Ranked in-sample; check the full-period figures before trusting a row.",
+  },
+  {
+    id: "basket-sweep",
+    label: "Basket test",
+    description:
+      "Run the draft strategy on a basket of other symbols over their full history, to see whether it holds up beyond the one it was built on. Each row is ranked against the same entries placed at the wrong times.",
   },
   {
     id: "market-regime-sweep",
@@ -48,6 +62,9 @@ export function isSymbolConfirmRefineMode(mode: BuilderRefineMode) {
 
 export function refineModesForCustomData(): BuilderRefineModeOption[] {
   return BUILDER_REFINE_MODES.filter(
-    (item) => item.id !== "symbol-confirm-sweep" && item.id !== "market-regime-sweep",
+    (item) =>
+      item.id !== "symbol-confirm-sweep" &&
+      item.id !== "market-regime-sweep" &&
+      item.id !== "basket-sweep",
   );
 }

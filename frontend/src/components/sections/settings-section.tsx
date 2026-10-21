@@ -14,6 +14,7 @@ import {
   describeEstimate,
   emptyRow,
   formFromSettings,
+  hasVehicle,
   isDirty,
   settingsFromForm,
   type SettingsForm,
@@ -21,7 +22,8 @@ import {
 } from '@/lib/leverage-settings'
 import { cn } from '@/lib/utils'
 
-const cellInput = 'h-8 text-xs'
+// Hints are italic and faint so they cannot be mistaken for something typed in.
+const cellInput = 'h-8 text-xs placeholder:italic placeholder:normal-case placeholder:text-muted-foreground/45'
 
 type Estimated = { estimate?: LeverageEstimate; error?: string; pending?: boolean }
 
@@ -66,8 +68,11 @@ export function SettingsSection() {
   const estimate = async (row: SymbolRow) => {
     const symbol = row.symbol.trim().toUpperCase()
     const vehicle = row.leverageSymbol.trim().toUpperCase()
-    if (!symbol || !vehicle) {
-      setEstimates((current) => ({ ...current, [row.key]: { error: 'Enter the symbol and its leverage symbol first.' } }))
+    if (!symbol || !hasVehicle(row)) {
+      setEstimates((current) => ({
+        ...current,
+        [row.key]: { error: 'Enter a symbol and a different leverage symbol to fit against first.' },
+      }))
       return
     }
     setEstimates((current) => ({ ...current, [row.key]: { pending: true } }))
@@ -126,7 +131,8 @@ export function SettingsSection() {
           opened in the leverage symbol if it exists that day, and stays in whatever it opened in until it
           closes. Earlier history, and any trade already open when the leverage symbol appears, uses the
           symbol's own return times the leverage, with the cost model below if you fill it in. Shorts
-          never use a leverage symbol.
+          never use a leverage symbol. Leave the leverage symbol blank to trade the symbol itself at the
+          leverage you give, for example 1 for an unleveraged stock.
         </p>
 
         <div className="mt-3 space-y-3">
@@ -135,6 +141,14 @@ export function SettingsSection() {
           ) : null}
           {form.rows.map((row) => {
             const note = estimates[row.key]
+            const vehicle = hasVehicle(row)
+            const symbolLabel = row.symbol.trim().toUpperCase()
+            const showCosts =
+              vehicle ||
+              (row.leverage.trim() !== '' && Number(row.leverage) !== 1) ||
+              row.beta.trim() !== '' ||
+              row.feePct.trim() !== '' ||
+              row.financing.trim() !== ''
             return (
               <div key={row.key} className="rounded-md border border-border/60 p-3">
                 <div className="flex flex-wrap items-end gap-3">
@@ -146,8 +160,8 @@ export function SettingsSection() {
                       id={`symbol-${row.key}`}
                       value={row.symbol}
                       onChange={(event) => update(row.key, { symbol: event.target.value })}
-                      placeholder="SOXX"
-                      className={cn(cellInput, 'w-24 uppercase')}
+                      placeholder="e.g. SOXX"
+                      className={cn(cellInput, 'w-28 uppercase')}
                     />
                   </div>
                   <div className="flex flex-col gap-1">
@@ -158,8 +172,8 @@ export function SettingsSection() {
                       id={`vehicle-${row.key}`}
                       value={row.leverageSymbol}
                       onChange={(event) => update(row.key, { leverageSymbol: event.target.value })}
-                      placeholder="SOXL"
-                      className={cn(cellInput, 'w-24 uppercase')}
+                      placeholder="e.g. SOXL"
+                      className={cn(cellInput, 'w-28 uppercase')}
                     />
                   </div>
                   <div className="flex flex-col gap-1">
@@ -185,62 +199,73 @@ export function SettingsSection() {
                     Remove
                   </Button>
                 </div>
+                {!vehicle && symbolLabel ? (
+                  <p className="mt-2 text-[11px] text-muted-foreground">
+                    No leverage symbol: every {symbolLabel} trade earns {symbolLabel} × {row.leverage || '?'}.
+                  </p>
+                ) : null}
 
-                <div className="mt-3 flex flex-wrap items-end gap-3 border-t border-border/40 pt-3">
-                  <span className="w-full text-[11px] font-medium text-muted-foreground">
-                    Cost model for the stand-in before the leverage symbol exists (optional)
-                  </span>
-                  <div className="flex flex-col gap-1">
-                    <Label htmlFor={`beta-${row.key}`} className="text-[11px] text-muted-foreground">
-                      Beta
-                    </Label>
-                    <Input
-                      id={`beta-${row.key}`}
-                      inputMode="decimal"
-                      value={row.beta}
-                      onChange={(event) => update(row.key, { beta: event.target.value })}
-                      placeholder={row.leverage}
-                      className={cn(cellInput, 'w-16')}
-                    />
+                {showCosts ? (
+                  <div className="mt-3 flex flex-wrap items-end gap-3 border-t border-border/40 pt-3">
+                    <span className="w-full text-[11px] font-medium text-muted-foreground">
+                      {vehicle
+                        ? 'Cost model for the stand-in before the leverage symbol exists (optional)'
+                        : 'Cost model for the leveraged position (optional)'}
+                    </span>
+                    <div className="flex flex-col gap-1">
+                      <Label htmlFor={`beta-${row.key}`} className="text-[11px] text-muted-foreground">
+                        Beta
+                      </Label>
+                      <Input
+                        id={`beta-${row.key}`}
+                        inputMode="decimal"
+                        value={row.beta}
+                        onChange={(event) => update(row.key, { beta: event.target.value })}
+                        placeholder={row.leverage.trim() ? `= ${row.leverage.trim()}` : ''}
+                        className={cn(cellInput, 'w-20')}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <Label htmlFor={`fee-${row.key}`} className="text-[11px] text-muted-foreground">
+                        Annual fee %
+                      </Label>
+                      <Input
+                        id={`fee-${row.key}`}
+                        inputMode="decimal"
+                        value={row.feePct}
+                        onChange={(event) => update(row.key, { feePct: event.target.value })}
+                        placeholder="none"
+                        className={cn(cellInput, 'w-20')}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <Label htmlFor={`financing-${row.key}`} className="text-[11px] text-muted-foreground">
+                        Financing × T-bill
+                      </Label>
+                      <Input
+                        id={`financing-${row.key}`}
+                        inputMode="decimal"
+                        value={row.financing}
+                        onChange={(event) => update(row.key, { financing: event.target.value })}
+                        placeholder="none"
+                        className={cn(cellInput, 'w-20')}
+                      />
+                    </div>
+                    {vehicle ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 gap-1 px-2 text-xs"
+                        disabled={note?.pending}
+                        onClick={() => estimate(row)}
+                      >
+                        {note?.pending ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+                        Estimate from history
+                      </Button>
+                    ) : null}
                   </div>
-                  <div className="flex flex-col gap-1">
-                    <Label htmlFor={`fee-${row.key}`} className="text-[11px] text-muted-foreground">
-                      Annual fee %
-                    </Label>
-                    <Input
-                      id={`fee-${row.key}`}
-                      inputMode="decimal"
-                      value={row.feePct}
-                      onChange={(event) => update(row.key, { feePct: event.target.value })}
-                      placeholder="0"
-                      className={cn(cellInput, 'w-20')}
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <Label htmlFor={`financing-${row.key}`} className="text-[11px] text-muted-foreground">
-                      Financing × T-bill
-                    </Label>
-                    <Input
-                      id={`financing-${row.key}`}
-                      inputMode="decimal"
-                      value={row.financing}
-                      onChange={(event) => update(row.key, { financing: event.target.value })}
-                      placeholder="0"
-                      className={cn(cellInput, 'w-20')}
-                    />
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-8 gap-1 px-2 text-xs"
-                    disabled={note?.pending}
-                    onClick={() => estimate(row)}
-                  >
-                    {note?.pending ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
-                    Estimate from history
-                  </Button>
-                </div>
+                ) : null}
                 {note?.estimate ? (
                   <p className="mt-2 text-[11px] text-muted-foreground">
                     {describeEstimate(note.estimate)} {note.estimate.leverage_symbol_first_date} is when{' '}

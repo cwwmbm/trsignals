@@ -13,6 +13,25 @@ export function isIndicatorSweepRow(row: Record<string, unknown>): boolean {
   );
 }
 
+/** An indicator combo sweep row: several threshold filters that are added to the entry together. */
+export function isComboSweepRow(row: Record<string, unknown>): boolean {
+  return Array.isArray(row.Filters) && row.Filters.length > 1;
+}
+
+export function comboSweepRowToConditionRows(
+  row: Record<string, unknown>,
+  indicators: IndicatorInfo[],
+): ConditionRow[] | null {
+  if (!isComboSweepRow(row)) return null;
+  const mapped: ConditionRow[] = [];
+  for (const filter of row.Filters as Array<Record<string, unknown>>) {
+    const next = sweepRowToConditionRow({ ...filter, Buysell: "Buy" }, indicators);
+    if (!next) return null;
+    mapped.push(next);
+  }
+  return mapped;
+}
+
 /** A Market regime sweep row. Its `RegimeId` is the `Regime_<regime>_<state>` condition id. */
 export function isRegimeSweepRow(row: Record<string, unknown>): boolean {
   return typeof row.RegimeId === "string" && row.RegimeId.trim() !== "";
@@ -108,6 +127,7 @@ export function canAddSweepRowToBuilder(
   if (isRegimeSweepRow(row)) return true;
   if (isStrategyComboSweepRow(row)) return true;
   if (isSymbolConfirmSweepRow(row)) return symbolConfirmSweepRowValues(row) !== null;
+  if (isComboSweepRow(row)) return comboSweepRowToConditionRows(row, indicators) !== null;
   if (!isIndicatorSweepRow(row)) return false;
   if (!sweepRowSide(row)) return false;
   const indicator = String(row.Indicator);
@@ -156,6 +176,7 @@ export function sweepRowToConditionRow(
 export function sweepRowAddLabel(row: Record<string, unknown>): string {
   if (isHoldDaysSweepRow(row)) return "Apply hold and profit";
   if (isRegimeSweepRow(row)) return "Add to market regimes";
+  if (isComboSweepRow(row)) return "Add all filters to entry";
   if (isStrategyComboSweepRow(row)) return "Add strategy condition";
   if (isSymbolConfirmSweepRow(row)) {
     const value = symbolConfirmSweepRowValues(row);

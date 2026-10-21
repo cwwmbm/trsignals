@@ -213,6 +213,7 @@ def simulate_nested(strategies, signals_by_id, *, model, cost_bps, global_proxy,
     previous_equity = float(START_CAPITAL)
     previous_invested = 0.0
     without_transaction = 0
+    changes = ()
 
     def cash_of(node):
         return node.ledger.cash if node.ledger is not None else node.cash + sum(cash_of(c) for c in node.children)
@@ -351,6 +352,10 @@ def simulate_nested(strategies, signals_by_id, *, model, cost_bps, global_proxy,
         transactions=transactions, asset_weight_post=weights, final_marks=instrument_prices,
         start_capital=float(START_CAPITAL), signal_changes_without_transaction=without_transaction,
         instruments=book.metadata(), vehicle_report=book.report(), **arrays,
+        last_signal_changes=tuple(changes),
+        last_active_names=tuple(labels[k][1] for k in range(len(labels)) if active_matrix[k, -1]),
+        strategy_count=len(labels),
+        last_close={key: float(closes[key][-1]) for key in instrument_keys if np.isfinite(closes[key][-1])},
     )
     result.eligibility = _effective_signal_matrices(strategies, signals_by_id, dates)[2]
     result.member_weight_post = member_weights

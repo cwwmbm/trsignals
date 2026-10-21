@@ -487,7 +487,9 @@ export function AllocationPanel({
         <ul className="space-y-0.5 text-[11px] text-muted-foreground">
           {allocation.vehicles.map((vehicle) => (
             <li key={vehicle.symbol}>
-              {vehicle.available
+              {vehicle.leverage_symbol == null
+                ? `${vehicle.symbol} is traded itself at ${vehicle.leverage}x, with no separate leveraged product.`
+                : vehicle.available
                 ? `${vehicle.symbol} is traded as ${vehicle.leverage_symbol} from ${vehicle.first_date}; ${vehicle.symbol} × ${vehicle.leverage} before that, and for any trade already open on that day.`
                 : `${vehicle.leverage_symbol} has no price history, so ${vehicle.symbol} × ${vehicle.leverage} stood in for every trade.`}
             </li>

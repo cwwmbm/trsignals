@@ -10,7 +10,10 @@ import numpy as np
 import pandas as pd
 
 from api.allocation import AllInModel, proportional_model
+from types import SimpleNamespace
+
 from api.portfolio_service import signal_symbols
+from api.scan_position import position_from_flags
 from api import scan_service
 from tests.test_allocation import _strategy
 from tests.test_nested_portfolios import DATES, child, run, signal
@@ -104,8 +107,9 @@ class ScanSymbolTests(unittest.TestCase):
         frame = pd.DataFrame({"Date": DATES, "LongTradeIn": False, "HoldLong": False, "LongTradeOut": False,
                               "RollingPnL": 15000.0, "TradePnL": 0.0, "Close": 100.0})
         portfolio = type("P", (), {"id": "p1", "name": "Parent"})()
-        with patch("api.portfolio_service.build_portfolio_overlay_frame",
-                   return_value=(frame, [wrapper, direct], "desc", 5, 1)):
+        book = SimpleNamespace(frame=frame, strategies=[wrapper, direct], description="desc", max_hold=5, max_profit=1)
+        with patch("api.portfolio_service.build_portfolio_scan_book", return_value=book), \
+             patch("api.portfolio_service.scan_position", return_value=position_from_flags(False, False, False)):
             row = scan_service._portfolio_scan_row(portfolio)
         self.assertEqual(row["symbol"], "AAA+BBB+CCC")
         self.assertNotIn("PORTFOLIO", row["symbol"])
@@ -114,8 +118,10 @@ class ScanSymbolTests(unittest.TestCase):
         frame = pd.DataFrame({"Date": DATES, "LongTradeIn": False, "HoldLong": False, "LongTradeOut": False,
                               "RollingPnL": 15000.0, "TradePnL": 0.0, "Close": 100.0})
         portfolio = type("P", (), {"id": "p1", "name": "Flat"})()
-        with patch("api.portfolio_service.build_portfolio_overlay_frame",
-                   return_value=(frame, [_strategy("a", "SPY"), _strategy("b", "SOXX")], "desc", 5, 1)):
+        book = SimpleNamespace(frame=frame, strategies=[_strategy("a", "SPY"), _strategy("b", "SOXX")],
+                               description="desc", max_hold=5, max_profit=1)
+        with patch("api.portfolio_service.build_portfolio_scan_book", return_value=book), \
+             patch("api.portfolio_service.scan_position", return_value=position_from_flags(False, False, False)):
             row = scan_service._portfolio_scan_row(portfolio)
         self.assertEqual(row["symbol"], "SOXX+SPY")
 

@@ -1,5 +1,6 @@
 import type { BuilderBacktestPayload, BuilderRefinePayload } from "@/api";
 import type { BuilderRefineMode } from "@/lib/builder-refine-config";
+import { parseBasket } from "@/lib/baskets";
 
 export type BuilderRefineFormState = {
   mode: BuilderRefineMode;
@@ -9,6 +10,8 @@ export type BuilderRefineFormState = {
   checkBreadth: boolean;
   checkBoth: boolean;
   isSell: boolean;
+  comboSize: 2 | 3;
+  basketSymbols: string;
 };
 
 function csv(value: string) {
@@ -43,6 +46,19 @@ export function buildBuilderRefinePayload(
     return {
       ...base,
       max_days: state.maxDays,
+    };
+  }
+
+  if (state.mode === "basket-sweep") {
+    return { ...base, basket_symbols: parseBasket(state.basketSymbols) };
+  }
+
+  if (state.mode === "indicator-combo-sweep") {
+    return {
+      ...base,
+      check_breadth: state.checkBreadth,
+      check_both: state.checkBoth,
+      combo_size: state.comboSize,
     };
   }
 

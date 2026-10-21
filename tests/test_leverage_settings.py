@@ -54,7 +54,6 @@ class ValidationTests(unittest.TestCase):
             (3, [entry(leverage=-3)]),
             (3, [entry(leverage=11)]),
             (3, [entry(leverage="three")]),
-            (3, [entry(vehicle="SOXX")]),  # the leverage symbol must differ
             (3, [entry(), entry(vehicle="USD")]),  # symbol listed twice
             (3, [entry(), entry("SMH", "SOXL")]),  # one leverage symbol for two symbols
             (3, [entry("SOXX", "SOXL"), entry("SOXL", "XYZ")]),  # chain
@@ -105,7 +104,7 @@ class StoreTests(unittest.TestCase):
     def test_save_refuses_invalid_settings_and_leaves_the_file_alone(self):
         save_settings(normalize_settings(3, [entry()]), self.path)
         before = self.path.read_text()
-        invalid = LeverageSettings(general_leverage=3.0, symbols=(SymbolLeverage("A", "A", 3.0),))
+        invalid = LeverageSettings(general_leverage=3.0, symbols=(SymbolLeverage("A", "B", 0.0),))  # leverage of zero
         with self.assertRaises(ValueError):
             save_settings(invalid, self.path)
         self.assertEqual(self.path.read_text(), before)

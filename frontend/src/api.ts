@@ -186,7 +186,8 @@ export type PositionsPayload = {
 /** Present when the backtest traded a symbol with a leverage-settings entry. */
 export type TradedVehicle = {
   symbol: string;
-  leverage_symbol: string;
+  /** Null when the symbol is traded itself at its leverage: there is no separate product. */
+  leverage_symbol: string | null;
   leverage: number;
   first_date: string | null;
   available: boolean;
@@ -438,6 +439,10 @@ export type BuilderRefinePayload = {
   is_sell?: boolean;
   check_breadth?: boolean;
   check_both?: boolean;
+  combo_size?: 2 | 3;
+  combo_top_n?: number;
+  combo_beam_width?: number;
+  basket_symbols?: string[];
 };
 
 export type RefineSampleMode = "in_sample" | "full";
@@ -449,6 +454,37 @@ export type SweepMeta = {
   period_start: string;
   period_end: string;
   min_in_sample_trades?: number;
+  combo_search?: ComboSearchMeta;
+  basket?: BasketSummary;
+};
+
+/** What a basket test found across the basket (the draft's own symbol is reported separately). */
+export type BasketSummary = {
+  draft_symbol: string;
+  requested: number;
+  evaluated: number;
+  failed: Array<{ symbol: string; source: string; error: string }>;
+  draft_sharpe: number | null;
+  median_sharpe: number | null;
+  share_sharpe_positive: number | null;
+  share_cagr_positive: number | null;
+  share_beating_null: number | null;
+  null_evaluated: number;
+  null_alpha: number;
+  null_shifts: number;
+  ignored_proxy_symbol: string | null;
+  confirm_symbols: string[];
+};
+
+/** How much an indicator combo sweep searched. Rank by it: more tested means more luck. */
+export type ComboSearchMeta = {
+  size: number;
+  grid_points: number;
+  candidates: number;
+  combinations_tested: number;
+  search: string;
+  engine: string;
+  market_wide_only: boolean;
 };
 
 export type SweepResultResponse = {
@@ -528,6 +564,54 @@ export type ConditionSnapshotItem = {
   right: string;
 };
 
+/** What to do with a row today. Enter / Add / Reduce / Exit change the position; Hold and Flat do not. */
+export type ScanAction = "Enter" | "Add" | "Reduce" | "Exit" | "Rebalance" | "Hold" | "Flat";
+
+export type ScanOrder = {
+  instrument: string;
+  underlying: string;
+  kind: "vehicle" | "synthetic";
+  leverage: number | null;
+  side: "buy" | "sell";
+  event: string;
+  weight_before: number;
+  weight_after: number;
+  price: number | null;
+};
+
+export type ScanHolding = {
+  instrument: string;
+  underlying: string;
+  kind: "vehicle" | "synthetic";
+  leverage: number | null;
+  weight: number;
+  price: number | null;
+};
+
+/** Shares of the row's own book (1 is all of it), never of an account. */
+export type ScanPosition = {
+  action: ScanAction;
+  /** Held going into today's decision, drifted to today's close. */
+  held_before: number;
+  /** Held after today's decision. With no trade it is the drifted share. */
+  held_now: number;
+  /** What the model asked for at its last change. */
+  target: number;
+  delta: number;
+  active: number;
+  total: number;
+  active_strategies: string[];
+  entered: string[];
+  exited: string[];
+  reason: string;
+  orders: ScanOrder[];
+  holdings: ScanHolding[];
+  model: string;
+  as_of: string | null;
+  /** Why the sizing is approximate (regime-adjusted read as linear), or null when exact. */
+  approximate: string | null;
+};
+
 export type ScanRow = {
   id: string;
   source: "legacy" | "builder" | "portfolio";
@@ -550,6 +634,7 @@ export type ScanRow = {
   sell_condition_passed_count?: number | null;
   sell_condition_total_count?: number | null;
   condition_as_of?: string | null;
+  position?: ScanPosition | null;
 };
 
 export type PortfolioOverlapMode = "first_signal_only" | "hold_until_all_exit";
@@ -696,7 +781,7 @@ export type AllocationSummary = {
   /** One row per symbol with a leverage-settings entry: which leverage symbol, and since when. */
   vehicles?: Array<{
     symbol: string;
-    leverage_symbol: string;
+    leverage_symbol: string | null;
     leverage: number;
     first_date: string | null;
     /** False: the leverage symbol has no price history, so the stand-in carried every trade. */
@@ -990,6 +1075,13 @@ export async function getScan(source: "yahoo" | "ib" = "yahoo"): Promise<ScanRow
   return response.json();
 }
 
+/** A portfolio's position today at its real sizing: the full history, slower than a scan row. */
+export async function getExactScanPosition(portfolioId: string): Promise<ScanPosition> {
+  const response = await fetch(`${API_URL}/api/scan/portfolios/${encodeURIComponent(portfolioId)}/position`);
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}
+
 export type QuoteSymbol = {
   symbol: string;
   as_of: string | null;
@@ -1052,7 +1144,8 @@ export async function deleteCustomDataset(datasetId: string): Promise<{ deleted:
 /** One symbol and the leveraged product traded in its place. */
 export type SymbolLeverage = {
   symbol: string;
-  leverage_symbol: string;
+  /** Null: no leveraged product, the symbol itself is traded at `leverage` (1 for an unleveraged stock). */
+  leverage_symbol: string | null;
   leverage: number;
   /** Effective beta of the stand-in used before the leverage symbol exists; null means `leverage`. */
   beta: number | null;

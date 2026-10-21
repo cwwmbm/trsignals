@@ -99,6 +99,12 @@ class AllocationSimulation:
     instruments: dict[str, dict] = field(default_factory=dict)
     # One row per symbol with a leverage-settings entry: which leverage symbol, and since when.
     vehicle_report: list[dict] = field(default_factory=list)
+    # What the Scan page reads about the final bar: who entered or exited on it, who is active after
+    # it, how many strategies there are, and each instrument's displayed closing price.
+    last_signal_changes: tuple[SignalChange, ...] = ()
+    last_active_names: tuple[str, ...] = ()
+    strategy_count: int = 0
+    last_close: dict[str, float] = field(default_factory=dict)
 
     @property
     def start_index(self) -> int:
@@ -228,6 +234,7 @@ def simulate_allocation(
     asset_weight_post = {symbol: np.zeros(n) for symbol in symbols}
     prev_ctx_active = np.zeros(ctx_active.shape[0], dtype=bool)
     without_transaction = 0
+    changes: list[SignalChange] = []
 
     active_count = active.sum(axis=0).astype(int)
     eligible_count = eligible.sum(axis=0).astype(int)
@@ -428,6 +435,12 @@ def simulate_allocation(
         signal_changes_without_transaction=without_transaction,
         instruments=book.metadata(),
         vehicle_report=book.report(),
+        last_signal_changes=tuple(changes),
+        last_active_names=tuple(labels[k][1] for k in range(len(labels)) if ctx_active[k, -1]),
+        strategy_count=len(labels),
+        last_close={
+            symbol: float(raw_close[symbol][-1]) for symbol in symbols if np.isfinite(raw_close[symbol][-1])
+        },
     )
 
 

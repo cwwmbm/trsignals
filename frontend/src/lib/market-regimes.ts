@@ -2,6 +2,7 @@ export type RegimeField =
   | "vix_regime"
   | "vxn_regime"
   | "vix_change_regime"
+  | "vix_rv_regime"
   | "atr_regime"
   | "spy_regime"
   | "market_breadth_regime"
@@ -100,6 +101,14 @@ const VOL_BUCKETS: RegimeBucketDef[] = [
   { key: "gt_30", label: "> 30" },
 ];
 
+const VIX_RV_BUCKETS: RegimeBucketDef[] = [
+  { key: "le_10", label: "≤ 10th" },
+  { key: "10_30", label: "10–30th" },
+  { key: "30_70", label: "30–70th" },
+  { key: "70_90", label: "70–90th" },
+  { key: "gt_90", label: "> 90th" },
+];
+
 const VIX_CHANGE_BUCKETS: RegimeBucketDef[] = [
   { key: "le_neg_15", label: "≤ -15%" },
   { key: "le_neg_10", label: "≤ -10%" },
@@ -165,6 +174,7 @@ export const REGIME_TRADE_FIELDS: RegimeField[] = [
   "vix_regime",
   "vxn_regime",
   "vix_change_regime",
+  "vix_rv_regime",
   "atr_regime",
   "spy_regime",
   "market_breadth_regime",
@@ -205,6 +215,14 @@ export const REGIME_DIMENSIONS: RegimeDimension[] = [
     hint: "VXN close that day",
     field: "vxn_regime",
     buckets: VOL_BUCKETS,
+    unavailableWhenEmpty: false,
+  },
+  {
+    id: "vix_rv",
+    title: "VIX vs realized vol",
+    hint: "Percentile of VIX / SPY 21-day realized volatility among all earlier days. ≤ 10th — extreme realized dominance. 10–30th — realized dominance. 30–70th — typical. 70–90th — elevated implied premium. > 90th — extreme implied premium",
+    field: "vix_rv_regime",
+    buckets: VIX_RV_BUCKETS,
     unavailableWhenEmpty: false,
   },
   {

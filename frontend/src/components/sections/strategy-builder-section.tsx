@@ -24,6 +24,7 @@ import {
 } from '@/components/sections/strategy-builder-setup'
 import { Card } from '@/components/ui/card'
 import type { BuilderRefineMode } from '@/lib/builder-refine-config'
+import { DEFAULT_BASKET_TEXT } from '@/lib/baskets'
 import { buildBuilderRefinePayload } from '@/lib/builder-refine-form'
 import { canAddSweepRowToBuilder, sweepRowAddLabel } from '@/lib/sweep-to-condition'
 
@@ -107,6 +108,8 @@ export function StrategyBuilderSection({
   const [refineCheckBreadth, setRefineCheckBreadth] = useState(false)
   const [refineCheckBoth, setRefineCheckBoth] = useState(false)
   const [refineIsSell, setRefineIsSell] = useState(false)
+  const [refineComboSize, setRefineComboSize] = useState<2 | 3>(2)
+  const [refineBasket, setRefineBasket] = useState(DEFAULT_BASKET_TEXT)
   const [paneResetVersion, setPaneResetVersion] = useState(0)
   const [customDataset, setCustomDataset] = useState<CustomDatasetInfo | null>(null)
 
@@ -234,6 +237,8 @@ export function StrategyBuilderSection({
           checkBreadth: refineCheckBreadth,
           checkBoth: refineCheckBoth,
           isSell: refineIsSell,
+          comboSize: refineComboSize,
+          basketSymbols: refineBasket,
         }),
       )
     } catch (error) {
@@ -247,6 +252,8 @@ export function StrategyBuilderSection({
     refineCheckBreadth,
     refineCheckBoth,
     refineIsSell,
+    refineComboSize,
+    refineBasket,
     refineMutation,
   ])
 
@@ -318,6 +325,10 @@ export function StrategyBuilderSection({
           onCheckBothChange: setRefineCheckBoth,
           isSell: refineIsSell,
           onIsSellChange: setRefineIsSell,
+          comboSize: refineComboSize,
+          onComboSizeChange: setRefineComboSize,
+          basketSymbols: refineBasket,
+          onBasketSymbolsChange: setRefineBasket,
           onRun: handleRefineRun,
           isRunning: refineMutation.isPending,
           isCustomData: Boolean(customDataset),

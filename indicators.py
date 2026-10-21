@@ -10,7 +10,7 @@ from numpy import cumsum, log, polyfit, sqrt, std, subtract
 from hurst import compute_Hc
 
 # Bump when computed indicator columns change so disk cache entries are rebuilt.
-INDICATOR_CACHE_VERSION = 3
+INDICATOR_CACHE_VERSION = 4
 
 #Calculate Sharpe Ratio
 def sharpes_ratio(data, risk_free_rate=0, periods_per_year=252, exclude_year=None):
@@ -527,10 +527,18 @@ def down_monday_flag(dates: pd.Series, close: pd.Series) -> np.ndarray:
     return np.where(down, 1, -1)
 
 
-def add_indicators(data, periods_per_year=252, source_timezone=None):
+def add_indicators(data, periods_per_year=252, source_timezone=None, compute_hurst=True, symbol=None):
+    """Add every indicator column.
+
+    ``symbol`` names the stock the frame belongs to, so ``DaysToEarnings`` and ``DaysSinceEarnings`` can
+    be filled from its earnings dates. Without it (custom data, ad-hoc frames) both read 999, "none known".
+
+    ``compute_hurst=False`` leaves ``Hurst`` as NaN. The rolling Hurst exponent is by far the slowest
+    column, so a caller that knows nothing reads it (the live scan) can skip it.
+    """
     data['%Change'] = Leverage*data['Close'].pct_change()
     data['SPYBull'] = data['Spybull']
-    data['Hurst'] = hurst_exponent(data)
+    data['Hurst'] = hurst_exponent(data) if compute_hurst else pd.Series(np.nan, index=data.index)
     high = data['High']
     low = data['Low']
     close = data['Close']
@@ -683,6 +691,13 @@ def add_indicators(data, periods_per_year=252, source_timezone=None):
     )
     data = data.drop(columns=['StochSlow', 'Spybull'])
     data = pd.concat([data, tail], axis=1)
+    if source_timezone is None:  # daily frames; an intraday custom dataset has no earnings columns to fill
+        from api import earnings_data
+
+        data = earnings_data.add_earnings_columns(data, symbol)
+    else:
+        data['DaysToEarnings'] = 999.0
+        data['DaysSinceEarnings'] = 999.0
     return add_vwap_indicators(data, source_timezone=source_timezone)
 
 def buy_signal1 (data, symbol = ticker):

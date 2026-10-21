@@ -107,6 +107,8 @@ _SWEEP = {
     "OBVSlope20": {"min": -5, "max": 5},
     "VolatilityPercentile": {"min": 0, "max": 100},
     "TRIX": {"min": -0.5, "max": 0.5},
+    "DaysToEarnings": {"min": 1, "max": 20},
+    "DaysSinceEarnings": {"min": 0, "max": 10},
     "Close_VWAP": {"min": -2, "max": 2},
     "VWAPSlope8": {"min": -2, "max": 2},
     "VWAPSlope20": {"min": -2, "max": 2},
@@ -164,6 +166,8 @@ _DEFAULT_COMPARE_NUMBER: dict[str, str] = {
     "ATR20_ATR50": "0",
     "%Change": "0",
     "VolumeEMADiff": "0",
+    "DaysToEarnings": "5",
+    "DaysSinceEarnings": "2",
 }
 
 _PRICE_TREND_COMPARE_KINDS: list[IndicatorKind] = ["price", "trend"]
@@ -299,6 +303,32 @@ INDICATOR_CATALOG: list[IndicatorDef] = [
     _entry("BBPercentB", "Bollinger %B", "Volatility / risk", "volatility", "continuous", typical_range=_range("BBPercentB"), description="Position of close within the Bollinger bands: 0 = lower band, 1 = upper band, 0.5 = middle."),
     _entry("ChangeVelocity", "Change velocity", "Volatility / risk", "volatility", "continuous", typical_range=_range("ChangeVelocity"), description="One-day price change divided by the prior bar's ATR(20). Normalizes momentum by recent volatility."),
     # Efficiency / flow
+    # Earnings (stocks only; 999 when no date is known, which is every ETF)
+    _entry(
+        "DaysToEarnings",
+        "Days to earnings",
+        "Earnings",
+        "reference",
+        "continuous",
+        typical_range=_range("DaysToEarnings"),
+        description=(
+            "Trading days until the next earnings reaction day: 1 on the last bar before it, 0 on the day itself. "
+            "A report before the open reacts the same day, one after the close the next session. "
+            "999 when no date is known (ETFs, indexes), so `> 3` stays true there and `<= 1` never fires."
+        ),
+    ),
+    _entry(
+        "DaysSinceEarnings",
+        "Days since earnings",
+        "Earnings",
+        "reference",
+        "continuous",
+        typical_range=_range("DaysSinceEarnings"),
+        description=(
+            "Trading days since the last earnings reaction day: 0 on the day itself, 1 the day after. "
+            "999 when no earlier date is known."
+        ),
+    ),
     _entry("ER", "Efficiency ratio", "Efficiency / flow", "momentum", "continuous", typical_range=_range("ER"), description="Kaufman Efficiency Ratio over 10 bars. Near 1 means directional; near 0 means choppy."),
     _entry("IBR", "IBR", "Efficiency / flow", "momentum", "continuous", typical_range=_range("IBR"), description="Internal Bar Range — where close sits within the day's high-low range (0 = at low, 1 = at high)."),
     _entry("IBR2", "IBR(2)", "Efficiency / flow", "momentum", "continuous", typical_range=_range("IBR2"), description="IBR of a 2-bar composite candle (max high, min low, current close). 0 = close at the 2-bar low, 1 = at the 2-bar high."),
@@ -476,6 +506,7 @@ _CATEGORY_ORDER = [
     "VWAP / fair value",
     "Pattern / signal flags",
     "Breadth RSI",
+    "Earnings",
     "Market regimes",
     "Internal",
 ]
@@ -651,7 +682,8 @@ def builder_eligible_ids() -> list[str]:
     return [item["id"] for item in INDICATOR_CATALOG if item.get("builderEligible", True)]
 
 
-# Cross-market / shared series — same values on every symbol frame.
+# Cross-market / shared series — same values on every symbol frame — plus the earnings counters,
+# which describe the traded symbol only (a confirm symbol's earnings are not its business).
 # When confirm symbols are set, these gate primary Buy after confirm merge
 # (matching indicator-sweep), not per-symbol confirm hold logic.
 _MARKET_WIDE_INDICATOR_IDS = frozenset(
@@ -659,6 +691,8 @@ _MARKET_WIDE_INDICATOR_IDS = frozenset(
         "Vix",
         "VixChange",
         "SPYBull",
+        "DaysToEarnings",
+        "DaysSinceEarnings",
         *(item["id"] for item in INDICATOR_CATALOG if item.get("kind") == "breadth"),
         *(spec.id for spec in REGIME_INDICATOR_SPECS if spec.market_wide),
     }

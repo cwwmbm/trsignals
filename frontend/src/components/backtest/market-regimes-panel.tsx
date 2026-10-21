@@ -244,6 +244,10 @@ function RegimeTooltip({
 
 function nowCaption(dimensionId: string, regimeKey: string | string[] | null, reading: number | null) {
   if (regimeKey == null) return null;
+  if (dimensionId === "vix_rv") {
+    if (reading == null || !Number.isFinite(reading)) return "NOW";
+    return `NOW · ${Math.round(reading)}th pct`;
+  }
   if (dimensionId === "vix_change") {
     if (reading == null || !Number.isFinite(reading)) return "NOW";
     return `NOW · ${reading > 0 ? "+" : ""}${reading.toFixed(1)}%`;

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { DragEndEvent } from '@dnd-kit/core'
 import { arrayMove } from '@dnd-kit/sortable'
 import {
@@ -92,6 +92,11 @@ export function useScanBoard(initialExpanded: string[] = ['active', 'legacy']) {
   } = useQuery({
     queryKey: ['scan', dataSource],
     queryFn: () => getScan(dataSource),
+    // A scan takes seconds. Reuse the last one for a minute, don't re-run it on every window focus,
+    // and keep showing the previous rows while a refresh (the Refresh button) is running.
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+    placeholderData: keepPreviousData,
   })
   const { data: savedStrategies = [] } = useQuery({
     queryKey: ['strategies'],

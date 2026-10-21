@@ -57,6 +57,8 @@ import {
 } from '@/components/strategy-builder/regime-condition-list'
 import {
   holdDaysSweepRowValues,
+  comboSweepRowToConditionRows,
+  isComboSweepRow,
   isHoldDaysSweepRow,
   isRegimeSweepRow,
   regimeSweepRowId,
@@ -97,9 +99,10 @@ function uniqueSavedStrategiesByName(strategies: SavedStrategy[], preferredSymbo
   })
 }
 
+/** A placeholder that is true on every bar (Close > 0): "always a buy signal" until a rule replaces it. */
 function defaultEntryConditions(): ConditionRow[] {
   return [
-    { id: 'c0', left: 'Close', operator: '<=', right: 'SMA200', logic: 'AND' },
+    { id: 'c0', left: 'Close', operator: '>', right: '0', logic: 'AND' },
   ]
 }
 
@@ -741,6 +744,19 @@ export const StrategyBuilderSetup = forwardRef<
           )
           setRegimeOpen(true)
           return `Added ${regimeConditionLabel(left) ?? left} ${operator} to market regimes.`
+        }
+
+        if (isComboSweepRow(row)) {
+          const rows = comboSweepRowToConditionRows(row, builderIndicators)
+          if (!rows) return 'Could not map this sweep row to builder conditions.'
+          setEntryConditions((prev) =>
+            rows.reduce(
+              (acc, next) => appendConditionRow(acc, next, builderIndicators, 1),
+              prev,
+            ),
+          )
+          setEntryOpen(true)
+          return `Added ${rows.length} filters to entry.`
         }
 
         const mapped = sweepRowToConditionRow(row, builderIndicators)

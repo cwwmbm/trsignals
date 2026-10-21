@@ -30,7 +30,7 @@ export function formFromSettings(settings: LeverageSettings): SettingsForm {
     rows: settings.symbols.map((entry) => ({
       key: newKey(),
       symbol: entry.symbol,
-      leverageSymbol: entry.leverage_symbol,
+      leverageSymbol: entry.leverage_symbol ?? '',
       leverage: trim(entry.leverage),
       beta: entry.beta == null ? '' : trim(entry.beta),
       feePct: entry.annual_fee ? trim(entry.annual_fee * 100) : '',
@@ -53,9 +53,7 @@ export function settingsFromForm(form: SettingsForm): FormCheck {
   for (const row of form.rows) {
     const label = row.symbol.trim().toUpperCase() || 'A symbol'
     const leverage = number(row.leverage)
-    if (!row.symbol.trim() || !row.leverageSymbol.trim()) {
-      return { ok: false, error: `${label}: enter both the symbol and its leverage symbol.` }
-    }
+    if (!row.symbol.trim()) return { ok: false, error: 'Every row needs a symbol.' }
     if (!Number.isFinite(leverage)) return { ok: false, error: `${label}: leverage must be a number.` }
     const beta = row.beta.trim() === '' ? null : number(row.beta)
     if (beta !== null && !Number.isFinite(beta)) return { ok: false, error: `${label}: beta must be a number or blank.` }
@@ -64,9 +62,12 @@ export function settingsFromForm(form: SettingsForm): FormCheck {
     if (!Number.isFinite(fee) || !Number.isFinite(financing)) {
       return { ok: false, error: `${label}: fee and financing must be numbers or blank.` }
     }
+    const symbol = row.symbol.trim().toUpperCase()
+    const vehicle = row.leverageSymbol.trim().toUpperCase()
     symbols.push({
-      symbol: row.symbol.trim().toUpperCase(),
-      leverage_symbol: row.leverageSymbol.trim().toUpperCase(),
+      symbol,
+      // Blank, or the symbol itself, means there is no product: the symbol is traded at this leverage.
+      leverage_symbol: vehicle === '' || vehicle === symbol ? null : vehicle,
       leverage,
       beta,
       // percent to fraction, without 1.88 / 100 leaving 0.018799999999999997 in the file
@@ -92,6 +93,13 @@ export function describeEstimate(estimate: LeverageEstimate): string {
     `Fitted on ${estimate.days.toLocaleString()} days (${estimate.first_date} to ${estimate.last_date}): ` +
     `correlation ${estimate.correlation.toFixed(3)}, tracking error ${(estimate.tracking_error * 100).toFixed(1)}% a year.`
   )
+}
+
+/** True when the row names a separate leveraged product to trade. */
+export function hasVehicle(row: SymbolRow): boolean {
+  const symbol = row.symbol.trim().toUpperCase()
+  const vehicle = row.leverageSymbol.trim().toUpperCase()
+  return vehicle !== '' && vehicle !== symbol
 }
 
 /** True when the form differs from what is saved, ignoring row keys. */

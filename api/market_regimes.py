@@ -17,12 +17,15 @@ of the rate shock with the sign of the dollar shock, and zero counts as ≤ 0.
 Inflation trend is SMA(log(TIP/IEF), 20) minus SMA(log(TIP/IEF), 100). Inflation and
 yield crosses the sign of the rate shock with the sign of that trend.
 SPY bull/bear uses SMA(50) vs SMA(200) and is separate from the existing SPYBull flag.
+VIX vs realized volatility is VIX divided by SPY's 21-day realized volatility, ranked against every
+earlier reading of that ratio (an expanding percentile that never sees a later day).
 VIX daily change is the close-to-close % change of the VIX. Its buckets overlap (a -12% day is in
 ≤ -10%, ≤ -5% and ≤ 0%), so a day or a trade's entry bar carries a set of states, not one.
 """
 
 from __future__ import annotations
 
+import bisect
 import logging
 import math
 from collections import Counter
@@ -66,6 +69,12 @@ CURVE_CHANGE_HORIZON = 20
 
 VIX_KEYS = ("le_15", "15_20", "20_30", "gt_30")
 VXN_KEYS = VIX_KEYS
+# VIX / realized volatility: SPY's annualized 21-day realized volatility against the VIX, as an
+# expanding percentile of the ratio, in five buckets split at the 10th, 30th, 70th and 90th.
+VIX_RV_WINDOW = 21
+VIX_RV_MIN_HISTORY = 252
+VIX_RV_CUTS = (10.0, 30.0, 70.0, 90.0)
+VIX_RV_KEYS = ("le_10", "10_30", "30_70", "70_90", "gt_90")
 # Overlapping buckets: (key, comparison, threshold in %). A day is in every bucket it satisfies,
 # so 0% is in both ≤ 0% and ≥ 0%.
 VIX_CHANGE_TESTS = (
@@ -117,6 +126,7 @@ MARKET_REGIME_KEYS = (
     "vix_regime",
     "vxn_regime",
     "vix_change_regime",
+    "vix_rv_regime",
     "spy_regime",
     "market_breadth_regime",
     "semis_breadth_regime",
@@ -190,6 +200,15 @@ def _classify_upper_inclusive(value, cuts: tuple[float, ...], keys: tuple[str, .
 def classify_vix(value) -> str | None:
     """<= 15, 15–20, 20–30, > 30. Shared edges belong to the lower bucket."""
     return _classify_upper_inclusive(value, (15, 20, 30), VIX_KEYS, first_inclusive=True)
+
+
+def classify_vix_rv(percentile) -> str | None:
+    """Bucket of the VIX / realized-volatility percentile: <= 10, 10-30, 30-70, 70-90, > 90.
+
+    Low is realized dominance (the VIX is cheap against what SPY has been doing), high is an
+    elevated implied premium. Shared edges belong to the lower bucket.
+    """
+    return _classify_upper_inclusive(percentile, VIX_RV_CUTS, VIX_RV_KEYS, first_inclusive=True)
 
 
 def classify_vix_change(value) -> tuple[str, ...] | None:
@@ -552,6 +571,29 @@ def _inflation_trend(tip: pd.Series | None, ief: pd.Series | None, index: pd.Ind
     return trend.replace([np.inf, -np.inf], np.nan).reindex(index)
 
 
+def _vix_rv_ratio(vix: pd.Series, spy: pd.Series) -> pd.Series:
+    """VIX over SPY's annualized realized volatility (21-day std of daily log returns, in %)."""
+    realized = np.log(spy).diff().rolling(VIX_RV_WINDOW).std() * math.sqrt(252) * 100
+    return (vix / realized).replace([np.inf, -np.inf], np.nan)
+
+
+def _expanding_percentile(series: pd.Series, min_history: int = VIX_RV_MIN_HISTORY) -> pd.Series:
+    """Percent of EARLIER readings at or below each value, using only observations before it.
+
+    A reading is not ranked until ``min_history`` earlier readings exist, and a missing value
+    is skipped (it neither gets a rank nor joins the history).
+    """
+    history: list[float] = []
+    ranks = np.full(len(series), np.nan)
+    for position, value in enumerate(series.to_numpy(dtype=float)):
+        if not math.isfinite(value):
+            continue
+        if len(history) >= min_history:
+            ranks[position] = 100.0 * bisect.bisect_right(history, value) / len(history)
+        bisect.insort(history, value)
+    return pd.Series(ranks, index=series.index)
+
+
 def build_regime_calendar(
     vix: pd.Series,
     vxn: pd.Series,
@@ -584,9 +626,12 @@ def build_regime_calendar(
     vix_close = _as_day_series(vix).reindex(spy_close.index)
     vxn_close = _as_day_series(vxn).reindex(spy_close.index)
     rsp_close = _as_day_series(rsp).reindex(spy_close.index)
+    vix_rv_ratio = _vix_rv_ratio(vix_close, spy_close)
     frame = pd.DataFrame(
         {
             "vix": vix_close,
+            "vix_rv_ratio": vix_rv_ratio,
+            "vix_rv_pctile": _expanding_percentile(vix_rv_ratio),
             "vxn": vxn_close,
             "vix_change": vix_close.pct_change(fill_method=None) * 100,
             "spy_sma50": spy_close.rolling(SPY_SMA_FAST).mean(),
@@ -638,6 +683,7 @@ def market_regimes_for_timestamp(value, calendar: pd.DataFrame | None) -> dict[s
         "vix_regime": classify_vix(row.get("vix")),
         "vxn_regime": classify_vxn(row.get("vxn")),
         "vix_change_regime": _as_list(classify_vix_change(row.get("vix_change"))),
+        "vix_rv_regime": classify_vix_rv(row.get("vix_rv_pctile")),
         "spy_regime": classify_spy(row.get("spy_sma50"), row.get("spy_sma200")),
         "market_breadth_regime": classify_rate_shock(row.get("breadth")),
         "semis_breadth_regime": classify_rate_shock(row.get("breadth_semis")),
@@ -667,6 +713,7 @@ _SHARPE_BUCKETS: dict[str, tuple[str, ...]] = {
     "vix": VIX_KEYS,
     "vxn": VXN_KEYS,
     "vix_change": VIX_CHANGE_KEYS,
+    "vix_rv": VIX_RV_KEYS,
     "atr": (ATR_EXPANDING, ATR_CONTRACTING),
     "spy": (SPY_BULL, SPY_BEAR),
     "market_breadth": RATE_SHOCK_KEYS,
@@ -703,6 +750,13 @@ _VIX_CHANGE_LABELS = {
     "ge_10": "≥ 10%",
     "ge_15": "≥ 15%",
     "ge_20": "≥ 20%",
+}
+_VIX_RV_LABELS = {
+    "le_10": "≤ 10th",
+    "10_30": "10–30th",
+    "30_70": "30–70th",
+    "70_90": "70–90th",
+    "gt_90": "> 90th",
 }
 _SHOCK_BUCKET_LABELS = {"lt_neg_1": "< -1", "neg_1_to_1": "-1 to 1", "gt_1": "> 1"}
 _SECTOR_BUCKET_LABELS = {"le_25": "≤ 25%", "25_50": "25–50%", "50_75": "50–75%", "gt_75": "> 75%"}
@@ -756,6 +810,17 @@ def _log_ratio_hint(pair: str, high: str | None = None, low: str | None = None) 
 _REGIME_DIMENSION_META: tuple[dict[str, Any], ...] = (
     {"id": "vix", "title": "VIX", "hint": "VIX close that day", "labels": _VIX_BUCKET_LABELS, "market_wide": True},
     {"id": "vxn", "title": "VXN", "hint": "VXN close that day", "labels": _VIX_BUCKET_LABELS, "market_wide": True},
+    {
+        "id": "vix_rv",
+        "title": "VIX vs realized vol",
+        "hint": (
+            "Percentile of VIX / SPY 21-day realized volatility among all earlier days. "
+            "≤ 10th — extreme realized dominance. 10–30th — realized dominance. 30–70th — typical. "
+            "70–90th — elevated implied premium. > 90th — extreme implied premium"
+        ),
+        "labels": _VIX_RV_LABELS,
+        "market_wide": True,
+    },
     {
         "id": "vix_change",
         "title": "VIX daily change",
@@ -1339,6 +1404,7 @@ def _regime_label_sets(data: pd.DataFrame, calendar: pd.DataFrame | None) -> dic
         "vix": _calendar_label_series(dates, calendar, "vix", classify_vix),
         "vxn": _calendar_label_series(dates, calendar, "vxn", classify_vxn),
         "vix_change": _calendar_label_series(dates, calendar, "vix_change", classify_vix_change),
+        "vix_rv": _calendar_label_series(dates, calendar, "vix_rv_pctile", classify_vix_rv),
         "spy": _spy_labels(dates, calendar),
         "market_breadth": _calendar_label_series(dates, calendar, "breadth", classify_rate_shock),
         "semis_breadth": _calendar_label_series(dates, calendar, "breadth_semis", classify_rate_shock),
@@ -1395,6 +1461,7 @@ _READING_COLUMN = {
     "vix": "vix",
     "vxn": "vxn",
     "vix_change": "vix_change",
+    "vix_rv": "vix_rv_pctile",
     "market_breadth": "breadth",
     "semis_breadth": "breadth_semis",
     "equity_risk_breadth": "breadth_equity_risk",

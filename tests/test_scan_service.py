@@ -19,6 +19,9 @@ def _sample_executed(*, trade_out: bool, trade_pnl: float, hold_long: bool = Fal
     )
 
 
+from api.scan_position import position_from_flags
+
+
 class ScanServiceTests(unittest.TestCase):
     def test_compute_kelly_returns_none_without_trades(self):
         executed = pd.DataFrame(
@@ -195,7 +198,7 @@ class ScanServiceTests(unittest.TestCase):
 
         get_bulk_data.assert_called_once()
         self.assertIn("JEPQ", get_bulk_data.call_args.args[0])
-        prepare_frame.assert_any_call(bulk_data, "JEPQ", "JEPQ")
+        prepare_frame.assert_any_call(bulk_data, "JEPQ", "JEPQ", compute_hurst=False)
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["symbol"], "JEPQ")
         self.assertEqual(rows[0]["signal"], "JEPQ Test")
@@ -217,17 +220,18 @@ class ScanServiceTests(unittest.TestCase):
             }
         )
 
-        with patch("api.portfolio_service.build_portfolio_overlay_frame") as build_overlay:
-            build_overlay.return_value = (
-                frame,
-                [
-                    SimpleNamespace(symbol="SPY", hold_days=3, profit=2),
-                    SimpleNamespace(symbol="SOXX", hold_days=5, profit=1),
-                ],
-                "Portfolio (2 strategies, first signal only): A, B",
-                5,
-                2,
-            )
+        book = SimpleNamespace(
+            frame=frame,
+            strategies=[
+                SimpleNamespace(symbol="SPY", hold_days=3, profit=2),
+                SimpleNamespace(symbol="SOXX", hold_days=5, profit=1),
+            ],
+            description="Portfolio (2 strategies, first signal only): A, B",
+            max_hold=5,
+            max_profit=2,
+        )
+        with patch("api.portfolio_service.build_portfolio_scan_book", return_value=book), \
+             patch("api.portfolio_service.scan_position", return_value=position_from_flags(True, False, False)):
             row = _portfolio_scan_row(portfolio)
 
         self.assertIsNotNone(row)
@@ -238,8 +242,9 @@ class ScanServiceTests(unittest.TestCase):
         self.assertEqual(row["symbol"], "SOXX+SPY")
         self.assertEqual(row["signal"], "My Portfolio")
         self.assertTrue(row["buy_signal"])
-        self.assertTrue(row["hold_long"])
+        self.assertFalse(row["hold_long"])
         self.assertFalse(row["sell_signal"])
+        self.assertEqual(row["position"]["action"], "Enter")
         self.assertEqual(row["days"], 5)
         self.assertEqual(row["profit"], 2)
         self.assertEqual(row["trade_pnl"], 4.0)

@@ -6,6 +6,10 @@
   symbol's real returns once it exists. Before that, and for any trade opened before it existed,
   the stand-in is the symbol's own return times the entry's leverage, with an optional cost model
   fitted from the period both exist. Signals always come from the original symbol.
+- An entry **without a leverage symbol** (for example RIVN at leverage 1) has no product to trade:
+  the stand-in carries every trade for the whole history. This is how a single stock is traded
+  unleveraged while the general leverage stays 3 for everything else. A leverage symbol left blank,
+  or equal to the symbol itself, means exactly this.
 
 The settings live in ``data/settings.json``. A missing file means "general leverage from
 ``config.Leverage``, no entries", which is the behavior before this feature existed.
@@ -37,18 +41,24 @@ _SYMBOL = re.compile(r"^[A-Z0-9][A-Z0-9.^=_-]{0,15}$")
 class SymbolLeverage:
     """One trading symbol and the leveraged product traded in its place.
 
+    ``leverage_symbol`` is None when there is no product to trade (see the module docstring).
+
     ``beta``, ``annual_fee`` and ``financing_multiple`` shape only the stand-in used where the
-    leverage symbol has no history: ``leverage_symbol_return ~ beta * return - (annual_fee +
-    financing_multiple * T-bill rate) / 252``. Left at their defaults the stand-in is an ideal
-    ``leverage * return``.
+    leverage symbol has no history (everywhere, when there is none): ``leverage_symbol_return ~
+    beta * return - (annual_fee + financing_multiple * T-bill rate) / 252``. Left at their
+    defaults the stand-in is an ideal ``leverage * return``.
     """
 
     symbol: str
-    leverage_symbol: str
+    leverage_symbol: str | None
     leverage: float
     beta: float | None = None
     annual_fee: float = 0.0
     financing_multiple: float = 0.0
+
+    @property
+    def has_vehicle(self) -> bool:
+        return self.leverage_symbol is not None
 
     @property
     def effective_beta(self) -> float:
@@ -116,9 +126,14 @@ def normalize_entry(raw: Any) -> SymbolLeverage:
     financing = _finite(get("financing_multiple") or 0.0, "Financing multiple")
     if not 0 <= financing <= MAX_FINANCING_MULTIPLE:
         raise ValueError(f"Financing multiple must be between 0 and {MAX_FINANCING_MULTIPLE:g}")
+    symbol = _symbol(get("symbol"), "Symbol")
+    raw_vehicle = get("leverage_symbol")
+    vehicle = None if raw_vehicle is None or not str(raw_vehicle).strip() else _symbol(raw_vehicle, "Leverage symbol")
+    if vehicle == symbol:
+        vehicle = None  # trading the symbol itself: there is no separate product
     return SymbolLeverage(
-        symbol=_symbol(get("symbol"), "Symbol"),
-        leverage_symbol=_symbol(get("leverage_symbol"), "Leverage symbol"),
+        symbol=symbol,
+        leverage_symbol=vehicle,
         leverage=leverage,
         beta=beta,
         annual_fee=fee,
@@ -133,10 +148,7 @@ def normalize_settings(general_leverage: Any, entries: Iterable[Any]) -> Leverag
         raise ValueError(f"General leverage must be above 0 and at most {MAX_LEVERAGE:g}")
     normalized = tuple(normalize_entry(entry) for entry in entries)
     symbols = [entry.symbol for entry in normalized]
-    vehicles = [entry.leverage_symbol for entry in normalized]
-    for entry in normalized:
-        if entry.symbol == entry.leverage_symbol:
-            raise ValueError(f"{entry.symbol}: the leverage symbol must differ from the symbol")
+    vehicles = [entry.leverage_symbol for entry in normalized if entry.has_vehicle]
     if len(set(symbols)) != len(symbols):
         duplicate = next(s for s in symbols if symbols.count(s) > 1)
         raise ValueError(f"{duplicate} is listed more than once")
@@ -144,7 +156,7 @@ def normalize_settings(general_leverage: Any, entries: Iterable[Any]) -> Leverag
         duplicate = next(v for v in vehicles if vehicles.count(v) > 1)
         raise ValueError(f"{duplicate} is the leverage symbol of more than one symbol")
     for entry in normalized:
-        if entry.leverage_symbol in symbols:
+        if entry.has_vehicle and entry.leverage_symbol in symbols:
             raise ValueError(
                 f"{entry.leverage_symbol} is itself listed as a symbol, so {entry.symbol} would "
                 "trade a chain of leverage symbols"

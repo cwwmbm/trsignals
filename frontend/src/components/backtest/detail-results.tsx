@@ -83,7 +83,9 @@ export const DetailResults = memo(function DetailResults({
       ) : null}
       {result.vehicle ? (
         <p className="mt-1 text-[11px] text-muted-foreground">
-          {result.vehicle.available
+          {result.vehicle.leverage_symbol == null
+            ? `${result.vehicle.symbol} is traded itself at ${result.vehicle.leverage}x, with no separate leveraged product.`
+            : result.vehicle.available
             ? `${result.vehicle.symbol} is traded as ${result.vehicle.leverage_symbol} from ${result.vehicle.first_date}: ` +
               `${result.vehicle.trades_on_leverage_symbol} trades in ${result.vehicle.leverage_symbol}, ` +
               `${result.vehicle.trades_on_stand_in} in ${result.vehicle.symbol} × ${result.vehicle.leverage} (opened before then).`

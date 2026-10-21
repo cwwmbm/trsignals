@@ -21,7 +21,7 @@ def load_ticker_data(symbol, years=25, *, use_cache=True):
     if 'Adj close' in data.columns:
         data = data.drop(columns=['Adj close'])
     data = dt.clean_holidays(data)
-    prepared = ind.add_indicators(data)
+    prepared = ind.add_indicators(data, symbol=normalized)
     if use_cache:
         save_cached_frame(normalized, years, PROFILE_SINGLE, prepared)
     return vehicles.stamp(prepared, normalized)

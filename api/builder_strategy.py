@@ -376,8 +376,11 @@ def _ranking_row_from_frame(
     include_yearly: bool,
     pnl_column: str | None,
 ) -> dict:
-    executed = bt.execute_strategy(frame, days, profit, is_long, pnl_column=pnl_column)
-    m = bt._ranking_metrics(executed, include_yearly=include_yearly)
+    from api import fast_metrics
+
+    m = fast_metrics.run_metrics(
+        frame, days, profit, is_long, pnl_column=pnl_column, include_yearly=include_yearly
+    )
     row = {
         "Buysell": buy_sell,
         "Indicator": column_name,
@@ -454,6 +457,7 @@ def builder_indicator_tryout(
     strategy_resolver: StrategyResolver | None = None,
     labels: dict[str, str] | None = None,
     verbose: bool = False,
+    min_trades: int = 0,
 ) -> pd.DataFrame:
     """
     Builder refine indicator sweep.
@@ -464,6 +468,7 @@ def builder_indicator_tryout(
     """
     from api.indicator_catalog import is_market_wide_indicator
     from api.sample_window import slice_symbol_data_to_end
+    from api.confirm_sweep import build_confirm_context
     from indicator_sweep import (
         BREADTH_SWEEPS,
         POST_2003_BREADTH_SWEEPS,
@@ -472,6 +477,7 @@ def builder_indicator_tryout(
         VFI_SWEEPS,
         VWAP_SWEEPS,
         _collect_sweeps,
+        _spec_candidates,
     )
     from config import ticker
 
@@ -570,6 +576,8 @@ def builder_indicator_tryout(
 
     running_rows: list[dict] = []
     og = days == 0
+    embedded_context = None
+    embedded_context_built = False
     all_spec_groups = []
     if check_breadth:
         all_spec_groups.append(BREADTH_SWEEPS)
@@ -597,8 +605,31 @@ def builder_indicator_tryout(
                 verbose,
                 False,
                 pnl_column=pnl_column,
+                min_trades=min_trades,
             )
         for spec in embedded_specs:
+            if not embedded_context_built:
+                embedded_context_built = True
+                embedded_context = build_confirm_context(
+                    strategy,
+                    refine_frame,
+                    days,
+                    profit,
+                    is_long,
+                    pnl_column,
+                    symbol_data,
+                    strategy_resolver=strategy_resolver,
+                    labels=labels,
+                )
+            if embedded_context is not None:
+                column, candidates = _spec_candidates(spec, False)
+                picked = embedded_context.top_candidates(column, candidates, limit=3, min_trades=min_trades)
+                rows = [embedded_context.exact_row(column, *candidates[k], include_yearly=True) for k in picked]
+                results = bt._format_ranking_results(pd.DataFrame(rows))
+                if verbose:
+                    print(results.head(5))
+                running_rows.extend(results.head(3).to_dict(orient="records"))
+                continue
             results = _run_embedded_spec(spec)
             top_results = _add_yearly_embedded(results.head(3))
             if verbose:

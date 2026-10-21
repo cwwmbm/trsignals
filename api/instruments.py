@@ -101,6 +101,8 @@ class InstrumentBook:
             if entry is None:
                 continue
             self._entries[underlying] = entry
+            if not entry.has_vehicle:
+                continue  # no product to trade: the stand-in carries the whole history
             key = vehicles.vehicle_key(underlying, entry.leverage_symbol)
             if key not in track_changes or key not in close_series:
                 continue  # the leverage symbol has no data: the stand-in carries the whole history

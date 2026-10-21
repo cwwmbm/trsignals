@@ -23,3 +23,5 @@ Alpaca.Market/
 .env
 unused/
 data_backup/
+/research/
+/.claude/

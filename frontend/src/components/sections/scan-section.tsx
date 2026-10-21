@@ -48,7 +48,8 @@ import {
 } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
 import { ConditionSnapshotHint } from '@/components/scan/condition-snapshot-hint'
-import { ScanSignalCheck } from '@/components/scan/scan-signal-indicator'
+import { ActionChip, PositionSummary, ScanCapitalInput } from '@/components/scan/scan-position'
+import { useScanCapital } from '@/hooks/use-scan-capital'
 import { useScanBoard } from '@/hooks/use-scan-board'
 import { scanRowAccentClass } from '@/lib/scan-signals'
 import {
@@ -70,9 +71,8 @@ function ScanTableHeader({ draggable }: { draggable?: boolean }) {
         {draggable ? <TableHead className={cn(compactHead, 'w-8')} /> : null}
         <TableHead className={compactHead}>Symbol</TableHead>
         <TableHead className={cn(compactHead, 'min-w-[120px]')}>Signal</TableHead>
-        <TableHead className={cn(compactHead, 'w-10 text-center')}>Buy</TableHead>
-        <TableHead className={cn(compactHead, 'w-10 text-center')}>Hold</TableHead>
-        <TableHead className={cn(compactHead, 'w-10 text-center')}>Sell</TableHead>
+        <TableHead className={cn(compactHead, 'w-20')}>Action</TableHead>
+        <TableHead className={cn(compactHead, 'min-w-[110px]')}>Position</TableHead>
         <TableHead className={cn(compactHead, 'w-10 text-right')}>Days</TableHead>
         <TableHead className={cn(compactHead, 'w-10 text-right')}>Prf</TableHead>
         <TableHead className={cn(compactHead, 'w-14 text-right')}>PnL</TableHead>
@@ -86,6 +86,7 @@ function ScanTableHeader({ draggable }: { draggable?: boolean }) {
 
 function ScanTableRowContent({
   row: r,
+  capital,
   strategy,
   portfolio,
   onBacktestStrategy,
@@ -97,6 +98,7 @@ function ScanTableRowContent({
   dragHandleProps,
 }: {
   row: ScanRow
+  capital: number | null
   strategy?: SavedStrategy
   portfolio?: SavedPortfolio
   onBacktestStrategy?: (strategy: SavedStrategy) => void
@@ -137,13 +139,10 @@ function ScanTableRowContent({
         </div>
       </TableCell>
       <TableCell className={compactCell}>
-        <ScanSignalCheck row={r} kind="buy" />
+        <ActionChip row={r} />
       </TableCell>
       <TableCell className={compactCell}>
-        <ScanSignalCheck row={r} kind="hold" />
-      </TableCell>
-      <TableCell className={compactCell}>
-        <ScanSignalCheck row={r} kind="sell" />
+        <PositionSummary row={r} capital={capital} />
       </TableCell>
       <TableCell className={cn(compactCell, 'text-right font-mono tabular-nums')}>{r.days}</TableCell>
       <TableCell className={cn(compactCell, 'text-right font-mono tabular-nums')}>{r.profit}</TableCell>
@@ -230,6 +229,7 @@ function ScanTableRowContent({
 
 function SortableScanTableRow({
   row,
+  capital,
   strategy,
   portfolio,
   onBacktestStrategy,
@@ -239,6 +239,7 @@ function SortableScanTableRow({
   lanePending,
 }: {
   row: ScanRow
+  capital: number | null
   strategy?: SavedStrategy
   portfolio?: SavedPortfolio
   onBacktestStrategy?: (strategy: SavedStrategy) => void
@@ -265,6 +266,7 @@ function SortableScanTableRow({
     >
       <ScanTableRowContent
         row={row}
+        capital={capital}
         strategy={strategy}
         portfolio={portfolio}
         onBacktestStrategy={onBacktestStrategy}
@@ -281,16 +283,18 @@ function SortableScanTableRow({
 
 function StaticScanTableRow({
   row,
+  capital,
   strategy,
   onBacktestStrategy,
 }: {
   row: ScanRow
+  capital: number | null
   strategy?: SavedStrategy
   onBacktestStrategy?: (strategy: SavedStrategy) => void
 }) {
   return (
     <TableRow className={cn('hover:bg-muted/30', scanRowAccentClass(row))}>
-      <ScanTableRowContent row={row} strategy={strategy} onBacktestStrategy={onBacktestStrategy} />
+      <ScanTableRowContent row={row} capital={capital} strategy={strategy} onBacktestStrategy={onBacktestStrategy} />
     </TableRow>
   )
 }
@@ -298,6 +302,7 @@ function StaticScanTableRow({
 function ScanLaneSection({
   lane,
   rows,
+  capital,
   expanded,
   onToggle,
   strategyById,
@@ -310,6 +315,7 @@ function ScanLaneSection({
 }: {
   lane: ScanLane
   rows: ScanRow[]
+  capital: number | null
   expanded: boolean
   onToggle: () => void
   strategyById: Map<string, SavedStrategy>
@@ -351,6 +357,7 @@ function ScanLaneSection({
                   <SortableScanTableRow
                     key={row.id}
                     row={row}
+                    capital={capital}
                     strategy={row.strategy_id ? strategyById.get(row.strategy_id) : undefined}
                     portfolio={row.portfolio_id ? portfolioById.get(row.portfolio_id) : undefined}
                     onBacktestStrategy={onBacktestStrategy}
@@ -364,7 +371,7 @@ function ScanLaneSection({
               {rows.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={12}
+                    colSpan={11}
                     className="py-4 text-center text-[11px] text-muted-foreground"
                   >
                     Drop strategies here
@@ -381,10 +388,12 @@ function ScanLaneSection({
 
 function LegacyScanSection({
   rows,
+  capital,
   expanded,
   onToggle,
 }: {
   rows: ScanRow[]
+  capital: number | null
   expanded: boolean
   onToggle: () => void
 }) {
@@ -411,7 +420,7 @@ function LegacyScanSection({
             <ScanTableHeader />
             <TableBody>
               {rows.map((row) => (
-                <StaticScanTableRow key={row.id} row={row} />
+                <StaticScanTableRow key={row.id} row={row} capital={capital} />
               ))}
             </TableBody>
           </Table>
@@ -429,6 +438,7 @@ export function ScanSection({
   onOpenPortfolio?: (state: PortfolioInitialState) => void
 }) {
   const board = useScanBoard()
+  const { text: capitalText, setText: setCapitalText, capital } = useScanCapital()
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -457,6 +467,7 @@ export function ScanSection({
               onCheckedChange={(checked) => board.setDataSource(checked ? 'ib' : 'yahoo')}
             />
           </div>
+          <ScanCapitalInput text={capitalText} onChange={setCapitalText} />
           <div className="relative min-w-[180px] flex-1 sm:max-w-xs">
             <Search className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -519,6 +530,7 @@ export function ScanSection({
                 key={lane}
                 lane={lane}
                 rows={board.laneRows[lane]}
+                capital={capital}
                 expanded={board.expandedSections.has(lane)}
                 onToggle={() => board.toggleSection(lane)}
                 strategyById={board.strategyById}
@@ -532,6 +544,7 @@ export function ScanSection({
             ))}
             <LegacyScanSection
               rows={board.legacyRows}
+              capital={capital}
               expanded={board.expandedSections.has('legacy')}
               onToggle={() => board.toggleSection('legacy')}
             />

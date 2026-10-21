@@ -8,6 +8,14 @@
       "beta": 2.9634,
       "annual_fee": 0.01938,
       "financing_multiple": 2.3508
+    },
+    {
+      "symbol": "RIVN",
+      "leverage_symbol": null,
+      "leverage": 1.0,
+      "beta": 1.0,
+      "annual_fee": 0.0,
+      "financing_multiple": 0.0
     }
   ]
 }

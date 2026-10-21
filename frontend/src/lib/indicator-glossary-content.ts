@@ -10,6 +10,7 @@ export const INDICATOR_CATEGORY_ORDER = [
   'VWAP / fair value',
   'Pattern / signal flags',
   'Breadth RSI',
+  'Earnings',
   'Market regimes',
 ] as const
 
@@ -30,6 +31,8 @@ export const INDICATOR_CATEGORY_INTROS: Partial<
     'Boolean flags for Donchian/Keltner/PSAR breakouts, BB/Keltner squeeze, EMA crosses, and close-pattern signals. Use is true / is false in the builder.',
   'Breadth RSI':
     'RSI applied to sector/style participation ratios — market, semis, financials, energy, and more.',
+  Earnings:
+    'Trading days to the next and since the last earnings reaction day, for stocks. A report before the open reacts the same day, one after the close the next session. ETFs and indexes have no earnings, so both read 999 and an entry rule such as Days to earnings > 3 never blocks them.',
   'Market regimes':
     'True/false flags for each market-regime bucket. Is true keeps only that bucket. Is false keeps every other defined day. Days before the series exists match neither.',
 }

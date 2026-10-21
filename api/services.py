@@ -19,6 +19,9 @@ from api.builder_strategy import (
     regime_trial_metrics_full_path,
 )
 from api import leverage_settings, vehicle_data, vehicles
+from api.basket_sweep import run_basket_sweep, symbol_metrics as basket_symbol_metrics
+from api.confirm_sweep import build_confirm_context
+from api.fast_sweep import NUMBA_AVAILABLE, combination_sweep, filters_from_row, run_filters_exact
 from api.indicator_catalog import is_market_wide_indicator, list_indicators
 from api.proxy_symbol import proxy_column, with_proxy_description
 from api.sample_window import (
@@ -391,6 +394,48 @@ def _evaluate_refine_row_metrics(
     pnl_col = proxy_column(primary)
     row = dict(row or {})
 
+    if mode == "basket-sweep":
+        symbol = str(row.get("Symbol") or "").strip().upper()
+        if not symbol:
+            raise ValueError("Basket sweep outcome requires Symbol")
+        detail = basket_symbol_metrics(primary, symbol, years=years, in_sample_end=use_end)
+        return {key: detail[key] for key in ("PnL", "MaxDD", "Trades", "%Pstv", "CAGR", "Sharpe", "Sortino", "Yearly")}
+
+    if mode == "indicator-combo-sweep":
+        filters = filters_from_row(row)
+        cache_key = ("refine_frame", use_end)
+        packed = cache.get(cache_key)
+        if packed is None:
+            packed = prepare_builder_refine_frame(
+                primary,
+                years=years,
+                data=data,
+                in_sample_end=use_end,
+                strategy_resolver=get_strategy_by_id,
+                labels=labels,
+            )
+            cache[cache_key] = packed
+        refine_frame, days, profit, is_long, frame_pnl = packed
+        detail = run_filters_exact(
+            refine_frame,
+            days,
+            profit,
+            is_long,
+            filters,
+            include_yearly=True,
+            pnl_column=frame_pnl or pnl_col,
+        )
+        return {
+            "PnL": detail["PnL"],
+            "MaxDD": detail["MaxDD"],
+            "Trades": detail["Trades"],
+            "%Pstv": detail["%Pstv"],
+            "CAGR": detail["CAGR"],
+            "Sharpe": detail["Sharpe"],
+            "Sortino": detail["Sortino"],
+            "Yearly": detail.get("Yearly") or [],
+        }
+
     if mode == "indicator-sweep":
         column = str(row.get("Indicator") or "")
         condition = str(row.get("Condition") or "").lower()
@@ -420,18 +465,47 @@ def _evaluate_refine_row_metrics(
                 if use_end is not None:
                     symbol_data = slice_symbol_data_to_end(symbol_data, use_end)
                 cache[cache_key] = symbol_data
-            detail = _run_confirm_embedded_buy_threshold(
-                primary,
-                years=years,
-                symbol_data=symbol_data,
-                column_name=column,
-                condition=condition,
-                value=value,
-                include_yearly=True,
-                strategy_resolver=get_strategy_by_id,
-                labels=labels,
-                pnl_column=pnl_col,
-            )
+            context_key = ("confirm_context", use_end)
+            if context_key not in cache:
+                pack_key = ("refine_frame", use_end)
+                pack = cache.get(pack_key)
+                if pack is None:
+                    pack = prepare_builder_refine_frame(
+                        primary,
+                        years=years,
+                        data=data,
+                        in_sample_end=use_end,
+                        strategy_resolver=get_strategy_by_id,
+                        labels=labels,
+                    )
+                    cache[pack_key] = pack
+                cache[context_key] = build_confirm_context(
+                    primary,
+                    pack[0],
+                    pack[1],
+                    pack[2],
+                    pack[3],
+                    pack[4] or pnl_col,
+                    symbol_data,
+                    strategy_resolver=get_strategy_by_id,
+                    labels=labels,
+                )
+            context = cache[context_key]
+            if context is not None:
+                detail = context.exact_row(column, condition, value, include_yearly=True)
+            else:
+                detail = _run_confirm_embedded_buy_threshold(
+                    primary,
+                    years=years,
+                    symbol_data=symbol_data,
+                    column_name=column,
+                    condition=condition,
+                    value=value,
+                    include_yearly=True,
+                    strategy_resolver=get_strategy_by_id,
+                    labels=labels,
+                    pnl_column=pnl_col,
+                )
             return {
                 "PnL": detail["PnL"],
                 "MaxDD": detail["MaxDD"],
@@ -772,6 +846,14 @@ def run_builder_refine(request) -> dict:
             )
             return _wrap_refine_rows(rows, full_frame, in_sample_end=in_sample_end)
 
+        if request.mode == "basket-sweep":
+            if custom_dataset is not None:
+                raise ValueError("Basket sweep is not supported with custom intraday data")
+            results, summary = run_basket_sweep(primary, request.basket_symbols, years=years)
+            meta = sample_window_meta(full_frame, sample="full", fraction=1.0, in_sample_end=None)
+            meta["basket"] = summary
+            return {"rows": results, "meta": meta}
+
         refine_frame, days, profit, is_long, pnl_col = prepare_builder_refine_frame(
             primary,
             years=years,
@@ -850,6 +932,7 @@ def run_builder_refine(request) -> dict:
                     strategy_resolver=get_strategy_by_id,
                     labels=labels,
                     verbose=False,
+                    min_trades=config.MIN_IN_SAMPLE_TRADES,
                 )
             else:
                 results = indicator_tryout(
@@ -864,6 +947,7 @@ def run_builder_refine(request) -> dict:
                     exclude_columns=exclude_columns,
                     include_vwap_sweeps=custom_dataset is not None and custom_dataset.has_vwap,
                     pnl_column=pnl_col,
+                    min_trades=config.MIN_IN_SAMPLE_TRADES,
                 )
             rows = _attach_full_period_to_rows(
                 results,
@@ -874,6 +958,44 @@ def run_builder_refine(request) -> dict:
                 labels=labels,
             )
             return _wrap_refine_rows(rows, full_frame, in_sample_end=in_sample_end)
+
+        if request.mode == "indicator-combo-sweep":
+            if request.is_sell:
+                raise ValueError("Combination sweeps apply to entry filters only")
+            if not NUMBA_AVAILABLE:
+                raise ValueError("Combination sweeps need numba: pip install numba")
+            results, search = combination_sweep(
+                refine_frame,
+                days,
+                profit,
+                is_long,
+                size=request.combo_size,
+                top_n=request.combo_top_n,
+                beam_width=request.combo_beam_width,
+                min_trades=config.MIN_IN_SAMPLE_TRADES,
+                check_breadth=request.check_breadth if custom_dataset is None else False,
+                check_both=request.check_both,
+                include_vwap_sweeps=custom_dataset is not None and custom_dataset.has_vwap,
+                exclude_columns=(
+                    set(custom_dataset.unavailable_indicator_ids) if custom_dataset else None
+                ),
+                # Symbol-specific filters must go through the confirm path to match "Add to entry";
+                # a combination search only has the merged frame, so it sticks to market-wide ones.
+                column_ok=is_market_wide_indicator if primary.confirm_symbols else None,
+                pnl_column=pnl_col,
+            )
+            search["market_wide_only"] = bool(primary.confirm_symbols)
+            rows = _attach_full_period_to_rows(
+                results,
+                mode=request.mode,
+                primary=primary,
+                data=data,
+                years=years,
+                labels=labels,
+            )
+            payload = _wrap_refine_rows(rows, full_frame, in_sample_end=in_sample_end)
+            payload["meta"]["combo_search"] = search
+            return payload
 
         if request.mode == "market-regime-sweep":
             results = builder_regime_tryout(
@@ -1001,6 +1123,12 @@ def delete_saved_strategy(strategy_id: str) -> dict:
 
 def list_saved_strategies() -> list[dict]:
     return [_model_dump(strategy) for strategy in list_strategies()]
+
+
+def run_exact_scan_position(portfolio_id: str) -> dict:
+    from api.scan_service import exact_portfolio_position
+
+    return exact_portfolio_position(portfolio_id)
 
 
 def run_live_scan(*, data_source: str = "yahoo") -> list[dict]:
@@ -1162,6 +1290,8 @@ def estimate_leverage_costs(request) -> dict:
     symbol = leverage_settings.normalize_entry(
         dict(symbol=request.symbol, leverage_symbol=request.leverage_symbol, leverage=1)
     )
+    if not symbol.has_vehicle:
+        raise ValueError("Enter a leverage symbol, different from the symbol, to fit a cost model against")
     underlying = vehicle_data.load_close(symbol.symbol)
     if underlying is None:
         raise ValueError(f"No price history found for {symbol.symbol}")

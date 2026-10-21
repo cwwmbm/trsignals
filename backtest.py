@@ -135,14 +135,16 @@ def _run_indicator_threshold(
         else:
             data_copy['Sell'] = data_copy['Sell'] | (data_copy[column_name] >= value)
 
-    data_copy = execute_strategy(
+    from api import fast_metrics  # not at import time: it imports this module
+
+    m = fast_metrics.run_metrics(
         data_copy,
         days_in_trade,
         profitable_close,
         is_long,
         pnl_column=pnl_column,
+        include_yearly=include_yearly,
     )
-    m = _ranking_metrics(data_copy, include_yearly=include_yearly)
     row = {
         'Buysell': buy_sell,
         'Indicator': column_name,
@@ -303,7 +305,7 @@ def backtest_signal_combinations(signal_a, signal_b, data, symbol=ticker):
 
     return results
 
-def build_symbol_dataset(full_data, symbols, symbol_to_yf=None):
+def build_symbol_dataset(full_data, symbols, symbol_to_yf=None, *, compute_hurst=True):
     """Build enriched, indicator-ready data from an existing bulk download."""
     if symbol_to_yf is None:
         context_symbols = [s for s in dt.MARKET_CONTEXT_SYMBOLS if s not in symbols]
@@ -311,10 +313,13 @@ def build_symbol_dataset(full_data, symbols, symbol_to_yf=None):
         symbol_to_yf = {symbol: dt.to_yf_symbol(symbol) for symbol in all_symbols}
     market_context = dt.extract_market_context(full_data, symbol_to_yf)
 
+    from api import earnings_data
+
+    earnings_data.prefetch(symbols)  # one parallel pass, instead of Yahoo one symbol at a time
     dataset = {}
     for symbol in symbols:
         data = dt.symbol_frame_from_bulk(full_data, symbol_to_yf[symbol], market_context)
-        dataset[symbol] = vehicles.stamp(ind.add_indicators(data), symbol)
+        dataset[symbol] = vehicles.stamp(ind.add_indicators(data, compute_hurst=compute_hurst, symbol=symbol), symbol)
     return dataset
 
 
@@ -775,6 +780,32 @@ def long_og_strat_proxy(data, days = 0, profit = 0, start_capital = 15000):
 
     return data
 
+def track_change_series(data, pnl_column=None):
+    """Per-bar return a held position earns before any vehicle stream, at the general leverage."""
+    general = leverage_settings.general_leverage()
+    if pnl_column:
+        return (data[pnl_column] - data[pnl_column].shift(1))*general / data[pnl_column].shift(1) if data[pnl_column].shift(1).any() > 0 else 0
+    if not UseProxyUnderlying:
+        # %Change is the legacy 3x indicator; rescale it to the general leverage.
+        return data['%Change'] * (general / Leverage)
+    split_change = (data[ProxySymbol] - data[ProxySymbol].shift(1))*general / data[ProxySymbol].shift(1) if data[ProxySymbol].shift(1).any() > 0 else 0
+    if SplitLong:
+        underlying_change = data['%Change'] * (general / Leverage)
+        return (split_change + underlying_change)/2
+    return split_change
+
+
+def traded_stream(data, is_long, pnl_column=None, trading_symbol=None):
+    """The leverage-vehicle stream a long trade earns, or None when the symbol has no settings entry."""
+    if not is_long:
+        return None
+    symbol = trading_symbol or pnl_column or getattr(data, "attrs", {}).get("symbol")
+    if not symbol:
+        return None
+    underlying = data[pnl_column] if pnl_column else data['Close']
+    return vehicles.stream_for(data['Date'], underlying.to_numpy(dtype=float), symbol)
+
+
 def long_strat(data, days, prof_closes, is_long = True, start_capital = 15000, point_multiplier = point_multiplier, *, pnl_column=None, trading_symbol=None):
     """Run one strategy bar by bar.
 
@@ -783,31 +814,16 @@ def long_strat(data, days, prof_closes, is_long = True, start_capital = 15000, p
     leverage times the symbol's return, or, for a symbol with a settings entry, the leverage
     symbol's real return (the stand-in before it exists, and for any trade opened before then).
     A trade's return compounds the daily returns it actually earned.
+
+    ``api.fast_sweep`` re-implements this loop for screening; keep the two in step.
     """
     signals = data
     n = len(signals)
     general = leverage_settings.general_leverage()
 
-    if pnl_column:
-        split_change = (data[pnl_column] - data[pnl_column].shift(1))*general / data[pnl_column].shift(1) if data[pnl_column].shift(1).any() > 0 else 0
-        signals['TrackChange'] = split_change
-    elif not UseProxyUnderlying:
-        # %Change is the legacy 3x indicator; rescale it to the general leverage.
-        signals['TrackChange'] = signals['%Change'] * (general / Leverage)
-    else:
-        split_change = (data[ProxySymbol] - data[ProxySymbol].shift(1))*general / data[ProxySymbol].shift(1) if data[ProxySymbol].shift(1).any() > 0 else 0
-        if SplitLong:
-            underlying_change = data['%Change'] * (general / Leverage)
-            signals['TrackChange'] = (split_change + underlying_change)/2
-        else:
-            signals['TrackChange'] = split_change
+    signals['TrackChange'] = track_change_series(data, pnl_column)
 
-    stream = None
-    if is_long:
-        symbol = trading_symbol or pnl_column or getattr(data, "attrs", {}).get("symbol")
-        if symbol:
-            underlying = data[pnl_column] if pnl_column else data['Close']
-            stream = vehicles.stream_for(data['Date'], underlying.to_numpy(dtype=float), symbol)
+    stream = traded_stream(data, is_long, pnl_column, trading_symbol)
     if stream is not None:
         signals.attrs["traded"] = {
             "symbol": stream.symbol,

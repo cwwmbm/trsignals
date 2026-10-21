@@ -117,6 +117,8 @@ TradingStrategy/
 ├── stats.py              ← aggregate metrics, yearly breakdown, outlier exclusion
 ├── backtest_runners.py   ← load data, single-symbol & cross-symbol runners
 ├── indicator_sweep.py    ← grid-search indicator filters on a signal
+├── api/fast_sweep.py     ← compiled screen for indicator pairs/trios (numba)
+├── api/earnings_data.py  ← earnings dates (Yahoo, cached) behind DaysToEarnings / DaysSinceEarnings
 ├── signal_check.py       ← Streamlit daily signal dashboard
 ├── quote.py              ← quick indicator snapshot
 ├── warn_config.py        ← suppresses third-party FutureWarnings
@@ -236,6 +238,36 @@ RUN_MODE = 'indicator_sweep'
 SIGNAL = ind.buy_signal7
 INDICATOR_SWEEP = dict(is_sell=False, check_breadth=False, check_both=False)
 ```
+
+**Single-indicator sweep speed** (`indicator_sweep.py`, `api/confirm_sweep.py`, `api/fast_metrics.py`):
+
+The single-indicator sweep used to run a full backtest for every grid point (about 1,000 per sweep, and for symbol-specific filters on a strategy with confirm symbols about 0.7 s each). It now screens the whole grid with the compiled loop from `api/fast_sweep.py` and runs only each indicator's best three through the engine.
+
+- Market-wide filters and the legacy sweep score precomputed masks (`Scorer`). Symbol-specific filters on confirm strategies use `ConfirmSweepContext`, which composes each candidate's entry from per-symbol buy/hold arrays the way `apply_cross_symbol_signal` does. It checks itself against the real frame first and falls back to the slow path if it ever disagrees.
+- The rows that come back (and each row's full-period figures) are produced by `fast_metrics.ranking_metrics`, a numpy port of `_ranking_metrics` that is tested against the real engine and returns None, so the real path runs, for anything unusual (zero-day strategies, blown-up equity, no numba).
+- The refine sweep skips thresholds with fewer than `MIN_IN_SAMPLE_TRADES` trades when picking the top three, so a thin threshold no longer takes a place that is dropped afterwards.
+- Zero-day ("og") strategies keep the old path.
+
+**Indicator combo sweep** (Strategy Builder → Refine → *Indicator combo sweep*, `POST /backtests/builder/refine` with `mode: "indicator-combo-sweep"`):
+
+Searches *pairs* (exhaustive) or *trios* (the best 150 pairs extended by every third filter) of the same threshold filters the indicator sweep tries, ANDed onto the draft's entry.
+
+- Each filter's mask is computed once. `api/fast_sweep.py` runs a numba copy of `long_strat` plus a Sharpe that mirrors `stats.py` on `base AND mask_a AND mask_b`, about 0.2 ms per combination against about 22 ms through `execute_strategy`. A 25-year SPY pair sweep (about 100k to 160k combinations) takes a few seconds.
+- It is a screen: the top rows are re-run through the real engine, so every figure shown comes from `execute_strategy`. `tests/test_fast_sweep.py` checks the screen against the engine (long, short, hold-on-buy, proxy, leverage vehicle). Change `long_strat` and that test shows where the screen drifts.
+- Ranked in-sample like every refine mode; each row carries its full-period figures. The header shows how many combinations were tested. The more tested, the luckier the winner, so check the full-period figures.
+- Entry filters only, hold-days strategies only. With confirmation symbols only market-wide indicators are combined.
+- Needs `numba` (in `requirements.txt`). Without it the mode returns an error.
+
+**Basket test** (Strategy Builder → Refine → *Basket test*, `POST /backtests/builder/refine` with `mode: "basket-sweep"` and `basket_symbols`):
+
+Runs the draft strategy on other symbols over their full history to see whether it holds up beyond the one it was built on (`api/basket_sweep.py`).
+
+- Each symbol goes through the same loader and engine as the Backtest button, so the draft's own symbol, run as the reference row, matches Backtest.
+- Per symbol the strategy is adapted: a confirm symbol equal to the basket symbol is dropped, and the proxy symbol is ignored.
+- `NullSharpe` and `NullP` rank each symbol against the same entry signals shifted in time (300 circular shifts, via `fast_sweep.shift_null`). A stock that rose a lot looks good under any timing; beating its null is the evidence the entries add something there. By chance about 5% of symbols clear p <= 0.05. Without numba these columns are empty.
+- Symbols that fail to load or have under 250 bars become rows with an `Error`; the sweep carries on.
+- Data is downloaded one symbol at a time (yfinance breaks under concurrent downloads) and cached, so a new basket takes a few seconds per symbol the first time.
+- Stocks in a basket move together, so rows are related checks, not independent proof.
 
 ### Aggregate metrics & outlier exclusion
 
@@ -369,6 +401,7 @@ The **Settings** page decides what each trading symbol *earns*. Signals never ch
 
 - **General leverage** (default 3, from `config.Leverage`): any symbol without an entry earns its own daily return times this factor, compounded, a daily-reset leveraged product.
 - **Symbols**: an entry names a symbol, a *leverage symbol* and a leverage, for example SOXX, SOXL, 3. The lookup uses the symbol a strategy actually trades (its proxy, or the portfolio's proxy), not the symbol its signals come from.
+- **A symbol with no leverage symbol**: leave the leverage symbol blank (or type the symbol itself) and the symbol is traded itself at the leverage you give. `RIVN`, blank, `1` trades RIVN unleveraged while everything else keeps the general leverage, which is how to test strategies on single stocks without leverage. There is no product to look up, so the stand-in carries every trade for the whole history, and the cost model fields (shown only when the leverage is not 1) apply to every day. The leverage symbol is stored as `null`; entries that have one are unchanged.
 
 How an entry is used, in a backtest or a portfolio:
 
@@ -376,7 +409,7 @@ How an entry is used, in a backtest or a portfolio:
 2. **Before it exists**, the position is held in a *stand-in*: the symbol's own return times the entry's leverage, with an optional cost model (below).
 3. **The instrument is chosen when a position opens and kept until it closes.** A trade already open on the day the leverage symbol first has a close finishes on the stand-in; the next entry uses the leverage symbol. In a portfolio the rule applies per symbol to the whole book: while the book holds nothing in a symbol, its next position opens in the leverage symbol if that has a close that day; adds, partial exits and strategies joining stay in the instrument that is open. A day the leverage symbol has no usable return uses the stand-in's return for that day.
 4. **Shorts never use a leverage symbol** (SOXL is a long product); they keep the general leverage.
-5. If the leverage symbol has no price history, the stand-in carries every trade and the result says so.
+5. If the leverage symbol has no price history, the stand-in carries every trade and the result says so. With no leverage symbol at all the result says the symbol was traded itself at its leverage.
 
 **The stand-in's cost model** is optional. An ideal `leverage * return` flatters history from before the leverage symbol existed, because a real leveraged fund pays fees and swap financing. SOXL against 3 x SOXX over 2010 to 2026 (4,176 days) shows a slope of 2.96 and a gap of about -6.4% a year that tracks the T-bill rate, roughly 1.9% plus 2.6 times the 3-month T-bill rate (the yearly gap was about -1% in 2010 to 2016 and -14% in 2023 to 2026). On the "New OG Based" signals that ideal stand-in overstates All-In CAGR by about 5 points before March 2010 and understates the max drawdown by about 2 points. Three optional fields shape the stand-in: *beta* (blank means the leverage), *annual fee* and *financing x T-bill*. **Estimate from history** fits all three on the days both symbols traded and shows how well the fit tracks (correlation, tracking error); the T-bill rate is Yahoo's `^IRX`. A flat rate series is left out of the fit, since it cannot be told apart from the fee.
 
@@ -389,7 +422,7 @@ What you will see:
 Details worth knowing:
 
 - Settings live in `data/settings.json` and apply to every run immediately, including saved portfolios (like child portfolios, they are read live). A missing file means general leverage 3 and no entries, the behavior before this feature.
-- One entry per symbol; the leverage symbol must differ from the symbol, cannot be shared, and cannot itself be a listed symbol (no chains). A portfolio that also trades a leverage symbol as a symbol of its own is refused with a message.
+- One entry per symbol; a leverage symbol, when there is one, cannot be shared and cannot itself be a listed symbol (no chains); several symbols may have none. A portfolio that also trades a leverage symbol as a symbol of its own is refused with a message.
 - Leverage-symbol closes and the T-bill rate are downloaded once per trading day into `data/market_cache/vehicle/` and are independent of how many years a backtest asks for.
 - All-In on a symbol with an entry runs through the allocation engine (the original overlay follows one plain return stream); on a symbol without one it is unchanged.
 - The `%Change` indicator stays at the fixed legacy factor of 3 so saved rules that use it never change meaning when the general leverage changes. The legacy "original" strategy paths (`hold_days` of 0) are not covered by these settings.
@@ -411,6 +444,7 @@ The Regimes screen scores how a strategy (or portfolio) has done in each market 
 - Scores are absolute, not relative to the strategy's own baseline: a poor strategy is poor in every state and is scored that way.
 - Sortino is taken over the bars the book was invested. Flat bars used to count as zero returns, which shrank Sortino by about the square root of the share of time invested and made rarely-invested regimes look worse than they were. Note the Sortino part now reaches full marks at a Sortino of 3 often (about four in five regime states when tested), so it separates good states from great ones less than it separates bad from good.
 - **VIX daily change** is the one regime with **overlapping** buckets: the VIX's close-to-close % change, in `≤ -15%`, `≤ -10%`, `≤ -5%`, `≤ 0%`, `≥ 0%`, `≥ 5%`, `≥ 10%`, `≥ 15%` and `≥ 20%`. A day (or a trade's entry bar) belongs to every bucket it satisfies, so a -12% day is in `≤ -10%`, `≤ -5%` and `≤ 0%`, and exactly 0% is in both `≤ 0%` and `≥ 0%`. A trade counts in each of its buckets, so bucket trade counts and days add up to more than the totals. "State changes" on the analysis table means any change in the set of buckets. Its builder flags are `Regime_vix_change_<bucket>`. A missing VIX close blanks that day and the next. It is not one of the 15 regimes regime-adjusted allocation reads, because one day would then take several penalties from the same regime.
+- **VIX vs realized vol** is the VIX divided by SPY's 21-day realized volatility (std of daily log returns × √252, in %), ranked as an **expanding percentile** against every earlier day of that ratio. Nothing after the day is ever used, and a day is not labeled until 252 earlier readings exist. Buckets: `≤ 10th` extreme realized dominance, `10–30th` realized dominance, `30–70th` typical, `70–90th` elevated implied premium, `> 90th` extreme implied premium (shared edges go to the lower bucket). The ranking starts at the beginning of the downloaded regime calendar (the backtest span plus two years), so the same date can land in a different bucket on a 5-year and a 25-year backtest. Not one of the 15 allocation regimes. Builder flags are `Regime_vix_rv_<bucket>`.
 
 ## Portfolio allocation models
 
@@ -499,7 +533,27 @@ Things to know:
 - Early history is fully invested because no state has 20 trades yet. A drawdown in the first years is therefore the same as all-in's.
 - Scores come from `api/regime_scoring.py`, which keeps running statistics instead of rescoring from scratch at every decision (seconds instead of about twelve minutes), and is tested against the direct scorer bar for bar.
 - Contribution and Shapley use the same rules for every smaller portfolio, reusing each strategy's scores. A Shapley run scores one portfolio history per coalition, so it takes noticeably longer than for other models.
-- The Scan screen only needs today's signals, so it sizes a regime-adjusted portfolio like a linear one.
+- The Scan screen sizes a regime-adjusted portfolio like a linear one and marks it `≈`, because its scores need 25 years of history. **Compute exact** in the row's details runs the full history for that portfolio.
+
+## Scan: what to do with each row today
+
+The Scan page used to read three flags per row, buy, hold and sell, from whether a portfolio crossed 0%, so a move from 55% to 100% or back looked like "hold". Each row now shows an **Action** and a **Position**, read from the last bar of the same engine run that backtests use.
+
+| Action | Meaning |
+|---|---|
+| **Enter** | from nothing to a position |
+| **Add** | the position grows (for example 55% to 100% when a second strategy joins) |
+| **Reduce** | the position shrinks but stays open |
+| **Exit** | back to nothing |
+| **Rebalance** | the total is unchanged but the split between instruments moved (a mixed-symbol book) |
+| **Hold** | no change today, whatever price did to the weight |
+| **Flat** | not in the market |
+
+The Position column is `held before → held now` as a share of that portfolio's own book (100% is the whole portfolio, never of an account, which the app does not know). On a Hold day it shows the drifted share and the model's target, for example `61% (target 55%)`: the model only trades when a signal changes, so shares drift with price in between and there is nothing to do. Any change counts, however small; there is no minimum trade size.
+
+Click a portfolio's position for the details: the reason ("Sig 16 exited, 1 of 4 active"), held before and now, the **orders** per instrument (the product the engine would route to, SOXL once it has a close and the stand-in before, with the ordinary price), what is held afterwards, and the active strategies. An **Account $** box next to the search (kept in your browser only, `50k` works) turns each order into dollars and whole shares at the last close. A stand-in with leverage other than 1 has no product to buy, so it shows dollars only.
+
+Single strategies are all-in, so they show Enter, Hold, Exit or Flat at 0% or 100%. For an all-in portfolio the actions map one-to-one onto the old Buy, Hold, Sell. The old flags are still in the response (`buy_signal` is true for Enter, Add and Rebalance; `sell_signal` for Exit, Reduce and Rebalance) next to the new `position` object ([`api/scan_position.py`](api/scan_position.py)). A portfolio's exact position at its real sizing is also available at `GET /api/scan/portfolios/{id}/position`.
 
 ## Position episodes and rebalance events
 
@@ -666,9 +720,29 @@ Key output columns: `LongTradeIn`, `LongTradeOut`, `HoldLong`, `TradePnL`, `Roll
 - **Volume / flow:** OBV, OBV slope, Chaikin Money Flow, VFI, volume vs EMA
 - **Custom:** IBR, Kaufman ER, ValueCharts, Hurst, Change Velocity
 - **Breadth:** sector/index ratios vs SPY with RSI overlays
+- **Earnings:** `DaysToEarnings` and `DaysSinceEarnings`, for stocks (see below)
 - **Context:** VIX, VIX daily change (`VixChange`, in percent points: -10 means the VIX fell 10% that day), SPY 50/200 bull flag, Donchian/Keltner/PSAR breakout flags
 
 Session VWAP is not available (daily EOD data only).
+
+### Earnings indicators
+
+`DaysToEarnings` and `DaysSinceEarnings` let a rule avoid, or look for, the days around a company's earnings report, for example *don't hold into earnings*:
+
+- Entry: `Days to earnings > 3`. With a 3-day hold, nothing opened under this rule is exposed to a report. Use a number at least as large as the hold.
+- Exit: `Days to earnings <= 1` closes a trade at the close before the report.
+- `Days since earnings` is the other side: `= 0` is the reaction day itself, `<= 2` the first sessions after.
+
+They count **trading bars** to the next / since the last **reaction day**, the first session whose price reflects a report. A report before the open (a time before noon, Eastern) reacts the same day; one after the close reacts the next session. So `DaysToEarnings` is 1 on the bar before the reaction day, where a position opened at that close is exposed to the report, and 0 on the reaction day. As a check on AAPL over ten years, the average absolute move on the 43 reaction days was 3.7%, against 1.2% on every other day.
+
+Where no date is known (an ETF or index, a symbol Yahoo has nothing for, bars before the first or after the last date it lists) both read **999**. That keeps `Days to earnings > 3` true on an ETF instead of blocking every trade, and keeps an exit such as `<= 1` from ever firing there. They are not available for uploaded intraday data. Like the VIX filters, they apply to the traded symbol after any cross-symbol confirmation, so a confirm symbol's earnings never gate your trade. They are also in the indicator sweeps.
+
+The dates come from Yahoo through yfinance ([`api/earnings_data.py`](api/earnings_data.py)), which scrapes them, at most 100 rows a call, so the module pages. History reaches back to the late 1990s or early 2000s for large companies and to the IPO for newer ones. Each symbol is cached in `data/market_cache/earnings/` and refreshed weekly (a symbol with no dates is rechecked monthly). A failed download keeps the old cache and is never remembered as "no earnings". Known limits:
+
+- **A quarter is occasionally missing** (AAPL has none listed from January to October 2001), and during such a stretch the rule does not protect. `earnings_data.coverage("AAPL")` lists the gaps, the number of reports and the upcoming date.
+- **The next report is a projection until the company confirms it**, usually two to five weeks ahead. A rule of up to about 10 trading days is realistic in live trading; a much longer one would use a date you would not have known.
+- **ETFs have no earnings**, so a rule never sees, say, NVDA's report moving SOXX.
+- A weekend report is moved to Monday, and a reaction day beyond the last bar is counted in weekdays, so a market holiday in between can be off by a day.
 
 ## Data sources
 
