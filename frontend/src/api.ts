@@ -873,14 +873,30 @@ export type AllocationSummary = {
 export type AllocationComparisonRow = {
   model: string;
   label: string;
+  /** "nested" for a regrouping into child portfolios; older responses carry none, which means flat. */
+  group?: "flat" | "nested";
+  structure?: { key: string; grouping: string; parent_model: string; child_model: string };
   metrics: Record<string, number | null>;
   analytics: AllocationAnalytics;
   attribution: AllocationAttribution | null;
   drawdown_risk?: DrawdownRisk | null;
 };
 
+/** What the "include child portfolio nesting" option ran, or why it did not. */
+export type ComparisonNesting = {
+  skipped: string | null;
+  strategies: Array<{ letter: string; name: string }>;
+  structures?: number;
+  total_structures?: number;
+  models?: string[];
+  variants?: number;
+  truncated?: boolean;
+  seconds?: number;
+};
+
 export type AllocationComparison = {
   start_date: string;
+  nesting?: ComparisonNesting;
   start_capital: number;
   transaction_cost_bps: number;
   /** The score the regime-adjusted rows read. */
@@ -1074,7 +1090,7 @@ export function runPortfolioShapley(
 }
 
 export function runPortfolioAllocationComparison(
-  payload: PortfolioSimulatePayload,
+  payload: PortfolioSimulatePayload & { include_nesting?: boolean },
 ): Promise<AllocationComparison> {
   return postJson<AllocationComparison>("/portfolios/allocation-comparison", payload);
 }

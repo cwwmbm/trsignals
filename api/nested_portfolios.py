@@ -6,6 +6,24 @@ from api.portfolio_graph import validate_graph
 from api.portfolio_store import list_portfolios, _model_dump
 
 
+def make_child_member(*, member_id, name, members, child_signals, allocation, proxy, years, executed=None):
+    """A child portfolio as a member of its parent: the placeholder strategy and the signals the
+    parent sees (active while any member is, eligible while any member is)."""
+    from api import portfolio_service as ps
+
+    dates = ps._master_dates_for(child_signals, None)
+    active, eligible, _ = ps._effective_signal_matrices(members, child_signals, dates)
+    active, eligible = active.any(axis=0), eligible.any(axis=0)
+    previous = np.concatenate(([False], active[:-1]))
+    member = SimpleNamespace(id=member_id, name=name, symbol='Portfolio', direction='long',
+        proxy_symbol=None, hold_days=max(m.hold_days for m in members), profit=max(m.profit for m in members),
+        nested_spec=SimpleNamespace(members=members, signals=child_signals, allocation=allocation,
+                                    proxy=proxy, years=years))
+    state = ps.StrategySignals(member_id, name, 'Portfolio', dates,
+        active & ~previous, previous, previous & ~active, executed=executed, entry_ready=eligible)
+    return member, state
+
+
 def prepare_nested(portfolio, *, years, use_cache=True, symbol_dataset=None, bulk_data=None, _saved=None, _cache=None, **kwargs):
     from api import portfolio_service as ps
     saved = list_portfolios() if _saved is None else _saved
@@ -46,18 +64,12 @@ def prepare_nested(portfolio, *, years, use_cache=True, symbol_dataset=None, bul
         executed = ps.simulate_portfolio_frame(members, child_signals, allocation=allocation,
             overlap_mode=ps.PORTFOLIO_OVERLAP_MODE, global_proxy=child_proxy,
             track_changes=child_tracks, close_series=child_closes, strategy_order=[m.id for m in members])
-        active, eligible, _ = ps._effective_signal_matrices(members, child_signals, dates)
-        active, eligible = active.any(axis=0), eligible.any(axis=0)
-        previous = np.concatenate(([False], active[:-1]))
         member_id = f'portfolio:{identity}'
-        member = SimpleNamespace(id=member_id, name=child.name, symbol='Portfolio', direction='long',
-            proxy_symbol=None, hold_days=max(m.hold_days for m in members), profit=max(m.profit for m in members),
-            nested_spec=SimpleNamespace(members=members, signals=child_signals, allocation=allocation,
-                                        proxy=child_proxy, years=years))
+        member, state = make_child_member(member_id=member_id, name=child.name, members=members,
+            child_signals=child_signals, allocation=allocation, proxy=child_proxy, years=years, executed=executed)
         strategies.append(member)
         ids.append(member_id)
-        signals[member_id] = ps.StrategySignals(member_id, child.name, 'Portfolio', dates,
-            active & ~previous, previous, previous & ~active, executed=executed, entry_ready=eligible)
+        signals[member_id] = state
         cache[identity] = (member, signals[member_id], child_tracks, child_closes)
         tracks.update(child_tracks)
         closes.update(child_closes)

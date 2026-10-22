@@ -1,18 +1,21 @@
 import { useMutation } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
-import { useMemo } from "react";
+import { ArrowDown, ArrowUp, ChevronsUpDown, Loader2 } from "lucide-react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
 import {
   runPortfolioAllocationComparison,
   type AllocationAnalytics,
   type AllocationAttribution,
   type AllocationComparison,
+  type AllocationComparisonRow,
+  type ComparisonNesting,
   type AllocationSummary,
   type PortfolioSimulatePayload,
 } from "@/api";
 import { formatRisk, riskLabel } from "@/components/backtest/drawdown-risk-panel";
 import { StatCard } from "@/components/backtest/stat-card";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   ChartContainer,
   ChartLegend,
@@ -301,19 +304,193 @@ function ExposureChart({ steps, nested = false }: { steps: AllocationSummary["ex
   );
 }
 
-function ComparisonBlock({ comparison, nested = false }: { comparison: AllocationComparison; nested?: boolean }) {
-  const config = useMemo(() => {
-    const entries: ChartConfig = {};
-    for (const row of comparison.models) {
-      entries[row.model] = { label: row.label, color: MODEL_COLORS[row.model] ?? "var(--chart-5)" };
-    }
-    return entries;
-  }, [comparison.models]);
+const TOP_COUNT = 5;
 
+/** The colour of a row's line and dot. Flat models keep their fixed colours; variants spread around the hue wheel. */
+function rowColor(row: AllocationComparisonRow, index: number): string {
+  return MODEL_COLORS[row.model] ?? `oklch(0.7 0.15 ${(index * 47) % 360})`;
+}
+
+function sharpeOf(row: AllocationComparisonRow): number {
+  return row.metrics.sharpe ?? Number.NEGATIVE_INFINITY;
+}
+
+/** The ids of the best rows by Sharpe: what the chart shows until you pick others. */
+function topBySharpe(rows: AllocationComparisonRow[], count = TOP_COUNT): string[] {
+  return [...rows].sort((a, b) => sharpeOf(b) - sharpeOf(a)).slice(0, count).map((row) => row.model);
+}
+
+type SortColumn = {
+  id: string;
+  label: string;
+  title?: string;
+  align: "left" | "right";
+  /** Which end is best, so the first click puts the best rows first. */
+  better: "high" | "low" | "alpha";
+  value: (row: AllocationComparisonRow) => number | string | null;
+};
+type SortState = { id: string; dir: "asc" | "desc" };
+
+function sortColumns(riskThresholds: number[]): SortColumn[] {
+  return [
+    { id: "model", label: "Model", align: "left", better: "alpha", value: (row) => row.label },
+    { id: "final", label: "Final equity", align: "right", better: "high", value: (row) => row.metrics.rolling_pnl },
+    { id: "cagr", label: "CAGR", align: "right", better: "high", value: (row) => row.metrics.cagr_percent },
+    { id: "sharpe", label: "Sharpe", align: "right", better: "high", value: (row) => row.metrics.sharpe },
+    { id: "maxdd", label: "Max DD", align: "right", better: "low", value: (row) => row.metrics.max_drawdown },
+    ...riskThresholds.map((threshold): SortColumn => ({
+      id: `risk-${threshold}`,
+      label: riskLabel(threshold),
+      title: "Chance that the worst drawdown of a backtest-length path goes beyond this depth, from reshuffled daily returns",
+      align: "right",
+      better: "low",
+      value: (row) => row.drawdown_risk?.thresholds.find((entry) => entry.drawdown === threshold)?.probability ?? null,
+    })),
+    { id: "exposure", label: "Avg exposure", align: "right", better: "high", value: (row) => row.analytics.average_exposure_pct },
+    { id: "rebalances", label: "Rebalances", align: "right", better: "low", value: (row) => row.analytics.rebalance_count },
+    { id: "turnover", label: "Turnover / yr", align: "right", better: "low", value: (row) => row.analytics.turnover_annualized_pct },
+    { id: "effect", label: "Allocation effect", align: "right", better: "high", value: (row) => row.attribution?.allocation_effect_pp ?? null },
+  ];
+}
+
+/** The direction a first click on this column sorts in: best first. */
+function firstDirection(column: SortColumn): "asc" | "desc" {
+  return column.better === "high" ? "desc" : "asc";
+}
+
+/** Click once for best first, again to reverse, a third time to go back to the default order. */
+function nextSort(current: SortState | null, column: SortColumn): SortState | null {
+  const first = firstDirection(column);
+  if (current?.id !== column.id) return { id: column.id, dir: first };
+  if (current.dir === first) return { id: column.id, dir: first === "asc" ? "desc" : "asc" };
+  return null;
+}
+
+/** Rows ordered by a column. Missing values go last whichever way it runs; ties keep their order. */
+function sortRows(rows: AllocationComparisonRow[], column: SortColumn, dir: "asc" | "desc"): AllocationComparisonRow[] {
+  const sign = dir === "asc" ? 1 : -1;
+  const missing = (value: number | string | null) =>
+    value === null || value === undefined || (typeof value === "number" && !Number.isFinite(value));
+  return rows
+    .map((row, index) => ({ row, index, value: column.value(row) }))
+    .sort((a, b) => {
+      const aMissing = missing(a.value);
+      const bMissing = missing(b.value);
+      if (aMissing || bMissing) return aMissing === bMissing ? a.index - b.index : aMissing ? 1 : -1;
+      const order =
+        typeof a.value === "string" || typeof b.value === "string"
+          ? String(a.value).localeCompare(String(b.value), undefined, { numeric: true })
+          : (a.value as number) - (b.value as number);
+      return order === 0 ? a.index - b.index : order * sign;
+    })
+    .map((entry) => entry.row);
+}
+
+function SortableHead({
+  column,
+  sort,
+  onSort,
+}: {
+  column: SortColumn;
+  sort: SortState | null;
+  onSort: (column: SortColumn) => void;
+}) {
+  const active = sort?.id === column.id;
+  const Icon = !active ? ChevronsUpDown : sort.dir === "asc" ? ArrowUp : ArrowDown;
+  return (
+    <TableHead
+      className={cn(compactHead, column.align === "right" && "text-right")}
+      title={column.title}
+      aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(column)}
+        className={cn(
+          "inline-flex items-center gap-0.5 hover:text-foreground",
+          column.align === "right" && "flex-row-reverse",
+          active && "text-foreground",
+        )}
+      >
+        {column.label}
+        <Icon className={cn("size-3", !active && "opacity-30")} />
+      </button>
+    </TableHead>
+  );
+}
+
+function NestingNote({ nesting }: { nesting: ComparisonNesting }) {
+  if (nesting.skipped) {
+    return <p className="text-[11px] text-muted-foreground">Nesting not run: {nesting.skipped}</p>;
+  }
+  return (
+    <div className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
+      <p>
+        Each nested row is a grouping, then the parent model and the child model:{" "}
+        <span className="font-mono">A+B | C+D · Linear / All-in</span> is two child portfolios (A+B and C+D) held
+        in proportion to how many are active, each child all-in on its own members.{" "}
+        {nesting.variants} variants: {nesting.structures} grouping{nesting.structures === 1 ? "" : "s"} ×{" "}
+        {(nesting.models?.length ?? 0) ** 2} parent/child model pairs, run in {nesting.seconds}s. With this many
+        variants the best ones look better than they are: the top rows are the luckiest of many.
+        {nesting.truncated
+          ? ` Only ${nesting.structures} of ${nesting.total_structures} groupings and ${nesting.models?.length} models were run, to keep it quick.`
+          : ""}
+      </p>
+      <p className="font-mono">
+        {nesting.strategies.map((item) => `${item.letter} ${item.name}`).join(" · ")}
+      </p>
+    </div>
+  );
+}
+
+function ComparisonBlock({ comparison, nested = false }: { comparison: AllocationComparison; nested?: boolean }) {
+  // Flat models first, as listed; nested variants after them, best Sharpe first.
+  const baseRows = useMemo(() => {
+    const flat = comparison.models.filter((row) => row.group !== "nested");
+    const variants = comparison.models
+      .filter((row) => row.group === "nested")
+      .sort((a, b) => sharpeOf(b) - sharpeOf(a));
+    return [...flat, ...variants];
+  }, [comparison.models]);
+  // Colours follow the default order, so sorting the table never changes a row's colour.
+  const colors = useMemo(
+    () => new Map(baseRows.map((row, index) => [row.model, rowColor(row, index)])),
+    [baseRows],
+  );
   const riskThresholds = useMemo(
     () => comparison.models.find((row) => row.drawdown_risk)?.drawdown_risk?.thresholds.map((row) => row.drawdown) ?? [],
     [comparison.models],
   );
+  const columns = useMemo(() => sortColumns(riskThresholds), [riskThresholds]);
+  const [sort, setSort] = useState<SortState | null>(null);
+  useEffect(() => {
+    setSort(null);
+  }, [comparison.models]);
+  const sortColumn = columns.find((column) => column.id === sort?.id);
+  const rows = useMemo(
+    () => (sort && sortColumn ? sortRows(baseRows, sortColumn, sort.dir) : baseRows),
+    [baseRows, sort, sortColumn],
+  );
+  // Which rows are on the chart. A new comparison starts from the top five by Sharpe.
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(topBySharpe(comparison.models)));
+  useEffect(() => {
+    setSelected(new Set(topBySharpe(comparison.models)));
+  }, [comparison.models]);
+  const toggle = (model: string) =>
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(model)) next.delete(model);
+      else next.add(model);
+      return next;
+    });
+  const plotted = baseRows.filter((row) => selected.has(row.model));
+
+  const config = useMemo(() => {
+    const entries: ChartConfig = {};
+    for (const row of baseRows) entries[row.model] = { label: row.label, color: colors.get(row.model) ?? "var(--chart-5)" };
+    return entries;
+  }, [baseRows, colors]);
+  const hasVariants = baseRows.some((row) => row.group === "nested");
 
   return (
     <div className="flex flex-col gap-3">
@@ -337,114 +514,171 @@ function ComparisonBlock({ comparison, nested = false }: { comparison: Allocatio
           ? " P(DD > x) is the chance that the worst drawdown of a path as long as the backtest goes beyond x, from reshuffled daily returns."
           : ""}
       </p>
-      <div className="overflow-x-auto rounded-md border border-border/60">
+      {comparison.nesting ? <NestingNote nesting={comparison.nesting} /> : null}
+
+      <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+        <span>
+          Chart: {plotted.length} of {baseRows.length} selected
+        </span>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-6 px-2 text-[11px]"
+          onClick={() => setSelected(new Set(topBySharpe(comparison.models)))}
+        >
+          Top {TOP_COUNT} by Sharpe
+        </Button>
+        <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px]" onClick={() => setSelected(new Set())}>
+          Clear
+        </Button>
+        {hasVariants ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-2 text-[11px]"
+            onClick={() => setSelected(new Set(baseRows.filter((row) => row.group !== "nested").map((row) => row.model)))}
+          >
+            Flat models only
+          </Button>
+        ) : null}
+        <span className="ml-auto">
+          {sort && sortColumn ? (
+            <>
+              Sorted by {sortColumn.label}{" "}
+              <button type="button" className="underline decoration-dotted underline-offset-2 hover:text-foreground" onClick={() => setSort(null)}>
+                default order
+              </button>
+            </>
+          ) : (
+            "Click a column heading to sort"
+          )}
+        </span>
+      </div>
+
+      <div className="max-h-[420px] overflow-auto rounded-md border border-border/60">
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className={compactHead}>Model</TableHead>
-              <TableHead className={cn(compactHead, "text-right")}>Final equity</TableHead>
-              <TableHead className={cn(compactHead, "text-right")}>CAGR</TableHead>
-              <TableHead className={cn(compactHead, "text-right")}>Sharpe</TableHead>
-              <TableHead className={cn(compactHead, "text-right")}>Max DD</TableHead>
-              {riskThresholds.map((threshold) => (
-                <TableHead
-                  key={threshold}
-                  className={cn(compactHead, "text-right")}
-                  title="Chance that the worst drawdown of a backtest-length path goes beyond this depth, from reshuffled daily returns"
-                >
-                  {riskLabel(threshold)}
-                </TableHead>
+              {columns.map((column) => (
+                <SortableHead
+                  key={column.id}
+                  column={column}
+                  sort={sort}
+                  onSort={(picked) => setSort((current) => nextSort(current, picked))}
+                />
               ))}
-              <TableHead className={cn(compactHead, "text-right")}>Avg exposure</TableHead>
-              <TableHead className={cn(compactHead, "text-right")}>Rebalances</TableHead>
-              <TableHead className={cn(compactHead, "text-right")}>Turnover / yr</TableHead>
-              <TableHead className={cn(compactHead, "text-right")}>Allocation effect</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {comparison.models.map((row) => (
-              <TableRow key={row.model}>
-                <TableCell className="px-1.5 py-0.5 text-[11px] font-medium">
-                  <span
-                    className="mr-1.5 inline-block size-2 rounded-full align-middle"
-                    style={{ background: MODEL_COLORS[row.model] }}
-                  />
-                  {row.label}
-                </TableCell>
-                <TableCell className={cn(compactCell, "text-right")}>{money(row.metrics.rolling_pnl)}</TableCell>
-                <TableCell className={cn(compactCell, "text-right")}>{pct(row.metrics.cagr_percent, 1)}</TableCell>
-                <TableCell className={cn(compactCell, "text-right")}>
-                  {row.metrics.sharpe == null ? "-" : row.metrics.sharpe.toFixed(2)}
-                </TableCell>
-                <TableCell className={cn(compactCell, "text-right")}>
-                  {row.metrics.max_drawdown == null ? "-" : pct(row.metrics.max_drawdown * 100, 1)}
-                </TableCell>
-                {riskThresholds.map((threshold) => {
-                  const hit = row.drawdown_risk?.thresholds.find((entry) => entry.drawdown === threshold);
-                  return (
-                    <TableCell key={threshold} className={cn(compactCell, "text-right")}>
-                      {hit ? formatRisk(hit.probability) : "-"}
+            {rows.map((row, index) => (
+              <Fragment key={row.model}>
+                {!sort && row.group === "nested" && rows[index - 1]?.group !== "nested" ? (
+                  <TableRow className="hover:bg-transparent">
+                    <TableCell
+                      colSpan={10 + riskThresholds.length}
+                      className="bg-muted/30 px-1.5 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+                    >
+                      Child portfolio variants ({baseRows.filter((item) => item.group === "nested").length}), best Sharpe first
                     </TableCell>
-                  );
-                })}
-                <TableCell className={cn(compactCell, "text-right")}>
-                  {pct(row.analytics.average_exposure_pct)}
-                </TableCell>
-                <TableCell className={cn(compactCell, "text-right")}>{row.analytics.rebalance_count}</TableCell>
-                <TableCell className={cn(compactCell, "text-right")}>
-                  {pct(row.analytics.turnover_annualized_pct, 0)}
-                </TableCell>
-                <TableCell className={cn(compactCell, "text-right")}>
-                  {row.attribution ? formatPpDelta(row.attribution.allocation_effect_pp) : "-"}
-                </TableCell>
-              </TableRow>
+                  </TableRow>
+                ) : null}
+                <TableRow>
+                  <TableCell className="px-1.5 py-0.5 text-[11px] font-medium">
+                    <label className="flex cursor-pointer items-center gap-1.5">
+                      <Checkbox
+                        checked={selected.has(row.model)}
+                        onCheckedChange={() => toggle(row.model)}
+                        aria-label={`Show ${row.label} on the chart`}
+                      />
+                      <span
+                        className="inline-block size-2 shrink-0 rounded-full"
+                        style={{ background: colors.get(row.model) }}
+                      />
+                      <span className={cn(row.group === "nested" && "font-mono")}>{row.label}</span>
+                    </label>
+                  </TableCell>
+                  <TableCell className={cn(compactCell, "text-right")}>{money(row.metrics.rolling_pnl)}</TableCell>
+                  <TableCell className={cn(compactCell, "text-right")}>{pct(row.metrics.cagr_percent, 1)}</TableCell>
+                  <TableCell className={cn(compactCell, "text-right")}>
+                    {row.metrics.sharpe == null ? "-" : row.metrics.sharpe.toFixed(2)}
+                  </TableCell>
+                  <TableCell className={cn(compactCell, "text-right")}>
+                    {row.metrics.max_drawdown == null ? "-" : pct(row.metrics.max_drawdown * 100, 1)}
+                  </TableCell>
+                  {riskThresholds.map((threshold) => {
+                    const hit = row.drawdown_risk?.thresholds.find((entry) => entry.drawdown === threshold);
+                    return (
+                      <TableCell key={threshold} className={cn(compactCell, "text-right")}>
+                        {hit ? formatRisk(hit.probability) : "-"}
+                      </TableCell>
+                    );
+                  })}
+                  <TableCell className={cn(compactCell, "text-right")}>
+                    {pct(row.analytics.average_exposure_pct)}
+                  </TableCell>
+                  <TableCell className={cn(compactCell, "text-right")}>{row.analytics.rebalance_count}</TableCell>
+                  <TableCell className={cn(compactCell, "text-right")}>
+                    {pct(row.analytics.turnover_annualized_pct, 0)}
+                  </TableCell>
+                  <TableCell className={cn(compactCell, "text-right")}>
+                    {row.attribution ? formatPpDelta(row.attribution.allocation_effect_pp) : "-"}
+                  </TableCell>
+                </TableRow>
+              </Fragment>
             ))}
           </TableBody>
         </Table>
       </div>
-      <ChartContainer config={config} className="h-[300px] w-full">
-        <LineChart data={comparison.equity_curves} margin={{ left: 8, right: 8, top: 8 }}>
-          <CartesianGrid vertical={false} strokeDasharray="3 3" />
-          <XAxis
-            dataKey="date"
-            tickLine={false}
-            axisLine={false}
-            minTickGap={48}
-            tickFormatter={(v: string) => v.slice(0, 4)}
-          />
-          <YAxis
-            tickLine={false}
-            axisLine={false}
-            width={56}
-            scale="log"
-            domain={["auto", "auto"]}
-            allowDataOverflow
-            tickFormatter={compactMoney}
-          />
-          <ChartTooltip
-            cursor={false}
-            content={
-              <ChartTooltipContent
-                labelFormatter={(label) => `Date: ${label}`}
-                formatter={(value, name) => `${config[String(name)]?.label ?? name}: ${compactMoney(Number(value))}`}
-              />
-            }
-          />
-          <ChartLegend content={<ChartLegendContent />} />
-          {comparison.models.map((row) => (
-            <Line
-              key={row.model}
-              dataKey={row.model}
-              name={row.model}
-              type="monotone"
-              stroke={MODEL_COLORS[row.model] ?? "var(--chart-5)"}
-              strokeWidth={row.model === "all_in" ? 1.5 : 2}
-              strokeDasharray={row.model === "all_in" ? "4 3" : undefined}
-              dot={false}
+      {plotted.length === 0 ? (
+        <p className="py-6 text-center text-[11px] text-muted-foreground">
+          Tick rows in the table to plot them, or use Top {TOP_COUNT} by Sharpe.
+        </p>
+      ) : (
+        <ChartContainer config={config} className="h-[300px] w-full">
+          <LineChart data={comparison.equity_curves} margin={{ left: 8, right: 8, top: 8 }}>
+            <CartesianGrid vertical={false} strokeDasharray="3 3" />
+            <XAxis
+              dataKey="date"
+              tickLine={false}
+              axisLine={false}
+              minTickGap={48}
+              tickFormatter={(v: string) => v.slice(0, 4)}
             />
-          ))}
-        </LineChart>
-      </ChartContainer>
+            <YAxis
+              tickLine={false}
+              axisLine={false}
+              width={56}
+              scale="log"
+              domain={["auto", "auto"]}
+              allowDataOverflow
+              tickFormatter={compactMoney}
+            />
+            <ChartTooltip
+              cursor={false}
+              content={
+                <ChartTooltipContent
+                  labelFormatter={(label) => `Date: ${label}`}
+                  formatter={(value, name) => `${config[String(name)]?.label ?? name}: ${compactMoney(Number(value))}`}
+                />
+              }
+            />
+            <ChartLegend content={<ChartLegendContent />} />
+            {plotted.map((row) => (
+              <Line
+                key={row.model}
+                dataKey={row.model}
+                name={row.model}
+                type="monotone"
+                stroke={colors.get(row.model) ?? "var(--chart-5)"}
+                strokeWidth={row.model === "all_in" ? 1.5 : 2}
+                strokeDasharray={row.model === "all_in" ? "4 3" : undefined}
+                dot={false}
+                isAnimationActive={false}
+              />
+            ))}
+          </LineChart>
+        </ChartContainer>
+      )}
     </div>
   );
 }
@@ -459,10 +693,20 @@ export function AllocationPanel({
 }) {
   const comparisonMutation = useMutation({ mutationFn: runPortfolioAllocationComparison });
   const proportional = allocation.attribution != null;
+  const [includeNesting, setIncludeNesting] = useState(false);
+  // Regrouping needs a flat portfolio of at least three strategies.
+  const strategyCount = request?.strategy_ids.length ?? 0;
+  const nestingUnavailable =
+    !!allocation.nested_cash_policy || (request?.portfolio_ids?.length ?? 0) > 0
+      ? "This portfolio already has child portfolios."
+      : strategyCount < 3
+        ? "Needs at least 3 strategies."
+        : null;
+  const nestingOn = includeNesting && nestingUnavailable === null;
   // A comparison belongs to the request that produced it; a new simulation hides it.
+  const { include_nesting: _ignored, ...askedFor } = (comparisonMutation.variables ?? {}) as Record<string, unknown>;
   const comparison =
-    comparisonMutation.data &&
-    JSON.stringify(comparisonMutation.variables) === JSON.stringify(request)
+    comparisonMutation.data && JSON.stringify(askedFor) === JSON.stringify(request)
       ? comparisonMutation.data
       : null;
 
@@ -542,17 +786,41 @@ export function AllocationPanel({
       <div className="flex flex-col gap-2 border-t border-border/60 pt-3">
         <div className="flex flex-wrap items-center gap-3">
           <h3 className="text-xs font-semibold">Compare allocation models</h3>
+          <label
+            className={cn(
+              "flex items-center gap-1.5 text-[11px]",
+              nestingUnavailable ? "cursor-not-allowed text-muted-foreground/60" : "cursor-pointer",
+            )}
+            title={nestingUnavailable ?? "Also regroup the strategies into child portfolios, each with its own allocation model."}
+          >
+            <Checkbox
+              checked={nestingOn}
+              disabled={nestingUnavailable !== null || comparisonMutation.isPending}
+              onCheckedChange={(checked) => setIncludeNesting(checked === true)}
+            />
+            Include child portfolio nesting
+          </label>
           <Button
             size="sm"
             variant="outline"
             className="h-7 gap-1.5 text-[11px]"
             disabled={!request || comparisonMutation.isPending}
-            onClick={() => request && comparisonMutation.mutate(request)}
+            onClick={() => request && comparisonMutation.mutate(nestingOn ? { ...request, include_nesting: true } : request)}
           >
             {comparisonMutation.isPending ? <Loader2 className="size-3.5 animate-spin" /> : null}
             {comparison ? "Recalculate" : "Calculate"}
           </Button>
+          {comparisonMutation.isPending && comparisonMutation.variables?.include_nesting ? (
+            <span className="text-[11px] text-muted-foreground">Running the nested variants, about a minute…</span>
+          ) : null}
         </div>
+        {nestingOn ? (
+          <p className="text-[11px] text-muted-foreground">
+            Regroups the {strategyCount} strategies into two child portfolios in every way that splits them evenly, each
+            group and the parent trying every model (regime-adjusted is left out). That is up to 75 more rows and takes
+            about a minute. The chart then shows the top {TOP_COUNT} by Sharpe, and you tick others to add them.
+          </p>
+        ) : null}
         {allocation.nested_cash_policy ? (
           <p className="text-[11px] text-muted-foreground">
             Comparisons change only the parent model. Child models stay unchanged, so parent All-in can still hold child cash.

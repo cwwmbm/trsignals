@@ -283,8 +283,13 @@ class PortfolioRegimeRequest(PortfolioSimulateRequest):
 
 
 class PortfolioAllocationComparisonRequest(PortfolioSimulateRequest):
-    """On-demand All-In vs proportional comparison (same inputs as portfolio simulate)."""
-    pass
+    """On-demand comparison of allocation models (same inputs as portfolio simulate).
+
+    ``include_nesting`` also regroups the portfolio's strategies into child portfolios, each with
+    its own allocation model (see ``api.nesting_variants``).
+    """
+
+    include_nesting: bool = False
 
 
 class SavedPortfolio(RegimePenaltyFields):

@@ -3,6 +3,7 @@ from __future__ import annotations
 import itertools
 import math
 import random
+import time
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -2237,10 +2238,29 @@ def simulate_portfolio_allocation_comparison(request) -> dict:
                 "analytics": exposure_analytics(book),
                 "attribution": attribution,
                 "drawdown_risk": drawdown_risk_for_frame(comparable, paths=COMPARISON_PATHS),
+                "group": "flat",
             }
         )
 
-    return {
+    nesting = None
+    if getattr(request, "include_nesting", False):
+        nested_rows, nested_curves, nesting = _nested_comparison_rows(
+            strategies,
+            signals_by_id,
+            cost_bps=cost_bps,
+            tier_single_pct=getattr(request, "tier_single_pct", None),
+            global_proxy=global_proxy,
+            track_changes=track_changes,
+            close_series=close_series,
+            master_dates=master_dates,
+            reference=reference,
+            start=start,
+            years=request.years,
+        )
+        rows.extend(nested_rows)
+        curves.extend(nested_curves)
+
+    payload = {
         "start_date": pd.Timestamp(master_dates[start]).strftime("%Y-%m-%d"),
         "start_capital": START_CAPITAL,
         "transaction_cost_bps": cost_bps,
@@ -2250,6 +2270,127 @@ def simulate_portfolio_allocation_comparison(request) -> dict:
         "models": rows,
         "equity_curves": merged_equity_curves(curves),
     }
+    if nesting is not None:
+        payload["nesting"] = nesting
+    return payload
+
+
+# Many variants are shown side by side, so each gets fewer drawdown paths than a flat row.
+NESTED_PATHS = 600
+
+
+def _model_from_id(model_id: str, tier_single_pct: float | None) -> AllocationModel:
+    """A comparison model from the id the nesting plan uses (``all_in``, ``proportional_*``, ``tiered``)."""
+    if model_id.startswith("proportional_"):
+        return resolve_allocation_model("proportional", model_id[len("proportional_"):])
+    if model_id == "tiered":
+        return resolve_allocation_model("tiered", None, tier_single_pct)
+    return resolve_allocation_model(ALL_IN)
+
+
+def _nested_comparison_rows(
+    strategies: list,
+    signals_by_id: dict[str, StrategySignals],
+    *,
+    cost_bps: float,
+    tier_single_pct: float | None,
+    global_proxy: str | None,
+    track_changes: dict[str, pd.Series],
+    close_series: dict[str, pd.Series],
+    master_dates: pd.DatetimeIndex,
+    reference: AllocationSimulation,
+    start: int,
+    years: int,
+) -> tuple[list[dict[str, Any]], list[tuple[str, pd.DataFrame]], dict[str, Any]]:
+    """Rows for the portfolio regrouped into child portfolios, each with its own allocation model.
+
+    See ``api.nesting_variants`` for which groupings and models are run. Every variant is a real
+    run of the nested engine, the same one a saved portfolio of child portfolios goes through, with
+    the portfolio's trading cost on every portfolio in it (the parent's direct members and each
+    child's members alike). The result is the rows and curves to add, and a summary of what ran.
+    """
+    from api.nested_portfolios import make_child_member
+    from api.nesting_variants import name_of, plan_nesting, short_model_label
+
+    started = time.perf_counter()
+    legend = [{"letter": name_of(i), "name": strategy.name} for i, strategy in enumerate(strategies[:26])]
+    if any(getattr(s, "nested_spec", None) is not None for s in strategies):
+        return [], [], {"skipped": "This portfolio already has child portfolios, so there is nothing to regroup.", "strategies": legend}
+    plan = plan_nesting(len(strategies))
+    if plan is None:
+        return [], [], {"skipped": "Nesting needs at least 3 strategies.", "strategies": legend}
+
+    models = {model_id: _model_from_id(model_id, tier_single_pct) for model_id in plan.model_ids}
+    rows: list[dict[str, Any]] = []
+    curves: list[tuple[str, pd.DataFrame]] = []
+    children: dict[tuple[str, str], tuple[list, dict]] = {}
+    for structure in plan.structures:
+        for parent_id, child_id in plan.pairs:
+            built = children.get((structure.key, child_id))
+            if built is None:
+                members, member_signals = [], {}
+                for block in structure.blocks:
+                    group = [strategies[i] for i in block]
+                    if len(group) == 1:
+                        members.append(group[0])
+                        member_signals[group[0].id] = signals_by_id[group[0].id]
+                        continue
+                    label = "+".join(name_of(i) for i in block)
+                    child, state = make_child_member(
+                        member_id=f"portfolio:variant:{structure.key}:{label}:{child_id}",
+                        name=label,
+                        members=group,
+                        child_signals={m.id: signals_by_id[m.id] for m in group},
+                        allocation=AllocationSettings(model=models[child_id], cost_bps=cost_bps),
+                        proxy=global_proxy,
+                        years=years,
+                    )
+                    members.append(child)
+                    member_signals[child.id] = state
+                built = children[(structure.key, child_id)] = (members, member_signals)
+            members, member_signals = built
+            simulation = simulate_portfolio_allocation(
+                members,
+                member_signals,
+                model=models[parent_id],
+                cost_bps=cost_bps,
+                global_proxy=global_proxy,
+                track_changes=track_changes,
+                close_series=close_series,
+                master_dates=master_dates,
+            )
+            comparable = rebased_comparison_frame(simulation.frame, start, START_CAPITAL)
+            row_id = f"nested:{structure.key}:{parent_id}:{child_id}"
+            parent_label, child_label = short_model_label(models[parent_id]), short_model_label(models[child_id])
+            curves.append((row_id, comparable))
+            rows.append(
+                {
+                    "model": row_id,
+                    "label": f"{structure.label()} · {parent_label} / {child_label}",
+                    "group": "nested",
+                    "structure": {
+                        "key": structure.key,
+                        "grouping": structure.label(),
+                        "parent_model": parent_label,
+                        "child_model": child_label,
+                    },
+                    "metrics": extract_contribution_metrics(comparable),
+                    "analytics": exposure_analytics(arrays_from_simulation(simulation)),
+                    "attribution": allocation_attribution(simulation, reference),
+                    "drawdown_risk": drawdown_risk_for_frame(comparable, paths=NESTED_PATHS),
+                }
+            )
+    summary = {
+        "skipped": None,
+        "strategies": legend,
+        "structures": len(plan.structures),
+        "total_structures": plan.total_structures,
+        "models": [short_model_label(m) for m in models.values()],
+        "variants": len(rows),
+        "truncated": plan.truncated,
+        "seconds": round(time.perf_counter() - started, 1),
+    }
+    return rows, curves, summary
 
 
 def _portfolio_atr_symbol(strategies: list, global_proxy: str | None) -> str | None:
