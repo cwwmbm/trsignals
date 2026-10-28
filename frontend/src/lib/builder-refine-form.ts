@@ -9,6 +9,7 @@ export type BuilderRefineFormState = {
   maxDays: number;
   checkBreadth: boolean;
   checkBoth: boolean;
+  includeVfi: boolean;
   isSell: boolean;
   comboSize: 2 | 3;
   basketSymbols: string;
@@ -58,6 +59,7 @@ export function buildBuilderRefinePayload(
       ...base,
       check_breadth: state.checkBreadth,
       check_both: state.checkBoth,
+      include_vfi: state.includeVfi,
       combo_size: state.comboSize,
     };
   }
@@ -67,5 +69,6 @@ export function buildBuilderRefinePayload(
     is_sell: state.isSell,
     check_breadth: state.checkBreadth,
     check_both: state.checkBoth,
+    include_vfi: state.includeVfi,
   };
 }

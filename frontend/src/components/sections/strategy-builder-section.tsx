@@ -107,6 +107,7 @@ export function StrategyBuilderSection({
   const [refineMaxDays, setRefineMaxDays] = useState(7)
   const [refineCheckBreadth, setRefineCheckBreadth] = useState(false)
   const [refineCheckBoth, setRefineCheckBoth] = useState(false)
+  const [refineIncludeVfi, setRefineIncludeVfi] = useState(false)
   const [refineIsSell, setRefineIsSell] = useState(false)
   const [refineComboSize, setRefineComboSize] = useState<2 | 3>(2)
   const [refineBasket, setRefineBasket] = useState(DEFAULT_BASKET_TEXT)
@@ -236,6 +237,7 @@ export function StrategyBuilderSection({
           maxDays: refineMaxDays,
           checkBreadth: refineCheckBreadth,
           checkBoth: refineCheckBoth,
+          includeVfi: refineIncludeVfi,
           isSell: refineIsSell,
           comboSize: refineComboSize,
           basketSymbols: refineBasket,
@@ -251,6 +253,7 @@ export function StrategyBuilderSection({
     refineMaxDays,
     refineCheckBreadth,
     refineCheckBoth,
+    refineIncludeVfi,
     refineIsSell,
     refineComboSize,
     refineBasket,
@@ -323,6 +326,8 @@ export function StrategyBuilderSection({
           onCheckBreadthChange: setRefineCheckBreadth,
           checkBoth: refineCheckBoth,
           onCheckBothChange: setRefineCheckBoth,
+          includeVfi: refineIncludeVfi,
+          onIncludeVfiChange: setRefineIncludeVfi,
           isSell: refineIsSell,
           onIsSellChange: setRefineIsSell,
           comboSize: refineComboSize,

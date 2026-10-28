@@ -18,7 +18,10 @@ import {
 import { sortSymbols } from '@/lib/symbol-order'
 import {
   SCAN_LANES,
+  copyLanes,
+  emptyLanes,
   findLaneForRow,
+  findRowInLanes,
   groupScanRows,
   parseLaneContainerId,
   resolvePortfolioScanLane,
@@ -68,7 +71,7 @@ function buildPortfolioLaneUpdates(
   return updates
 }
 
-export function useScanBoard(initialExpanded: string[] = ['active', 'legacy']) {
+export function useScanBoard(initialExpanded: string[] = ['live', 'active', 'legacy']) {
   const queryClient = useQueryClient()
   const [query, setQuery] = useState('')
   const [symbolFilter, setSymbolFilter] = useState<string>('all')
@@ -76,11 +79,7 @@ export function useScanBoard(initialExpanded: string[] = ['active', 'legacy']) {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     () => new Set(initialExpanded),
   )
-  const [laneRows, setLaneRows] = useState<LaneRows>({
-    active: [],
-    testing: [],
-    archived: [],
-  })
+  const [laneRows, setLaneRows] = useState<LaneRows>(emptyLanes)
   const [legacyRows, setLegacyRows] = useState<ScanRow[]>([])
 
   const {
@@ -203,19 +202,13 @@ export function useScanBoard(initialExpanded: string[] = ['active', 'legacy']) {
       const currentLane = resolveScanLane(strategy)
       if (currentLane === lane) return
 
-      const nextLanes: LaneRows = {
-        active: [...laneRows.active],
-        testing: [...laneRows.testing],
-        archived: [...laneRows.archived],
-      }
+      const nextLanes = copyLanes(laneRows)
       for (const sourceLane of SCAN_LANES) {
         nextLanes[sourceLane] = nextLanes[sourceLane].filter((row) => row.strategy_id !== strategy.id)
       }
       const movedRow =
         laneRows[currentLane].find((row) => row.strategy_id === strategy.id) ??
-        laneRows.testing.find((row) => row.strategy_id === strategy.id) ??
-        laneRows.active.find((row) => row.strategy_id === strategy.id) ??
-        laneRows.archived.find((row) => row.strategy_id === strategy.id)
+        findRowInLanes(laneRows, (row) => row.strategy_id === strategy.id)
       if (movedRow) {
         nextLanes[lane] = [...nextLanes[lane], movedRow]
       }
@@ -241,11 +234,7 @@ export function useScanBoard(initialExpanded: string[] = ['active', 'legacy']) {
       const currentLane = resolvePortfolioScanLane(portfolio)
       if (currentLane === lane) return
 
-      const nextLanes: LaneRows = {
-        active: [...laneRows.active],
-        testing: [...laneRows.testing],
-        archived: [...laneRows.archived],
-      }
+      const nextLanes = copyLanes(laneRows)
       for (const sourceLane of SCAN_LANES) {
         nextLanes[sourceLane] = nextLanes[sourceLane].filter(
           (row) => row.portfolio_id !== portfolio.id,
@@ -253,9 +242,7 @@ export function useScanBoard(initialExpanded: string[] = ['active', 'legacy']) {
       }
       const movedRow =
         laneRows[currentLane].find((row) => row.portfolio_id === portfolio.id) ??
-        laneRows.testing.find((row) => row.portfolio_id === portfolio.id) ??
-        laneRows.active.find((row) => row.portfolio_id === portfolio.id) ??
-        laneRows.archived.find((row) => row.portfolio_id === portfolio.id)
+        findRowInLanes(laneRows, (row) => row.portfolio_id === portfolio.id)
       if (movedRow) {
         nextLanes[lane] = [...nextLanes[lane], movedRow]
       }
@@ -288,11 +275,7 @@ export function useScanBoard(initialExpanded: string[] = ['active', 'legacy']) {
 
       const targetLane = parseLaneContainerId(overId) ?? findLaneForRow(laneRows, overId) ?? sourceLane
 
-      const nextLanes: LaneRows = {
-        active: [...laneRows.active],
-        testing: [...laneRows.testing],
-        archived: [...laneRows.archived],
-      }
+      const nextLanes = copyLanes(laneRows)
 
       const sourceRows = [...nextLanes[sourceLane]]
       const activeIndex = sourceRows.findIndex((row) => row.id === activeId)

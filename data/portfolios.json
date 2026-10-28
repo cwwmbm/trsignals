@@ -94,5 +94,29 @@
     "scan_sort_order": 0,
     "created_at": "2026-10-19T00:53:19+00:00",
     "updated_at": "2026-10-19T00:53:19+00:00"
+  },
+  {
+    "regime_score": "robustness",
+    "regime_penalty": "medium",
+    "id": "1e3e2f21-77d1-4c0f-a659-899db4f57415",
+    "name": "Live Portfolio",
+    "description": "",
+    "strategy_ids": [
+      "b1da3fbc-27e3-4729-9832-6bc0c0c1d6a9",
+      "3529f3b9-0f9b-4a06-893f-6bd9e815c12b",
+      "7cb00e4c-9333-42c5-a9fb-2c471883b549",
+      "96c2111a-a538-4277-aec3-a4d28e863e4d"
+    ],
+    "portfolio_ids": [],
+    "overlap_mode": "hold_until_all_exit",
+    "proxy_symbol": null,
+    "allocation_model": "tiered",
+    "proportional_mode": "linear",
+    "tier_single_pct": 50.0,
+    "transaction_cost_bps": 0.0,
+    "scan_lane": "live",
+    "scan_sort_order": 0,
+    "created_at": "2026-10-23T19:28:46+00:00",
+    "updated_at": "2026-10-23T19:33:49+00:00"
   }
 ]

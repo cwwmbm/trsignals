@@ -151,9 +151,12 @@ function LegacyMobileCard({ row, capital }: { row: ScanRow; capital: number | nu
 }
 
 export function ScanMobileSection() {
-  const [activeLane, setActiveLane] = useState<ScanLane | 'legacy'>('active')
-  const board = useScanBoard(['active'])
+  // Until a tab is picked, show the first section that has rows (Live, when it has any).
+  const [pickedLane, setActiveLane] = useState<ScanLane | 'legacy' | null>(null)
+  const board = useScanBoard(['live'])
   const { text: capitalText, setText: setCapitalText, capital } = useScanCapital()
+  const activeLane: ScanLane | 'legacy' =
+    pickedLane ?? SCAN_LANES.find((lane) => board.laneRows[lane].length > 0) ?? 'live'
 
   const laneRows =
     activeLane === 'legacy' ? board.legacyRows : board.laneRows[activeLane as ScanLane]

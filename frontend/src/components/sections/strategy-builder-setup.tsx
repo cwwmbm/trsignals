@@ -789,6 +789,7 @@ export const StrategyBuilderSetup = forwardRef<
       name,
       description,
       confirmSymbols,
+      proxySymbol,
       entryConditions,
       regimeConditions,
       exitConditions,

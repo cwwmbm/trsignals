@@ -566,6 +566,8 @@ Things to know:
 
 ## Scan: what to do with each row today
 
+Rows are filed in sections, top to bottom: **Live** (what you actually trade), **Active**, **Testing** and **Archived**, then the built-in Legacy signals. Pick a row's section from the dropdown on it, or drag it between sections. New strategies and portfolios start in Testing. On the phone page the tabs run in the same order and it opens on the first section that has rows.
+
 The Scan page used to read three flags per row, buy, hold and sell, from whether a portfolio crossed 0%, so a move from 55% to 100% or back looked like "hold". Each row now shows an **Action** and a **Position**, read from the last bar of the same engine run that backtests use.
 
 | Action | Meaning |

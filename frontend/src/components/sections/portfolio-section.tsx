@@ -125,11 +125,10 @@ function sortStrategies(strategies: SavedStrategy[]) {
 }
 
 function groupStrategiesByLane(strategies: SavedStrategy[]) {
-  const lanes: Record<ScanLane, SavedStrategy[]> = {
-    active: [],
-    testing: [],
-    archived: [],
-  }
+  const lanes = Object.fromEntries(SCAN_LANES.map((lane) => [lane, [] as SavedStrategy[]])) as Record<
+    ScanLane,
+    SavedStrategy[]
+  >
   for (const strategy of strategies) {
     lanes[resolveScanLane(strategy)].push(strategy)
   }
@@ -190,7 +189,7 @@ export function PortfolioSection({
   const [selectedPortfolioIds, setSelectedPortfolioIds] = useState<Set<string>>(() => new Set())
   const [search, setSearch] = useState('')
   const [expandedLanes, setExpandedLanes] = useState<Set<string>>(
-    () => new Set(['active', 'testing']),
+    () => new Set(['live', 'active', 'testing']),
   )
   const [proxySymbol, setProxySymbol] = useState('')
   const [allocationModel, setAllocationModel] = useState<PortfolioAllocationModel>('all_in')

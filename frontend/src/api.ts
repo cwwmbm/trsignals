@@ -49,6 +49,7 @@ export interface IndicatorInfo {
   available?: boolean;
   compareMode?: CompareMode;
   compareIndicatorKinds?: IndicatorKind[];
+  compareIndicatorIds?: string[];
   defaultCompareIndicator?: string;
   defaultCompareNumber?: string;
 }
@@ -479,6 +480,7 @@ export type BuilderRefinePayload = {
   is_sell?: boolean;
   check_breadth?: boolean;
   check_both?: boolean;
+  include_vfi?: boolean;
   combo_size?: 2 | 3;
   combo_top_n?: number;
   combo_beam_width?: number;
@@ -567,7 +569,8 @@ export type BuilderRefineOutcomeResponse = {
   meta: SweepMeta;
 };
 
-export type ScanLane = "active" | "testing" | "archived";
+/** Scan sections, top to bottom. Live is what is actually traded. */
+export type ScanLane = "live" | "active" | "testing" | "archived";
 
 export type SaveStrategyPayload = {
   name: string;

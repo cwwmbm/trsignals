@@ -10,7 +10,7 @@ from numpy import cumsum, log, polyfit, sqrt, std, subtract
 from hurst import compute_Hc
 
 # Bump when computed indicator columns change so disk cache entries are rebuilt.
-INDICATOR_CACHE_VERSION = 4
+INDICATOR_CACHE_VERSION = 9
 
 #Calculate Sharpe Ratio
 def sharpes_ratio(data, risk_free_rate=0, periods_per_year=252, exclude_year=None):
@@ -399,6 +399,75 @@ def _adx14(high: pd.Series, low: pd.Series, close: pd.Series, window: int = 14) 
         return ta.trend.ADXIndicator(high, low, close, window=window).adx()
 
 
+def squeeze_age(squeeze: pd.Series) -> pd.Series:
+    """Days into the current squeeze (1, 2, ...) or since the last one released (-1, -2, ...).
+
+    -1 is the first bar after a squeeze ends. Bars before the first squeeze are NaN, since
+    nothing has been squeezed yet.
+    """
+    on = pd.Series(np.asarray(squeeze) == 1, index=squeeze.index)
+    run = (on != on.shift()).cumsum()
+    age = (on.groupby(run).cumcount() + 1).astype(float)
+    age = age.where(on, -age)
+    return age.where(on.cumsum() > 0)
+
+
+def signed_cross_age(spread: pd.Series) -> pd.Series:
+    """Days since `spread` last changed sign: +N while it has been positive N days, -N while negative.
+
+    +1 is the day of an upward cross, -1 a downward one; a 0 keeps the side that led before it.
+    """
+    side = np.sign(spread).replace(0, np.nan).ffill()
+    run = (side != side.shift()).cumsum()
+    age = side.groupby(run).cumcount() + 1
+    cross_age = (age * side).astype(float)
+    # The first run started before the data did, so its age is unknown.
+    first_run = run == run[side.notna()].min()
+    return cross_age.where(side.notna() & ~first_run)
+
+
+def psar_columns(high: pd.Series, low: pd.Series, close: pd.Series) -> dict[str, pd.Series]:
+    """Parabolic SAR level, days since it last flipped (signed) and close's % distance from it."""
+    psar = ta.trend.PSARIndicator(high, low, close)
+    level = psar.psar()
+    # ta fills psar_up only while the SAR trails below price, psar_down only while it sits above.
+    side = np.where(psar.psar_up().notna(), 1.0, np.where(psar.psar_down().notna(), -1.0, np.nan))
+    return {
+        "PSAR": level,
+        "PSARFlipAge": signed_cross_age(pd.Series(side, index=close.index)),
+        "Close_PSAR": (close - level) / close * 100,
+    }
+
+
+def directional_indicators(
+    high: pd.Series, low: pd.Series, close: pd.Series, window: int = 14,
+) -> dict[str, pd.Series]:
+    """+DI, -DI and the derived direction columns, keyed by column name.
+
+    ta reports 0 for both DIs (and for ADX) during warm-up; those bars are NaN here so a
+    threshold such as DIMinus14 <= 15 never matches before the indicator exists.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        adx = ta.trend.ADXIndicator(high, low, close, window=window)
+        plus, minus, strength = adx.adx_pos(), adx.adx_neg(), adx.adx()
+    warm = (plus + minus) > 0
+    plus = plus.where(warm)
+    minus = minus.where(warm)
+    spread = plus - minus
+    balance = spread / (plus + minus) * 100
+
+    cross_age = signed_cross_age(spread)
+    signed_adx = (strength * np.sign(spread)).where(warm & (strength > 0))
+    return {
+        f"DIPlus{window}": plus,
+        f"DIMinus{window}": minus,
+        f"DIBalance{window}": balance,
+        f"DICrossAge{window}": cross_age,
+        f"SignedADX{window}": signed_adx,
+    }
+
+
 VWAP_INDICATOR_COLUMN_IDS = [
     "VWAP",
     "Close_VWAP",
@@ -617,6 +686,13 @@ def add_indicators(data, periods_per_year=252, source_timezone=None, compute_hur
     data['Close_EMA8'] = (data['Close'] - data['EMA8'])/data['Close']*100
     data['EMA20_EMA100'] = (data['EMA20'] - data['EMA100'])/data['EMA20']*100
     data['SMA50_SMA200'] = (data['SMA50'] - data['SMA200'])/data['SMA50']*100
+    # Kaufman adaptive MA: fast (2-bar EMA) when ER is high, slow (30-bar EMA) when choppy.
+    data['KAMA10'] = ta.momentum.KAMAIndicator(data['Close'], window=10, pow1=2, pow2=30).kama()
+    data['Close_KAMA10'] = (data['Close'] - data['KAMA10'])/data['Close']*100
+    data['KAMASlope10'] = data['KAMA10'].pct_change(5)*100
+    data['KAMA10CrossAge'] = signed_cross_age(data['Close'] - data['KAMA10'])
+    data['KAMA10CrossUp'] = np.where(data['KAMA10CrossAge'] == 1, 1, -1)
+    data['KAMA10CrossDown'] = np.where(data['KAMA10CrossAge'] == -1, 1, -1)
     data['SMA20_SMA50'] = (data['SMA20'] - data['SMA50'])/data['SMA20']*100
     data['Close_SMA200'] = (data['Close'] - data['SMA200'])/data['Close']*100
     data['Close_SMA50'] = (data['Close'] - data['SMA50'])/data['Close']*100
@@ -629,7 +705,10 @@ def add_indicators(data, periods_per_year=252, source_timezone=None, compute_hur
     data['ATR50'] = ta.volatility.average_true_range(data['High'], data['Low'], data['Close'], window=50)
     data['ATR20_ATR50'] = data['ATR20'] - data['ATR50']
     data['ADX14'] = _adx14(data['High'], data['Low'], data['Close'], window=14)
-    data['PSAR'] = ta.trend.PSARIndicator(data['High'], data['Low'], data['Close']).psar()
+    for column, values in directional_indicators(data['High'], data['Low'], data['Close'], window=14).items():
+        data[column] = values
+    for column, values in psar_columns(data['High'], data['Low'], data['Close']).items():
+        data[column] = values
     data['LinRegSlope20'] = rolling_linreg_slope_pct(data['Close'], 20)
     # Prior-period Donchian levels (standard breakout: compare close to yesterday's N-day extreme)
     data['DonchianUpper20'] = data['High'].rolling(20).max().shift(1)
@@ -646,6 +725,8 @@ def add_indicators(data, periods_per_year=252, source_timezone=None, compute_hur
     data['BBSqueeze'] = np.where(
         (data['BBUpper'] < data['KCUpper20']) & (data['BBLower'] > data['KCLower20']), 1, -1
     )
+    data['SqueezeRatio20'] = (data['BBUpper'] - data['BBLower']) / (data['KCUpper20'] - data['KCLower20'])
+    data['SqueezeAge20'] = squeeze_age(data['BBSqueeze'])
     close = data['Close']
     low = data['Low']
     tail = pd.DataFrame(

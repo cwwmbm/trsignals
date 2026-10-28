@@ -6,8 +6,8 @@
       "leverage_symbol": "SOXL",
       "leverage": 3.0,
       "beta": 2.9634,
-      "annual_fee": 0.01938,
-      "financing_multiple": 2.3508
+      "annual_fee": 0.01937,
+      "financing_multiple": 2.3662
     },
     {
       "symbol": "RIVN",
@@ -16,6 +16,14 @@
       "beta": 1.0,
       "annual_fee": 0.0,
       "financing_multiple": 0.0
+    },
+    {
+      "symbol": "QQQ",
+      "leverage_symbol": "TQQQ",
+      "leverage": 3.0,
+      "beta": 2.9574,
+      "annual_fee": 0.014933,
+      "financing_multiple": 2.1313
     }
   ]
 }

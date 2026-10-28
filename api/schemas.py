@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 
 from api.allocation import DEFAULT_TIER_SINGLE_PCT
 
-ScanLane = Literal["active", "testing", "archived"]
+ScanLane = Literal["live", "active", "testing", "archived"]
 
 
 class RuntimeOptions(BaseModel):
@@ -159,6 +159,8 @@ class BuilderRefineRequest(BaseModel):
     is_sell: bool = False
     check_breadth: bool = False
     check_both: bool = False
+    # Yahoo revises volume after the fact, so the VFI sweeps are opt-in.
+    include_vfi: bool = False
     # indicator-combo-sweep: filters per combination, rows returned, and trio beam width.
     combo_size: int = Field(default=2, ge=2, le=3)
     combo_top_n: int = Field(default=50, ge=1, le=200)

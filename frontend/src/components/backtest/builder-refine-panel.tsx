@@ -114,6 +114,8 @@ export type BuilderRefinePanelProps = {
   onCheckBreadthChange: (value: boolean) => void;
   checkBoth: boolean;
   onCheckBothChange: (value: boolean) => void;
+  includeVfi: boolean;
+  onIncludeVfiChange: (value: boolean) => void;
   isSell: boolean;
   onIsSellChange: (value: boolean) => void;
   comboSize: 2 | 3;
@@ -139,6 +141,8 @@ export function BuilderRefinePanel({
   onCheckBreadthChange,
   checkBoth,
   onCheckBothChange,
+  includeVfi,
+  onIncludeVfiChange,
   isSell,
   onIsSellChange,
   comboSize,
@@ -354,6 +358,20 @@ export function BuilderRefinePanel({
               />
               <Label htmlFor="builder-check-both" className="text-xs font-normal">
                 Include price/momentum
+              </Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="builder-include-vfi"
+                checked={includeVfi}
+                onCheckedChange={(checked) => onIncludeVfiChange(checked === true)}
+              />
+              <Label
+                htmlFor="builder-include-vfi"
+                className="text-xs font-normal"
+                title="Yahoo revises volume after the fact, so VFI readings can drift."
+              >
+                Include VFI
               </Label>
             </div>
           </div>

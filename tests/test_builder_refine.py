@@ -634,3 +634,31 @@ class BuilderComboSweepTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RefineVfiToggleTests(unittest.TestCase):
+    VFI = {"VFI10", "VFI20", "VFI40", "VFI80"}
+
+    def _excluded(self, **flags):
+        request = BuilderRefineRequest(
+            mode="indicator-sweep", strategy=_draft_request(), check_breadth=False, **flags
+        )
+        empty = pd.DataFrame(columns=["Indicator", "Value", "Sharpe", "Trades"])
+        with patch("api.services.load_ticker_data", return_value=_sample_data()):
+            with patch("api.services.indicator_tryout", return_value=empty) as tryout:
+                run_builder_refine(request)
+        return set(tryout.call_args.kwargs["exclude_columns"] or ())
+
+    def test_vfi_is_left_out_by_default(self):
+        self.assertTrue(self.VFI <= self._excluded())
+
+    def test_vfi_is_swept_when_asked_for(self):
+        self.assertFalse(self.VFI & self._excluded(include_vfi=True))
+
+    def test_combination_sweep_follows_the_same_flag(self):
+        from api.services import _refine_exclude_columns
+
+        off = BuilderRefineRequest(mode="indicator-combo-sweep", strategy=_draft_request())
+        on = BuilderRefineRequest(mode="indicator-combo-sweep", strategy=_draft_request(), include_vfi=True)
+        self.assertTrue(self.VFI <= _refine_exclude_columns(off, None))
+        self.assertIsNone(_refine_exclude_columns(on, None))

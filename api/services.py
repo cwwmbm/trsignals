@@ -853,6 +853,16 @@ def _draft_baseline(primary, data, *, years: int, labels: dict[str, str], in_sam
     return baseline
 
 
+def _refine_exclude_columns(request, custom_dataset) -> set[str] | None:
+    """Indicator columns the refine sweeps skip: unavailable on custom data, plus VFI unless asked for."""
+    from indicator_sweep import VFI_SWEEPS
+
+    excluded = set(custom_dataset.unavailable_indicator_ids) if custom_dataset else set()
+    if not request.include_vfi:
+        excluded.update(spec[0] for spec in VFI_SWEEPS)
+    return excluded or None
+
+
 def run_builder_refine(request) -> dict:
     if not request.strategy.conditions:
         raise ValueError("Draft strategy must have at least one entry condition")
@@ -969,7 +979,7 @@ def run_builder_refine(request) -> dict:
 
         if request.mode == "indicator-sweep":
             check_breadth = request.check_breadth if custom_dataset is None else False
-            exclude_columns = set(custom_dataset.unavailable_indicator_ids) if custom_dataset else None
+            exclude_columns = _refine_exclude_columns(request, custom_dataset)
             if primary.confirm_symbols:
                 results = builder_indicator_tryout(
                     primary,
@@ -1032,9 +1042,7 @@ def run_builder_refine(request) -> dict:
                 check_breadth=request.check_breadth if custom_dataset is None else False,
                 check_both=request.check_both,
                 include_vwap_sweeps=custom_dataset is not None and custom_dataset.has_vwap,
-                exclude_columns=(
-                    set(custom_dataset.unavailable_indicator_ids) if custom_dataset else None
-                ),
+                exclude_columns=_refine_exclude_columns(request, custom_dataset),
                 # Symbol-specific filters must go through the confirm path to match "Add to entry";
                 # a combination search only has the merged frame, so it sticks to market-wide ones.
                 column_ok=is_market_wide_indicator if primary.confirm_symbols else None,
