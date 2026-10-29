@@ -2,7 +2,9 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-ScanLane = Literal["active", "testing", "archived"]
+from api.allocation import DEFAULT_TIER_SINGLE_PCT
+
+ScanLane = Literal["live", "active", "testing", "archived"]
 
 
 class RuntimeOptions(BaseModel):
@@ -141,7 +143,10 @@ BuilderRefineMode = Literal[
     "symbol-confirm-sweep",
     "hold-days-sweep",
     "indicator-sweep",
+    "indicator-combo-sweep",
+    "basket-sweep",
     "market-regime-sweep",
+    "entry-loo",
 ]
 
 
@@ -155,6 +160,14 @@ class BuilderRefineRequest(BaseModel):
     is_sell: bool = False
     check_breadth: bool = False
     check_both: bool = False
+    # Yahoo revises volume after the fact, so the VFI sweeps are opt-in.
+    include_vfi: bool = False
+    # indicator-combo-sweep: filters per combination, rows returned, and trio beam width.
+    combo_size: int = Field(default=2, ge=2, le=3)
+    combo_top_n: int = Field(default=50, ge=1, le=200)
+    combo_beam_width: int = Field(default=150, ge=10, le=1000)
+    # basket-sweep: symbols to run the draft strategy on (comma or space separated entries are fine).
+    basket_symbols: list[str] = Field(default_factory=list)
 
 
 RefineSampleMode = Literal["in_sample", "full"]
@@ -227,14 +240,39 @@ class UpdateStrategyRequest(BaseModel):
     scan_sort_order: int | None = None
 
 
+# Portfolios always hold until every strategy exits. The field is still accepted (and stored
+# portfolios keep theirs) so older clients and files load, but it is ignored.
 PortfolioOverlapMode = Literal["first_signal_only", "hold_until_all_exit"]
+PortfolioAllocationModel = Literal["all_in", "proportional", "regime_adjusted", "tiered"]
+PortfolioProportionalMode = Literal["linear", "early_conviction", "confirmation_required"]
+RegimeScoreKind = Literal["robustness", "portfolio"]
+RegimePenaltyPreset = Literal["harsh", "strict", "medium", "low"]
 
 
-class PortfolioSimulateRequest(RegimeRequestOptions):
-    strategy_ids: list[str] = Field(min_items=1)
-    overlap_mode: PortfolioOverlapMode = "first_signal_only"
+class RegimePenaltyFields(BaseModel):
+    """Regime-adjusted allocation settings, used only when allocation_model is regime_adjusted.
+
+    ``regime_penalty`` picks how hard a poorly-scoring regime state is punished (see
+    ``api.regime_allocation.PENALTY_PRESETS``); ``regime_score`` picks the score that is read.
+    """
+
+    regime_score: RegimeScoreKind = "robustness"
+    regime_penalty: RegimePenaltyPreset = "medium"
+
+
+class PortfolioSimulateRequest(RegimePenaltyFields, RegimeRequestOptions):
+    strategy_ids: list[str] = Field(default_factory=list)
+    portfolio_ids: list[str] = Field(default_factory=list)
+    overlap_mode: PortfolioOverlapMode = "hold_until_all_exit"
     proxy_symbol: str | None = None
     years: int = Field(default=25, ge=1, le=100)
+    # All-in is the original behavior. Proportional sizes the book by active/total strategies
+    # and ignores overlap_mode.
+    allocation_model: PortfolioAllocationModel = "all_in"
+    proportional_mode: PortfolioProportionalMode = "linear"
+    # Tiered model only: weight in percent when exactly one strategy is active (two or more is 100%).
+    tier_single_pct: float = Field(default=DEFAULT_TIER_SINGLE_PCT, ge=0, le=100)
+    transaction_cost_bps: float = Field(default=0.0, ge=0, le=1000)
 
 
 class PortfolioShapleyRequest(PortfolioSimulateRequest):
@@ -247,25 +285,47 @@ class PortfolioRegimeRequest(PortfolioSimulateRequest):
     pass
 
 
-class SavedPortfolio(BaseModel):
+class PortfolioAllocationComparisonRequest(PortfolioSimulateRequest):
+    """On-demand comparison of allocation models (same inputs as portfolio simulate).
+
+    ``include_nesting`` also regroups the portfolio's strategies into child portfolios, each with
+    its own allocation model (see ``api.nesting_variants``).
+    """
+
+    include_nesting: bool = False
+
+
+class SavedPortfolio(RegimePenaltyFields):
     id: str
     name: str
     description: str = ""
     strategy_ids: list[str]
-    overlap_mode: PortfolioOverlapMode = "first_signal_only"
+    portfolio_ids: list[str] = Field(default_factory=list)
+    overlap_mode: PortfolioOverlapMode = "hold_until_all_exit"
     proxy_symbol: str | None = None
+    allocation_model: PortfolioAllocationModel = "all_in"
+    proportional_mode: PortfolioProportionalMode = "linear"
+    # Tiered model only: weight in percent when exactly one strategy is active (two or more is 100%).
+    tier_single_pct: float = Field(default=DEFAULT_TIER_SINGLE_PCT, ge=0, le=100)
+    transaction_cost_bps: float = Field(default=0.0, ge=0, le=1000)
     scan_lane: ScanLane = "testing"
     scan_sort_order: int = 0
     created_at: str
     updated_at: str
 
 
-class SavePortfolioRequest(BaseModel):
+class SavePortfolioRequest(RegimePenaltyFields):
     name: str = Field(min_length=1)
     description: str = ""
-    strategy_ids: list[str] = Field(min_items=1)
-    overlap_mode: PortfolioOverlapMode = "first_signal_only"
+    strategy_ids: list[str] = Field(default_factory=list)
+    portfolio_ids: list[str] = Field(default_factory=list)
+    overlap_mode: PortfolioOverlapMode = "hold_until_all_exit"
     proxy_symbol: str | None = None
+    allocation_model: PortfolioAllocationModel = "all_in"
+    proportional_mode: PortfolioProportionalMode = "linear"
+    # Tiered model only: weight in percent when exactly one strategy is active (two or more is 100%).
+    tier_single_pct: float = Field(default=DEFAULT_TIER_SINGLE_PCT, ge=0, le=100)
+    transaction_cost_bps: float = Field(default=0.0, ge=0, le=1000)
 
 
 class UpdatePortfolioRequest(BaseModel):
@@ -274,8 +334,36 @@ class UpdatePortfolioRequest(BaseModel):
     scan_lane: ScanLane | None = None
     scan_sort_order: int | None = None
     strategy_ids: list[str] | None = None
+    portfolio_ids: list[str] | None = None
     overlap_mode: PortfolioOverlapMode | None = None
     proxy_symbol: str | None = None
+    allocation_model: PortfolioAllocationModel | None = None
+    proportional_mode: PortfolioProportionalMode | None = None
+    tier_single_pct: float | None = Field(default=None, ge=0, le=100)
+    transaction_cost_bps: float | None = Field(default=None, ge=0, le=1000)
+    regime_score: RegimeScoreKind | None = None
+    regime_penalty: RegimePenaltyPreset | None = None
+
+
+class SymbolLeverageModel(BaseModel):
+    """One symbol and the leveraged product traded in its place (see api.leverage_settings)."""
+
+    symbol: str
+    leverage_symbol: str | None = None  # blank or None: no product, the symbol is traded itself
+    leverage: float
+    beta: float | None = None
+    annual_fee: float = 0.0
+    financing_multiple: float = 0.0
+
+
+class LeverageSettingsModel(BaseModel):
+    general_leverage: float
+    symbols: list[SymbolLeverageModel] = Field(default_factory=list)
+
+
+class LeverageEstimateRequest(BaseModel):
+    symbol: str
+    leverage_symbol: str
 
 
 class ConditionSnapshotItem(BaseModel):
@@ -287,6 +375,48 @@ class ConditionSnapshotItem(BaseModel):
     operator: str
     left: str
     right: str
+
+
+class ScanOrder(BaseModel):
+    instrument: str
+    underlying: str
+    kind: Literal["vehicle", "synthetic"]
+    leverage: float | None = None
+    side: Literal["buy", "sell"]
+    event: str
+    weight_before: float
+    weight_after: float
+    price: float | None = None
+
+
+class ScanHolding(BaseModel):
+    instrument: str
+    underlying: str
+    kind: Literal["vehicle", "synthetic"]
+    leverage: float | None = None
+    weight: float
+    price: float | None = None
+
+
+class ScanPosition(BaseModel):
+    """What to do with a row today, as shares of that row's own book (1.0 is all of it)."""
+
+    action: Literal["Enter", "Add", "Reduce", "Exit", "Rebalance", "Hold", "Flat"]
+    held_before: float
+    held_now: float
+    target: float
+    delta: float
+    active: int
+    total: int
+    active_strategies: list[str] = Field(default_factory=list)
+    entered: list[str] = Field(default_factory=list)
+    exited: list[str] = Field(default_factory=list)
+    reason: str
+    orders: list[ScanOrder] = Field(default_factory=list)
+    holdings: list[ScanHolding] = Field(default_factory=list)
+    model: str
+    as_of: str | None = None
+    approximate: str | None = None
 
 
 class ScanRowResponse(BaseModel):
@@ -311,6 +441,7 @@ class ScanRowResponse(BaseModel):
     sell_condition_passed_count: int | None = None
     sell_condition_total_count: int | None = None
     condition_as_of: str | None = None
+    position: ScanPosition | None = None
 
 
 class QuoteSymbolResponse(BaseModel):
@@ -328,3 +459,7 @@ class QuoteSymbolResponse(BaseModel):
 class QuoteResponse(BaseModel):
     as_of: str | None = None
     quotes: list[QuoteSymbolResponse] = Field(default_factory=list)
+
+
+class QuoteSymbolRequest(BaseModel):
+    symbol: str

@@ -34,6 +34,7 @@ type ViewId = 'quality' | 'contribution'
 
 const METRICS: { id: MetricId; label: string }[] = [
   { id: 'regime_score', label: 'Regime score' },
+  { id: 'robustness_score', label: 'Robustness score' },
   { id: 'avg_trade_return', label: 'Return' },
   { id: 'cagr', label: 'CAGR' },
   { id: 'sortino', label: 'Sortino' },
@@ -69,7 +70,7 @@ function formatPercent(value: number, digits: number, signed: boolean) {
 
 function formatMetric(metric: MetricId, value: number | null | undefined, signed: boolean) {
   if (!isFiniteNumber(value)) return '—'
-  if (metric === 'regime_score') return formatScore(value, signed)
+  if (metric === 'regime_score' || metric === 'robustness_score') return formatScore(value, signed)
   if (metric === 'sortino' || metric === 'robustness') return formatRatio(value, signed)
   if (metric === 'max_drawdown') return formatPercent(value, 0, signed)
   return formatPercent(value, 1, signed)
@@ -162,7 +163,7 @@ function ContributionHover({ cell }: { cell: RegimeContributionCell }) {
 function csvCell(value: string | number | null | undefined) {
   if (value == null || value === '') return ''
   const text = String(value)
-  if (/[",\n]/.test(text)) return `"${text.replaceAll('"', '""')}"`
+  if (/[",\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`
   return text
 }
 

@@ -1,13 +1,6 @@
 import type { ScanRow } from '@/api'
 
-export type ScanSignalKind = 'buy' | 'hold' | 'sell'
 export type ScanRowMood = 'flat' | 'entry' | 'holding' | 'exit'
-
-export function isScanSignalActive(row: ScanRow, kind: ScanSignalKind): boolean {
-  if (kind === 'buy') return row.buy_signal
-  if (kind === 'hold') return row.hold_long
-  return row.sell_signal
-}
 
 /** Primary row state for scan accent colors. Buy and hold never fire on the same bar. */
 export function resolveScanRowMood(row: ScanRow): ScanRowMood {
@@ -41,44 +34,4 @@ export function scanCardAccentClass(row: ScanRow): string {
     default:
       return ''
   }
-}
-
-export function scanSignalIconClass(row: ScanRow, kind: ScanSignalKind): string {
-  if (!isScanSignalActive(row, kind)) {
-    return 'text-muted-foreground/50'
-  }
-
-  if (kind === 'buy') {
-    return 'text-[var(--gain)]'
-  }
-
-  if (kind === 'sell') {
-    return 'text-[var(--scan-exit)]'
-  }
-
-  if (row.sell_signal) {
-    return 'text-muted-foreground/40'
-  }
-
-  return 'text-[var(--scan-hold)]'
-}
-
-export function scanSignalBadgeClass(row: ScanRow, kind: ScanSignalKind): string {
-  if (!isScanSignalActive(row, kind)) {
-    return 'bg-muted text-muted-foreground'
-  }
-
-  if (kind === 'buy') {
-    return 'bg-[var(--gain)]/15 text-[var(--gain)]'
-  }
-
-  if (kind === 'sell') {
-    return 'bg-[var(--scan-exit)]/15 text-[var(--scan-exit)]'
-  }
-
-  if (row.sell_signal) {
-    return 'bg-muted/80 text-muted-foreground/55'
-  }
-
-  return 'bg-[var(--scan-hold)]/15 text-[var(--scan-hold)]'
 }

@@ -20,9 +20,6 @@ QUOTE_SYMBOLS: tuple[tuple[str, str], ...] = (
     ("VIX", "^VIX"),
 )
 
-YF_SYMBOLS = [yf_symbol for _, yf_symbol in QUOTE_SYMBOLS]
-
-
 def eastern_now(now: datetime | None = None) -> datetime:
     if now is None:
         return datetime.now(EASTERN)
@@ -147,17 +144,25 @@ def metrics_from_ohlcv(frame: pd.DataFrame) -> dict:
     }
 
 
-def ohlcv_from_bulk(full_data: pd.DataFrame, yf_symbol: str) -> pd.DataFrame:
+def ohlcv_from_bulk(
+    full_data: pd.DataFrame,
+    yf_symbol: str,
+    *,
+    allow_flat: bool = False,
+) -> pd.DataFrame:
     columns = ["Open", "High", "Low", "Close", "Volume"]
     empty = pd.DataFrame(columns=columns)
     if full_data is None or full_data.empty:
         return empty
-    if not isinstance(full_data.columns, pd.MultiIndex):
+    if isinstance(full_data.columns, pd.MultiIndex):
+        tickers = set(full_data.columns.get_level_values(1))
+        if yf_symbol not in tickers:
+            return empty
+        frame = full_data.xs(yf_symbol, axis=1, level=1, drop_level=True).copy()
+    elif allow_flat:
+        frame = full_data.copy()
+    else:
         return empty
-    tickers = set(full_data.columns.get_level_values(1))
-    if yf_symbol not in tickers:
-        return empty
-    frame = full_data.xs(yf_symbol, axis=1, level=1, drop_level=True).copy()
     keep = [column for column in columns if column in frame.columns]
     frame = frame[keep]
     index = pd.to_datetime(frame.index)
@@ -174,8 +179,9 @@ def quote_for_symbol(
     yf_symbol: str,
     *,
     now: datetime | None = None,
+    allow_flat: bool = False,
 ) -> dict:
-    frame = ohlcv_from_bulk(full_data, yf_symbol)
+    frame = ohlcv_from_bulk(full_data, yf_symbol, allow_flat=allow_flat)
     metrics = metrics_from_ohlcv(frame)
     close = frame["Close"] if "Close" in frame.columns else pd.Series(dtype=float)
     return {
@@ -189,15 +195,27 @@ def build_quote_snapshot(
     *,
     full_data: pd.DataFrame | None = None,
     now: datetime | None = None,
+    symbols: list[tuple[str, str]] | tuple[tuple[str, str], ...] | None = None,
 ) -> dict:
+    pairs = list(QUOTE_SYMBOLS if symbols is None else symbols)
+    if not pairs:
+        return {"as_of": None, "quotes": []}
+
     if full_data is None:
         import getdata as dt
 
-        full_data = dt.get_bulk_data(YF_SYMBOLS, years=1)
+        full_data = dt.get_bulk_data([yf_symbol for _, yf_symbol in pairs], years=1)
 
+    single_symbol = len(pairs) == 1
     quotes = [
-        quote_for_symbol(full_data, display, yf_symbol, now=now)
-        for display, yf_symbol in QUOTE_SYMBOLS
+        quote_for_symbol(
+            full_data,
+            display,
+            yf_symbol,
+            now=now,
+            allow_flat=single_symbol,
+        )
+        for display, yf_symbol in pairs
     ]
     as_ofs = [row["as_of"] for row in quotes if row.get("as_of")]
     return {

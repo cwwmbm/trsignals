@@ -1,6 +1,8 @@
 export type RegimeField =
   | "vix_regime"
   | "vxn_regime"
+  | "vix_change_regime"
+  | "vix_rv_regime"
   | "atr_regime"
   | "spy_regime"
   | "market_breadth_regime"
@@ -37,6 +39,8 @@ export type RegimeDimension = {
   field: RegimeField;
   buckets: RegimeBucketDef[];
   unavailableWhenEmpty: boolean;
+  /** Buckets overlap: a day or trade can sit in several (trade field is a list of keys). */
+  overlapping?: boolean;
 };
 
 export type RegimeSharpeBucket = {
@@ -52,9 +56,10 @@ export type RegimeSharpeBucket = {
   regime_score_return?: number | null;
   regime_score_drawdown?: number | null;
   regime_score_robustness?: number | null;
+  robustness_score?: number | null;
 };
 
-export type RegimeTradeRow = Record<string, number | string | null>;
+export type RegimeTradeRow = Record<string, number | string | string[] | null>;
 
 export type MarketRegimeSharpe = Partial<Record<string, RegimeSharpeBucket[]>>;
 
@@ -76,9 +81,11 @@ export type RegimeChartPoint = {
   regimeScoreReturn: number | null;
   regimeScoreDrawdown: number | null;
   regimeScoreRobustness: number | null;
+  robustnessScore: number | null;
 };
 
 export type RegimeYMetric =
+  | "robustness_score"
   | "regime_score"
   | "sharpe"
   | "sortino"
@@ -92,6 +99,26 @@ const VOL_BUCKETS: RegimeBucketDef[] = [
   { key: "15_20", label: "15–20" },
   { key: "20_30", label: "20–30" },
   { key: "gt_30", label: "> 30" },
+];
+
+const VIX_RV_BUCKETS: RegimeBucketDef[] = [
+  { key: "le_10", label: "≤ 10th" },
+  { key: "10_30", label: "10–30th" },
+  { key: "30_70", label: "30–70th" },
+  { key: "70_90", label: "70–90th" },
+  { key: "gt_90", label: "> 90th" },
+];
+
+const VIX_CHANGE_BUCKETS: RegimeBucketDef[] = [
+  { key: "le_neg_15", label: "≤ -15%" },
+  { key: "le_neg_10", label: "≤ -10%" },
+  { key: "le_neg_5", label: "≤ -5%" },
+  { key: "le_0", label: "≤ 0%" },
+  { key: "ge_0", label: "≥ 0%" },
+  { key: "ge_5", label: "≥ 5%" },
+  { key: "ge_10", label: "≥ 10%" },
+  { key: "ge_15", label: "≥ 15%" },
+  { key: "ge_20", label: "≥ 20%" },
 ];
 
 const SECTOR_BREADTH_BUCKETS: RegimeBucketDef[] = [
@@ -146,6 +173,8 @@ const CURVE_CHANGE_BUCKETS: RegimeBucketDef[] = [
 export const REGIME_TRADE_FIELDS: RegimeField[] = [
   "vix_regime",
   "vxn_regime",
+  "vix_change_regime",
+  "vix_rv_regime",
   "atr_regime",
   "spy_regime",
   "market_breadth_regime",
@@ -187,6 +216,23 @@ export const REGIME_DIMENSIONS: RegimeDimension[] = [
     field: "vxn_regime",
     buckets: VOL_BUCKETS,
     unavailableWhenEmpty: false,
+  },
+  {
+    id: "vix_rv",
+    title: "VIX vs realized vol",
+    hint: "Percentile of VIX / SPY 21-day realized volatility among all earlier days. ≤ 10th — extreme realized dominance. 10–30th — realized dominance. 30–70th — typical. 70–90th — elevated implied premium. > 90th — extreme implied premium",
+    field: "vix_rv_regime",
+    buckets: VIX_RV_BUCKETS,
+    unavailableWhenEmpty: false,
+  },
+  {
+    id: "vix_change",
+    title: "VIX daily change",
+    hint: "VIX close-to-close % change that day. Buckets overlap: a -12% day is in ≤ -10%, ≤ -5% and ≤ 0%",
+    field: "vix_change_regime",
+    buckets: VIX_CHANGE_BUCKETS,
+    unavailableWhenEmpty: false,
+    overlapping: true,
   },
   {
     id: "atr",
@@ -425,7 +471,8 @@ function closedTradeStats(trades: RegimeTradeRow[], field: RegimeField, key: str
   let exposureDays = 0;
   for (const trade of trades) {
     if (String(trade.status ?? "Closed") !== "Closed") continue;
-    if (trade[field] !== key) continue;
+    const held = trade[field];
+    if (Array.isArray(held) ? !held.includes(key) : held !== key) continue;
     const pnl = Number(trade.trade_pnl);
     if (!Number.isFinite(pnl)) continue;
     count += 1;
@@ -474,6 +521,7 @@ export function regimeChartPoints(
       regimeScoreReturn: enough ? (row?.regime_score_return ?? null) : null,
       regimeScoreDrawdown: enough ? (row?.regime_score_drawdown ?? null) : null,
       regimeScoreRobustness: enough ? (row?.regime_score_robustness ?? null) : null,
+      robustnessScore: enough ? (row?.robustness_score ?? null) : null,
     };
   });
 }
@@ -487,6 +535,7 @@ export function regimeIndicatorLabel(title: string, bucketLabel: string) {
 }
 
 export function regimeYValue(point: RegimeChartPoint, metric: RegimeYMetric): number | null {
+  if (metric === "robustness_score") return point.robustnessScore;
   if (metric === "regime_score") return point.regimeScore;
   if (metric === "sharpe") return point.sharpe;
   if (metric === "sortino") return point.sortino;

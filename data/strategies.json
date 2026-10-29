@@ -452,7 +452,9 @@
     "sell_conditions": [],
     "legacy_signal": "buy_signal10",
     "created_at": "2026-06-15T18:10:39+00:00",
-    "updated_at": "2026-06-15T18:10:39+00:00"
+    "updated_at": "2026-10-13T17:56:08+00:00",
+    "scan_lane": "testing",
+    "scan_sort_order": 1
   },
   {
     "id": "540c55d0-9e71-5b7d-aaa5-da0437d8474f",
@@ -747,9 +749,9 @@
     "sell_conditions": [],
     "legacy_signal": "buy_signal18",
     "created_at": "2026-06-15T18:10:39+00:00",
-    "updated_at": "2026-07-16T22:23:54+00:00",
+    "updated_at": "2026-10-13T17:56:09+00:00",
     "scan_lane": "testing",
-    "scan_sort_order": 25
+    "scan_sort_order": 24
   },
   {
     "id": "4f559eae-8972-530c-a9e8-155a7f89c5c5",
@@ -1413,9 +1415,9 @@
     "rth_entries_only": false,
     "eod_exit": false,
     "created_at": "2026-06-22T03:44:07+00:00",
-    "updated_at": "2026-07-20T18:11:19+00:00",
+    "updated_at": "2026-10-13T17:56:16+00:00",
     "scan_lane": "active",
-    "scan_sort_order": 3
+    "scan_sort_order": 4
   },
   {
     "id": "16c5eaeb-4761-40d8-8dae-325dbc13ff20",
@@ -1517,10 +1519,10 @@
     "hold_on_buy_signal": false,
     "rth_entries_only": false,
     "eod_exit": false,
-    "scan_lane": "active",
-    "scan_sort_order": 11,
+    "scan_lane": "live",
+    "scan_sort_order": 3,
     "created_at": "2026-07-13T19:00:06+00:00",
-    "updated_at": "2026-07-14T15:58:13+00:00"
+    "updated_at": "2026-10-23T19:34:07+00:00"
   },
   {
     "id": "13209ccb-c8a7-4099-b29d-a7d3a85dfaea",
@@ -1561,9 +1563,9 @@
     "rth_entries_only": false,
     "eod_exit": false,
     "scan_lane": "active",
-    "scan_sort_order": 15,
+    "scan_sort_order": 14,
     "created_at": "2026-07-16T03:48:33+00:00",
-    "updated_at": "2026-07-16T22:23:47+00:00"
+    "updated_at": "2026-10-13T17:56:16+00:00"
   },
   {
     "id": "c9d17247-8e55-49d2-9671-949194088baf",
@@ -1612,6 +1614,12 @@
     "description": "Long NQ: Close 1 day ago <= Close 3 days ago, IBR <= 0.4",
     "conditions": [
       {
+        "left": "Regime_equity_risk_breadth_gt_1",
+        "operator": "is false",
+        "right": "",
+        "logic": "AND"
+      },
+      {
         "left": "IBR",
         "operator": "<=",
         "right": "0.4",
@@ -1640,10 +1648,10 @@
     "hold_on_buy_signal": true,
     "rth_entries_only": false,
     "eod_exit": false,
-    "scan_lane": "active",
-    "scan_sort_order": 12,
+    "scan_lane": "live",
+    "scan_sort_order": 4,
     "created_at": "2026-07-16T17:26:08+00:00",
-    "updated_at": "2026-07-21T16:59:37+00:00"
+    "updated_at": "2026-10-23T19:34:10+00:00"
   },
   {
     "id": "502c573f-6587-41df-9efb-6a6b1a1eda7d",
@@ -1663,7 +1671,7 @@
       {
         "left": "IBR2",
         "operator": "<=",
-        "right": "0.5",
+        "right": "0.2",
         "logic": "AND"
       }
     ],
@@ -1677,9 +1685,9 @@
     "rth_entries_only": false,
     "eod_exit": false,
     "scan_lane": "testing",
-    "scan_sort_order": 24,
+    "scan_sort_order": 23,
     "created_at": "2026-07-16T19:07:50+00:00",
-    "updated_at": "2026-10-01T01:56:50+00:00"
+    "updated_at": "2026-10-22T14:17:47+00:00"
   },
   {
     "id": "48076e2a-155b-42c3-9110-6bce75559794",
@@ -1732,8 +1740,273 @@
     "rth_entries_only": false,
     "eod_exit": false,
     "scan_lane": "active",
-    "scan_sort_order": 2,
+    "scan_sort_order": 3,
     "created_at": "2026-07-20T17:29:16+00:00",
-    "updated_at": "2026-10-06T17:42:40+00:00"
+    "updated_at": "2026-10-13T17:56:16+00:00"
+  },
+  {
+    "id": "b1da3fbc-27e3-4729-9832-6bc0c0c1d6a9",
+    "name": "Signal 16 Confirmed1_rgm",
+    "symbol": "SOXX",
+    "direction": "long",
+    "hold_days": 4,
+    "profit": 1,
+    "description": "high[0] > close[1], IBR[0] <= 50, SMA50>SMA200, Hurst > 0.4",
+    "conditions": [
+      {
+        "left": "Regime_equity_risk_breadth_gt_1",
+        "operator": "is false",
+        "right": "",
+        "logic": "AND"
+      },
+      {
+        "left": "Regime_rate_shock_gt_1",
+        "operator": "is false",
+        "right": "",
+        "logic": "AND"
+      },
+      {
+        "left": "Regime_sector_trend_50_gt_pos_5",
+        "operator": "is false",
+        "right": "",
+        "logic": "AND"
+      },
+      {
+        "left": "High",
+        "operator": ">",
+        "right": "CloseLag1",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.5",
+        "logic": "AND"
+      },
+      {
+        "left": "RSI2SemisBreadth",
+        "operator": ">=",
+        "right": "30",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "confirm_symbols": [
+      "SMH",
+      "QQQ"
+    ],
+    "proxy_symbol": null,
+    "legacy_signal": null,
+    "hold_on_buy_signal": true,
+    "rth_entries_only": false,
+    "eod_exit": false,
+    "scan_lane": "live",
+    "scan_sort_order": 1,
+    "created_at": "2026-10-13T17:55:42+00:00",
+    "updated_at": "2026-10-23T19:33:53+00:00"
+  },
+  {
+    "id": "96c2111a-a538-4277-aec3-a4d28e863e4d",
+    "name": "Modified OG Combined Proxy_rgm",
+    "symbol": "SPY",
+    "direction": "long",
+    "hold_days": 100,
+    "profit": 100,
+    "description": "Rethinking OG, and separating into bull and bear markets",
+    "conditions": [
+      {
+        "left": "Regime_equity_risk_breadth_gt_1",
+        "operator": "is false",
+        "right": "",
+        "logic": "AND"
+      },
+      {
+        "left": "Stoch",
+        "operator": "<=",
+        "right": "30",
+        "logic": "AND"
+      },
+      {
+        "left": "RSI2SemisBreadth",
+        "operator": ">=",
+        "right": "20",
+        "logic": "AND"
+      },
+      {
+        "left": "CloseBelowDonchianLower55",
+        "operator": "is false",
+        "right": "",
+        "logic": "AND"
+      },
+      {
+        "left": "RSI2",
+        "operator": "<=",
+        "right": "15",
+        "logic": "AND"
+      },
+      {
+        "left": "strategy:0df0711d-ac9e-597d-b07f-464c4d8e86d1",
+        "operator": "is true",
+        "right": "",
+        "logic": "OR"
+      }
+    ],
+    "sell_conditions": [
+      {
+        "left": "RSISell",
+        "operator": "is true",
+        "right": "",
+        "logic": "OR"
+      },
+      {
+        "left": "EMA8CrossDown",
+        "operator": "is true",
+        "right": "",
+        "logic": "OR"
+      },
+      {
+        "left": "SMA50_SMA200",
+        "operator": "<=",
+        "right": "0",
+        "logic": "OR"
+      },
+      {
+        "left": "RSI14EnergyBreadth",
+        "operator": ">=",
+        "right": "60",
+        "logic": "OR"
+      }
+    ],
+    "confirm_symbols": [],
+    "proxy_symbol": "SOXX",
+    "legacy_signal": null,
+    "hold_on_buy_signal": true,
+    "rth_entries_only": false,
+    "eod_exit": false,
+    "scan_lane": "live",
+    "scan_sort_order": 2,
+    "created_at": "2026-10-13T18:48:04+00:00",
+    "updated_at": "2026-10-23T19:34:04+00:00"
+  },
+  {
+    "id": "2dda66a2-5f02-4ae1-9e0f-03899ab662dd",
+    "name": "GDX Test",
+    "symbol": "GDX",
+    "direction": "long",
+    "hold_days": 2,
+    "profit": 1,
+    "description": "",
+    "conditions": [
+      {
+        "left": "Close",
+        "operator": ">=",
+        "right": "-1",
+        "logic": "AND"
+      },
+      {
+        "left": "CCI",
+        "operator": ">=",
+        "right": "-100",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.2",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "confirm_symbols": [],
+    "proxy_symbol": null,
+    "legacy_signal": null,
+    "hold_on_buy_signal": false,
+    "rth_entries_only": false,
+    "eod_exit": false,
+    "scan_lane": "testing",
+    "scan_sort_order": 0,
+    "created_at": "2026-10-20T03:56:54+00:00",
+    "updated_at": "2026-10-20T03:56:54+00:00"
+  },
+  {
+    "id": "c1a38435-9f03-4a54-9874-66ca2269c8b6",
+    "name": "buy_signal18",
+    "symbol": "SOXX",
+    "direction": "long",
+    "hold_days": 2,
+    "profit": 1,
+    "description": "Long SMH: rsi(close,2)[0] <= 20, IBR[0] <= 30, ER>0.3",
+    "conditions": [
+      {
+        "left": "Close_EMA8",
+        "operator": "<=",
+        "right": "-3",
+        "logic": "AND"
+      },
+      {
+        "left": "IBR",
+        "operator": "<=",
+        "right": "0.2",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [],
+    "confirm_symbols": [],
+    "proxy_symbol": null,
+    "legacy_signal": null,
+    "hold_on_buy_signal": true,
+    "rth_entries_only": false,
+    "eod_exit": false,
+    "scan_lane": "testing",
+    "scan_sort_order": 0,
+    "created_at": "2026-10-21T16:50:49+00:00",
+    "updated_at": "2026-10-21T16:50:49+00:00"
+  },
+  {
+    "id": "1a4fd3db-00de-46e8-bf62-cdd012b9b94b",
+    "name": "Trend_test",
+    "symbol": "SPY",
+    "direction": "long",
+    "hold_days": 50,
+    "profit": 50,
+    "description": "",
+    "conditions": [
+      {
+        "left": "IBR3",
+        "operator": "<=",
+        "right": "0.2",
+        "logic": "AND"
+      },
+      {
+        "left": "ER",
+        "operator": ">=",
+        "right": "0.2",
+        "logic": "AND"
+      },
+      {
+        "left": "VixChange",
+        "operator": "<=",
+        "right": "15",
+        "logic": "AND"
+      }
+    ],
+    "sell_conditions": [
+      {
+        "left": "IBR2",
+        "operator": ">=",
+        "right": "0.5",
+        "logic": "OR"
+      }
+    ],
+    "confirm_symbols": [],
+    "proxy_symbol": "SOXX",
+    "legacy_signal": null,
+    "hold_on_buy_signal": true,
+    "rth_entries_only": false,
+    "eod_exit": false,
+    "scan_lane": "active",
+    "scan_sort_order": 13,
+    "created_at": "2026-10-27T22:57:45+00:00",
+    "updated_at": "2026-10-28T02:54:15+00:00"
   }
 ]

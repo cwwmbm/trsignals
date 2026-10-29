@@ -5,8 +5,11 @@ import { ChevronDown, Loader2, Play, Save, Search, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import type {
   DetailedResult,
+  PortfolioAllocationModel,
   PortfolioOverlapMode,
+  PortfolioProportionalMode,
   PortfolioSimulatePayload,
+  RegimePenaltyFields,
   SavedPortfolio,
   SavedStrategy,
   ScanLane,
@@ -20,6 +23,7 @@ import {
   updatePortfolio,
 } from '@/api'
 import { DetailResults } from '@/components/backtest/detail-results'
+import { RegimePenaltyInputs } from '@/components/backtest/regime-penalty-inputs'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -34,16 +38,76 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import {
+  DEFAULT_REGIME_FORM,
+  regimeFields,
+  regimeFormFromSaved,
+  regimeSummary,
+  type RegimeAllocationForm,
+} from '@/lib/regime-allocation'
+import { blockedChildren } from '@/lib/portfolio-graph'
 import { LANE_LABELS, SCAN_LANES, resolveScanLane } from '@/lib/scan-board'
 import { compareSymbols } from '@/lib/symbol-order'
 import { cn } from '@/lib/utils'
 
+// Portfolios always hold until every strategy exits. The API still takes the field.
+const PORTFOLIO_OVERLAP_MODE: PortfolioOverlapMode = 'hold_until_all_exit'
+
 const compactHead = 'h-7 px-1.5 py-0 text-[11px] font-medium'
 const compactCell = 'px-1.5 py-0.5 align-top'
 
+const PROPORTIONAL_MODES: Array<{
+  value: PortfolioProportionalMode
+  label: string
+  formula: string
+  hint: string
+}> = [
+  {
+    value: 'linear',
+    label: 'Linear',
+    formula: 'active / total',
+    hint: 'Exposure rises in even steps as strategies agree.',
+  },
+  {
+    value: 'early_conviction',
+    label: 'Early conviction',
+    formula: '(active / total)^0.5',
+    hint: 'A single signal already carries a large position.',
+  },
+  {
+    value: 'confirmation_required',
+    label: 'Confirmation required',
+    formula: '(active / total)^2',
+    hint: 'Stays small until most strategies agree.',
+  },
+]
+
+/** Matches api.allocation.DEFAULT_TIER_SINGLE_PCT. */
+const DEFAULT_TIER_SINGLE_PCT = 55
+
+const PROPORTIONAL_LABELS: Record<PortfolioProportionalMode, string> = {
+  linear: 'Linear',
+  early_conviction: 'Early conviction',
+  confirmation_required: 'Confirmation required',
+}
+
+/** Everything a portfolio stores about how its book is sized. Strategies carry none of it. */
+export type AllocationSettingsFields = RegimePenaltyFields &
+  Pick<SavedPortfolio, 'allocation_model' | 'proportional_mode' | 'tier_single_pct' | 'transaction_cost_bps'>
+
+function allocationLabel(portfolio: AllocationSettingsFields) {
+  if (portfolio.allocation_model === 'regime_adjusted') return 'Regime-adjusted'
+  if (portfolio.allocation_model === 'tiered') {
+    return `Tiered · ${portfolio.tier_single_pct ?? DEFAULT_TIER_SINGLE_PCT}% / 100%`
+  }
+  if (portfolio.allocation_model !== 'proportional') return 'All-in'
+  return `Proportional · ${PROPORTIONAL_LABELS[portfolio.proportional_mode ?? 'linear']}`
+}
+
 export type PortfolioInitialState = {
   strategyIds: string[]
-  overlapMode?: PortfolioOverlapMode
+  portfolioIds?: string[]
+  allocation?: AllocationSettingsFields
   proxySymbol?: string
   years?: string
   name?: string
@@ -61,11 +125,10 @@ function sortStrategies(strategies: SavedStrategy[]) {
 }
 
 function groupStrategiesByLane(strategies: SavedStrategy[]) {
-  const lanes: Record<ScanLane, SavedStrategy[]> = {
-    active: [],
-    testing: [],
-    archived: [],
-  }
+  const lanes = Object.fromEntries(SCAN_LANES.map((lane) => [lane, [] as SavedStrategy[]])) as Record<
+    ScanLane,
+    SavedStrategy[]
+  >
   for (const strategy of strategies) {
     lanes[resolveScanLane(strategy)].push(strategy)
   }
@@ -75,15 +138,36 @@ function groupStrategiesByLane(strategies: SavedStrategy[]) {
   }))
 }
 
+type AllocationSetters = {
+  setAllocationModel: (value: PortfolioAllocationModel) => void
+  setProportionalMode: (value: PortfolioProportionalMode) => void
+  setTierSinglePct: (value: string) => void
+  setCostBps: (value: string) => void
+  setRegimeForm: (value: RegimeAllocationForm) => void
+}
+
+function applyAllocationSettings(settings: AllocationSettingsFields, setters: AllocationSetters) {
+  // Portfolios saved before allocation models existed have none of these fields.
+  setters.setAllocationModel(settings.allocation_model ?? 'all_in')
+  setters.setProportionalMode(settings.proportional_mode ?? 'linear')
+  setters.setTierSinglePct(String(settings.tier_single_pct ?? DEFAULT_TIER_SINGLE_PCT))
+  setters.setCostBps(String(settings.transaction_cost_bps ?? 0))
+  setters.setRegimeForm(regimeFormFromSaved(settings))
+}
+
 function applyPortfolioSelection(
-  portfolio: Pick<SavedPortfolio, 'strategy_ids' | 'overlap_mode' | 'proxy_symbol'>,
-  setSelectedIds: (value: Set<string>) => void,
-  setOverlapMode: (value: PortfolioOverlapMode) => void,
-  setProxySymbol: (value: string) => void,
+  portfolio: Pick<SavedPortfolio, 'strategy_ids' | 'portfolio_ids' | 'proxy_symbol'> &
+    AllocationSettingsFields,
+  setters: AllocationSetters & {
+    setSelectedIds: (value: Set<string>) => void
+    setSelectedPortfolioIds: (value: Set<string>) => void
+    setProxySymbol: (value: string) => void
+  },
 ) {
-  setSelectedIds(new Set(portfolio.strategy_ids))
-  setOverlapMode(portfolio.overlap_mode)
-  setProxySymbol(portfolio.proxy_symbol?.trim() ?? '')
+  setters.setSelectedIds(new Set(portfolio.strategy_ids))
+  setters.setSelectedPortfolioIds(new Set(portfolio.portfolio_ids ?? []))
+  setters.setProxySymbol(portfolio.proxy_symbol?.trim() ?? '')
+  applyAllocationSettings(portfolio, setters)
 }
 
 export function PortfolioSection({
@@ -102,12 +186,17 @@ export function PortfolioSection({
   })
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
+  const [selectedPortfolioIds, setSelectedPortfolioIds] = useState<Set<string>>(() => new Set())
   const [search, setSearch] = useState('')
   const [expandedLanes, setExpandedLanes] = useState<Set<string>>(
-    () => new Set(['active', 'testing']),
+    () => new Set(['live', 'active', 'testing']),
   )
-  const [overlapMode, setOverlapMode] = useState<PortfolioOverlapMode>('first_signal_only')
   const [proxySymbol, setProxySymbol] = useState('')
+  const [allocationModel, setAllocationModel] = useState<PortfolioAllocationModel>('all_in')
+  const [proportionalMode, setProportionalMode] = useState<PortfolioProportionalMode>('linear')
+  const [tierSinglePct, setTierSinglePct] = useState(String(DEFAULT_TIER_SINGLE_PCT))
+  const [costBps, setCostBps] = useState('0')
+  const [regimeForm, setRegimeForm] = useState<RegimeAllocationForm>(DEFAULT_REGIME_FORM)
   const [years, setYears] = useState('25')
   const [portfolioName, setPortfolioName] = useState('')
   const [portfolioDescription, setPortfolioDescription] = useState('')
@@ -131,9 +220,14 @@ export function PortfolioSection({
         name: string
         description: string
         strategy_ids: string[]
+        portfolio_ids?: string[]
         overlap_mode: PortfolioOverlapMode
         proxy_symbol?: string
-      }
+        allocation_model: PortfolioAllocationModel
+        proportional_mode: PortfolioProportionalMode
+        tier_single_pct: number
+        transaction_cost_bps: number
+      } & RegimePenaltyFields
       existingId?: string
     }) => {
       if (existingId) {
@@ -158,12 +252,43 @@ export function PortfolioSection({
   useEffect(() => {
     if (!initialState) return
     setSelectedIds(new Set(initialState.strategyIds))
-    if (initialState.overlapMode) setOverlapMode(initialState.overlapMode)
+    setSelectedPortfolioIds(new Set(initialState.portfolioIds ?? []))
+    if (initialState.allocation) {
+      applyAllocationSettings(initialState.allocation, {
+        setAllocationModel,
+        setProportionalMode,
+        setTierSinglePct,
+        setCostBps,
+        setRegimeForm,
+      })
+    }
     setProxySymbol(initialState.proxySymbol?.trim() ?? '')
     if (initialState.years) setYears(initialState.years)
     if (initialState.name != null) setPortfolioName(initialState.name)
     if (initialState.description != null) setPortfolioDescription(initialState.description)
   }, [initialState])
+
+  const parsedCostBps = Number(costBps)
+  const costBpsValid =
+    costBps.trim() !== '' &&
+    Number.isFinite(parsedCostBps) &&
+    parsedCostBps >= 0 &&
+    parsedCostBps <= 1000
+  const parsedTierPct = Number(tierSinglePct)
+  const tierPctValid =
+    tierSinglePct.trim() !== '' &&
+    Number.isFinite(parsedTierPct) &&
+    parsedTierPct >= 0 &&
+    parsedTierPct <= 100
+  const tieredActive = allocationModel === 'tiered'
+  const regimeActive = allocationModel === 'regime_adjusted'
+  const allocationFields = {
+    allocation_model: allocationModel,
+    proportional_mode: proportionalMode,
+    tier_single_pct: tierPctValid ? parsedTierPct : DEFAULT_TIER_SINGLE_PCT,
+    transaction_cost_bps: costBpsValid ? parsedCostBps : 0,
+    ...regimeFields(regimeForm),
+  }
 
   const sortedStrategies = useMemo(() => sortStrategies(strategies), [strategies])
 
@@ -204,11 +329,37 @@ export function PortfolioSection({
     [selectedIds, sortedStrategies],
   )
 
-  const canSimulate = selectedInOrder.length > 0 && !selectedShort && !mutation.isPending
-  const canSave =
-    selectedInOrder.length > 0 &&
+  // Saving under an existing name overwrites that portfolio, so it is the one being edited.
+  // It, and anything that contains it, cannot be added as its child without a cycle.
+  const editingId = useMemo(() => {
+    const key = portfolioName.trim().toLowerCase()
+    if (!key) return undefined
+    return [...savedPortfolios]
+      .filter((portfolio) => portfolio.name.trim().toLowerCase() === key)
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0]?.id
+  }, [portfolioName, savedPortfolios])
+  const blockedChildIds = useMemo(
+    () => blockedChildren(editingId, savedPortfolios),
+    [editingId, savedPortfolios],
+  )
+  const selectedBlocked = useMemo(
+    () => savedPortfolios.filter((p) => selectedPortfolioIds.has(p.id) && blockedChildIds.has(p.id)),
+    [savedPortfolios, selectedPortfolioIds, blockedChildIds],
+  )
+
+  const canSimulate =
+    (selectedInOrder.length + selectedPortfolioIds.size) > 0 &&
     !selectedShort &&
+    costBpsValid &&
+    (!tieredActive || tierPctValid) &&
+    !mutation.isPending
+  const canSave =
+    (selectedInOrder.length + selectedPortfolioIds.size) > 0 &&
+    !selectedShort &&
+    costBpsValid &&
+    (!tieredActive || tierPctValid) &&
     portfolioName.trim().length > 0 &&
+    selectedBlocked.length === 0 &&
     !saveMutation.isPending
 
   const toggleStrategy = (strategy: SavedStrategy, checked: boolean) => {
@@ -225,9 +376,11 @@ export function PortfolioSection({
     const parsedYears = Number(years)
     const payload: PortfolioSimulatePayload = {
       strategy_ids: selectedInOrder,
-      overlap_mode: overlapMode,
+      portfolio_ids: [...selectedPortfolioIds],
+      overlap_mode: PORTFOLIO_OVERLAP_MODE,
       ...(proxySymbol.trim() ? { proxy_symbol: proxySymbol.trim().toUpperCase() } : {}),
       years: Number.isFinite(parsedYears) ? parsedYears : 25,
+      ...allocationFields,
     }
     setLastSimulateRequest(payload)
     mutation.mutate(payload)
@@ -238,8 +391,10 @@ export function PortfolioSection({
       name: portfolioName.trim(),
       description: portfolioDescription.trim(),
       strategy_ids: selectedInOrder,
-      overlap_mode: overlapMode,
+      portfolio_ids: [...selectedPortfolioIds],
+      overlap_mode: PORTFOLIO_OVERLAP_MODE,
       ...(proxySymbol.trim() ? { proxy_symbol: proxySymbol.trim().toUpperCase() } : {}),
+      ...allocationFields,
     }
     const nameKey = payload.name.toLowerCase()
     const existing = savedPortfolios
@@ -267,7 +422,16 @@ export function PortfolioSection({
   }
 
   const handleLoadPortfolio = (portfolio: SavedPortfolio) => {
-    applyPortfolioSelection(portfolio, setSelectedIds, setOverlapMode, setProxySymbol)
+    applyPortfolioSelection(portfolio, {
+      setSelectedIds,
+      setSelectedPortfolioIds,
+      setProxySymbol,
+      setAllocationModel,
+      setProportionalMode,
+      setTierSinglePct,
+      setCostBps,
+      setRegimeForm,
+    })
     setPortfolioName(portfolio.name)
     setPortfolioDescription(portfolio.description ?? '')
   }
@@ -281,7 +445,7 @@ export function PortfolioSection({
           <div>
             <h2 className="text-sm font-semibold">Strategies</h2>
             <p className="text-xs text-muted-foreground">
-              Select long strategies to combine into an all-in portfolio simulation.
+              Select strategies and saved portfolios. Each child keeps its own allocation model.
             </p>
           </div>
           <div className="relative w-full max-w-xs">
@@ -415,43 +579,172 @@ export function PortfolioSection({
       </Card>
 
       <Card className="p-4">
+        <h2 className="text-sm font-semibold">Child portfolios</h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Each child counts as one member. Its uninvested budget stays in cash, including when it rejects a BUY.
+          Child settings are read from the saved portfolio on each run.
+        </p>
+        <div className="mt-3 space-y-2">
+          {savedPortfolios.map((portfolio) => {
+            const blocked = blockedChildIds.get(portfolio.id)
+            return (
+              <label
+                key={portfolio.id}
+                className={cn(
+                  'flex items-center gap-3 text-sm',
+                  blocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+                )}
+              >
+                <Checkbox
+                  disabled={blocked !== undefined}
+                  checked={selectedPortfolioIds.has(portfolio.id)}
+                  onCheckedChange={(checked) => setSelectedPortfolioIds((current) => {
+                    const next = new Set(current)
+                    if (checked) next.add(portfolio.id)
+                    else next.delete(portfolio.id)
+                    return next
+                  })}
+                />
+                <span>{portfolio.name}</span>
+                <span className="text-xs text-muted-foreground">{allocationLabel(portfolio)}</span>
+                {blocked ? (
+                  <span className="text-xs text-muted-foreground">
+                    {blocked === 'itself'
+                      ? 'this portfolio'
+                      : 'contains this portfolio, so it cannot be a child of it'}
+                  </span>
+                ) : null}
+              </label>
+            )
+          })}
+          {selectedBlocked.length > 0 ? (
+            <p className="text-xs text-destructive">
+              {selectedBlocked.map((p) => p.name).join(', ')} cannot be a child of the portfolio named
+              above (it would contain itself). Untick it or change the name to save.
+            </p>
+          ) : null}
+          {savedPortfolios.length === 0 ? <p className="text-xs text-muted-foreground">No saved portfolios yet.</p> : null}
+        </div>
+      </Card>
+
+      <Card className="p-4">
         <h2 className="text-sm font-semibold">Settings</h2>
+        {selectedPortfolioIds.size > 0 ? <p className="mt-1 text-xs text-muted-foreground">These settings apply to the parent. Children keep their own allocation, proxies, and trading costs.</p> : null}
         <div className="mt-3 space-y-4">
           <div>
-            <Label className="text-xs text-muted-foreground">Overlapping signals</Label>
+            <Label className="text-xs text-muted-foreground">Allocation model</Label>
             <RadioGroup
-              value={overlapMode}
-              onValueChange={(value) => value && setOverlapMode(value as PortfolioOverlapMode)}
+              value={allocationModel}
+              onValueChange={(value) => value && setAllocationModel(value as PortfolioAllocationModel)}
               className="mt-2 gap-3"
             >
               <div className="flex items-start gap-2">
-                <RadioGroupItem value="first_signal_only" id="overlap-first" className="mt-0.5" />
+                <RadioGroupItem value="all_in" id="alloc-all-in" className="mt-0.5" />
                 <div>
-                  <Label htmlFor="overlap-first" className="text-sm font-normal">
-                    First signal only
+                  <Label htmlFor="alloc-all-in" className="text-sm font-normal">
+                    All-in
                   </Label>
                   <p className="text-[11px] text-muted-foreground">
-                    While the portfolio is in a trade, later buy signals from other strategies are
-                    ignored. Exit when the strategy that triggered entry exits.
+                    Allocate the full budget equally across active members. Child portfolios
+                    can keep part or all of their budget in cash.
                   </p>
                 </div>
               </div>
               <div className="flex items-start gap-2">
-                <RadioGroupItem value="hold_until_all_exit" id="overlap-all" className="mt-0.5" />
+                <RadioGroupItem value="proportional" id="alloc-proportional" className="mt-0.5" />
                 <div>
-                  <Label htmlFor="overlap-all" className="text-sm font-normal">
-                    Hold until all exit
+                  <Label htmlFor="alloc-proportional" className="text-sm font-normal">
+                    Proportional
                   </Label>
                   <p className="text-[11px] text-muted-foreground">
-                    Stay in while any active strategy is still holding. New buys add to the active
-                    set. Same-day exit and entry keeps the portfolio in the trade.
+                    Target budget follows how many members are active out of all eligible
+                    members. The position is rebalanced whenever that changes.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <RadioGroupItem value="regime_adjusted" id="alloc-regime" className="mt-0.5" />
+                <div>
+                  <Label htmlFor="alloc-regime" className="text-sm font-normal">
+                    Regime-adjusted
+                  </Label>
+                  <p className="text-[11px] text-muted-foreground">
+                    Starts at 100% and takes confidence off for every current market regime where
+                    the active strategies, or the portfolio, have scored poorly. Re-evaluated
+                    whenever the set of active strategies changes.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <RadioGroupItem value="tiered" id="alloc-tiered" className="mt-0.5" />
+                <div>
+                  <Label htmlFor="alloc-tiered" className="text-sm font-normal">
+                    Tiered
+                  </Label>
+                  <p className="text-[11px] text-muted-foreground">
+                    One member active takes the share set below; two or more take the full budget.
+                    Best with a flat portfolio of strategies, since it counts direct members.
                   </p>
                 </div>
               </div>
             </RadioGroup>
+
+            {tieredActive ? (
+              <div className="mt-3 ml-6 flex flex-wrap items-center gap-2 text-sm">
+                <Label htmlFor="tier-single" className="text-sm font-normal">
+                  One member active:
+                </Label>
+                <Input
+                  id="tier-single"
+                  inputMode="decimal"
+                  value={tierSinglePct}
+                  onChange={(e) => setTierSinglePct(e.target.value)}
+                  aria-invalid={!tierPctValid}
+                  className={cn('h-8 w-20 font-mono text-sm', !tierPctValid && 'border-destructive')}
+                />
+                <span className="text-sm">% of the book</span>
+                <span className="text-[11px] text-muted-foreground">· two or more: 100%</span>
+                {!tierPctValid ? (
+                  <span className="text-[11px] text-destructive">Enter a number from 0 to 100.</span>
+                ) : null}
+              </div>
+            ) : null}
+
+            {regimeActive ? (
+              <RegimePenaltyInputs form={regimeForm} onChange={setRegimeForm} />
+            ) : null}
+
+            {allocationModel === 'proportional' ? (
+              <RadioGroup
+                value={proportionalMode}
+                onValueChange={(value) =>
+                  value && setProportionalMode(value as PortfolioProportionalMode)
+                }
+                className="mt-3 ml-6 gap-2"
+              >
+                {PROPORTIONAL_MODES.map((mode) => (
+                  <div key={mode.value} className="flex items-start gap-2">
+                    <RadioGroupItem
+                      value={mode.value}
+                      id={`prop-${mode.value}`}
+                      className="mt-0.5"
+                    />
+                    <div>
+                      <Label htmlFor={`prop-${mode.value}`} className="text-sm font-normal">
+                        {mode.label}{' '}
+                        <span className="font-mono text-[11px] text-muted-foreground">
+                          {mode.formula}
+                        </span>
+                      </Label>
+                      <p className="text-[11px] text-muted-foreground">{mode.hint}</p>
+                    </div>
+                  </div>
+                ))}
+              </RadioGroup>
+            ) : null}
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2 sm:max-w-xl">
+          <div className="grid gap-3 sm:grid-cols-3 sm:max-w-2xl">
             <div className="flex flex-col gap-1">
               <Label htmlFor="portfolio-proxy" className="text-xs text-muted-foreground">
                 Proxy symbol
@@ -460,7 +753,7 @@ export function PortfolioSection({
                 id="portfolio-proxy"
                 value={proxySymbol}
                 onChange={(e) => setProxySymbol(e.target.value.toUpperCase())}
-                placeholder="Optional — overrides strategy proxies"
+                placeholder="Optional — direct strategies only"
                 className="h-8 font-mono text-sm"
               />
             </div>
@@ -474,6 +767,19 @@ export function PortfolioSection({
                 value={years}
                 onChange={(e) => setYears(e.target.value)}
                 className="h-8 font-mono text-sm"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="portfolio-cost" className="text-xs text-muted-foreground">
+                Trading cost (bps, direct strategies)
+              </Label>
+              <Input
+                id="portfolio-cost"
+                inputMode="decimal"
+                value={costBps}
+                onChange={(e) => setCostBps(e.target.value)}
+                aria-invalid={!costBpsValid}
+                className={cn('h-8 font-mono text-sm', !costBpsValid && 'border-destructive')}
               />
             </div>
           </div>
@@ -532,11 +838,11 @@ export function PortfolioSection({
             Simulate Performance
           </Button>
           <span className="text-xs text-muted-foreground">
-            {selectedInOrder.length === 0
-              ? 'Select at least one strategy'
+            {selectedInOrder.length + selectedPortfolioIds.size === 0
+              ? 'Select at least one strategy or portfolio'
               : selectedShort
                 ? 'Short strategies cannot be included'
-                : `${selectedInOrder.length} selected`}
+                : `${selectedInOrder.length} strategies · ${selectedPortfolioIds.size} portfolios selected`}
           </span>
         </div>
 
@@ -551,6 +857,11 @@ export function PortfolioSection({
 
       <Card className="p-4">
         <h2 className="text-sm font-semibold">Saved portfolios</h2>
+        {deleteMutation.error ? (
+          <p className="mt-1 text-xs text-destructive" role="alert">
+            Could not delete: {deleteMutation.error.message}
+          </p>
+        ) : null}
         <p className="mt-1 text-xs text-muted-foreground">
           Load a saved combination into the form above. Saved portfolios also appear on Scan.
         </p>
@@ -567,8 +878,8 @@ export function PortfolioSection({
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
                   <TableHead className={compactHead}>Name</TableHead>
-                  <TableHead className={compactHead}>Strategies</TableHead>
-                  <TableHead className={compactHead}>Overlap</TableHead>
+                  <TableHead className={compactHead}>Members</TableHead>
+                  <TableHead className={compactHead}>Allocation</TableHead>
                   <TableHead className={compactHead}>Proxy</TableHead>
                   <TableHead className={cn(compactHead, 'w-28 text-right')}>Actions</TableHead>
                 </TableRow>
@@ -585,12 +896,13 @@ export function PortfolioSection({
                       ) : null}
                     </TableCell>
                     <TableCell className={cn(compactCell, 'text-xs text-muted-foreground')}>
-                      {portfolio.strategy_ids.length}
+                      {portfolio.strategy_ids.length} strategies · {portfolio.portfolio_ids?.length ?? 0} portfolios
                     </TableCell>
                     <TableCell className={cn(compactCell, 'text-xs text-muted-foreground')}>
-                      {portfolio.overlap_mode === 'first_signal_only'
-                        ? 'First signal'
-                        : 'Hold until all exit'}
+                      {allocationLabel(portfolio)}
+                      {portfolio.allocation_model === 'regime_adjusted' ? (
+                        <p className="mt-0.5 text-[10px]">{regimeSummary(portfolio)}</p>
+                      ) : null}
                     </TableCell>
                     <TableCell className={cn(compactCell, 'font-mono text-xs')}>
                       {portfolio.proxy_symbol ?? '—'}

@@ -9,10 +9,13 @@ export function formatMetric(value: unknown, column?: string) {
     "Profit",
     "Trades",
     "Prf",
+    "#",
+    "OOS Trades",
   ]);
   const percentColumns = new Set(["pnl_percent", "drawdown_percent", "cagr_percent", "pct_positive"]);
   const fractionalPercentColumns = new Set(["trade_pnl", "max_drawdown", "drawdown"]);
   if (typeof value === "number") {
+    if (column === "NullP") return value.toFixed(3);
     if (column && integerColumns.has(column)) return String(Math.trunc(value));
     if (column && fractionalPercentColumns.has(column)) return `${(value * 100).toFixed(2)}%`;
     if (column && percentColumns.has(column)) return `${value.toFixed(2)}%`;

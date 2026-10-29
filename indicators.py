@@ -8,12 +8,14 @@ from config import *
 # import mplfinance as mpf
 from numpy import cumsum, log, polyfit, sqrt, std, subtract
 from hurst import compute_Hc
+from cross_pairs import cross_columns, signed_cross_age  # noqa: F401 (signed_cross_age is re-exported)
 
-# Bump when computed indicator columns change so disk cache entries are rebuilt.
-INDICATOR_CACHE_VERSION = 2
+# Bump when computed indicator columns change so disk cache entries are rebuilt. Edits to
+# cross_pairs.CROSS_PAIRS rebuild the cache on their own (the pair list is part of the cache key).
+INDICATOR_CACHE_VERSION = 10
 
 #Calculate Sharpe Ratio
-def sharpes_ratio(data, risk_free_rate=0, periods_per_year=252):
+def sharpes_ratio(data, risk_free_rate=0, periods_per_year=252, exclude_year=None):
     """
     Calculate the Sharpe ratio of a set of returns.
 
@@ -26,6 +28,12 @@ def sharpes_ratio(data, risk_free_rate=0, periods_per_year=252):
         Constant risk-free return throughout the period.
     periods_per_year : int, optional
         Number of periods per year.
+    exclude_year : int, optional
+        Calendar year whose own daily returns are left out. Returns are computed on the
+        whole series first, so the first session after that year is still measured against
+        the last close of the year before it. Dropping the year's rows *before* taking
+        returns would instead book the whole year's gain as one phantom daily return.
+        Needs a ``Date`` column.
 
     Returns
     -------
@@ -35,6 +43,8 @@ def sharpes_ratio(data, risk_free_rate=0, periods_per_year=252):
     """
     # Calculate daily returns
     data['DailyReturn'] = data['RollingPnL'].pct_change()
+    if exclude_year is not None:
+        data = data[data['Date'].dt.year != exclude_year]
     # Drop NaN values from the 'DailyReturn' column
     data = data.dropna(subset=['DailyReturn'])
     # Calculate the average daily return considering only non-zero RollingPnL values
@@ -52,7 +62,7 @@ def sharpes_ratio(data, risk_free_rate=0, periods_per_year=252):
     return sharpe_ratio
 
 #Calculate Sortino Ratio
-def sortino_ratio(data, risk_free_rate=0, periods_per_year=252):
+def sortino_ratio(data, risk_free_rate=0, periods_per_year=252, exclude_year=None):
     """
     Calculate the Sortino ratio of a set of returns.
 
@@ -64,6 +74,8 @@ def sortino_ratio(data, risk_free_rate=0, periods_per_year=252):
         Constant risk-free return throughout the period.
     periods_per_year : int, optional
         Number of periods per year.
+    exclude_year : int, optional
+        Calendar year whose own daily returns are left out; see ``sharpes_ratio``.
 
     Returns
     -------
@@ -73,6 +85,8 @@ def sortino_ratio(data, risk_free_rate=0, periods_per_year=252):
     """
     # Calculate daily returns
     data['DailyReturn'] = data['RollingPnL'].pct_change()
+    if exclude_year is not None:
+        data = data[data['Date'].dt.year != exclude_year]
     # Drop NaN values from the 'DailyReturn' column
     data = data.dropna(subset=['DailyReturn'])
     # Calculate the average daily return considering only non-zero RollingPnL values
@@ -360,6 +374,17 @@ def rolling_linreg_slope_pct(series: pd.Series, window: int) -> pd.Series:
     return series.rolling(window).apply(slope, raw=True)
 
 
+def vix_daily_change_pct(vix: pd.Series) -> pd.Series:
+    """Close-to-close % change of the VIX, in percent points (-10 means -10%).
+
+    Taken over the days the VIX has a close, so a symbol bar on a day the VIX did not trade
+    reads the change since the last VIX close and a gap is never bridged by filling. Bars
+    without a VIX close are NaN.
+    """
+    closes = pd.to_numeric(vix, errors='coerce').astype(float)
+    return (closes.dropna().pct_change() * 100).reindex(closes.index)
+
+
 def rolling_percentile_rank(series: pd.Series, window: int) -> pd.Series:
     def percentile_rank(values):
         if len(values) < window:
@@ -374,6 +399,61 @@ def _adx14(high: pd.Series, low: pd.Series, close: pd.Series, window: int = 14) 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
         return ta.trend.ADXIndicator(high, low, close, window=window).adx()
+
+
+def squeeze_age(squeeze: pd.Series) -> pd.Series:
+    """Days into the current squeeze (1, 2, ...) or since the last one released (-1, -2, ...).
+
+    -1 is the first bar after a squeeze ends. Bars before the first squeeze are NaN, since
+    nothing has been squeezed yet.
+    """
+    on = pd.Series(np.asarray(squeeze) == 1, index=squeeze.index)
+    run = (on != on.shift()).cumsum()
+    age = (on.groupby(run).cumcount() + 1).astype(float)
+    age = age.where(on, -age)
+    return age.where(on.cumsum() > 0)
+
+
+def psar_columns(high: pd.Series, low: pd.Series, close: pd.Series) -> dict[str, pd.Series]:
+    """Parabolic SAR level, days since it last flipped (signed) and close's % distance from it."""
+    psar = ta.trend.PSARIndicator(high, low, close)
+    level = psar.psar()
+    # ta fills psar_up only while the SAR trails below price, psar_down only while it sits above.
+    side = np.where(psar.psar_up().notna(), 1.0, np.where(psar.psar_down().notna(), -1.0, np.nan))
+    return {
+        "PSAR": level,
+        "PSARFlipAge": signed_cross_age(pd.Series(side, index=close.index)),
+        "Close_PSAR": (close - level) / close * 100,
+    }
+
+
+def directional_indicators(
+    high: pd.Series, low: pd.Series, close: pd.Series, window: int = 14,
+) -> dict[str, pd.Series]:
+    """+DI, -DI and the derived direction columns, keyed by column name.
+
+    ta reports 0 for both DIs (and for ADX) during warm-up; those bars are NaN here so a
+    threshold such as DIMinus14 <= 15 never matches before the indicator exists.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        adx = ta.trend.ADXIndicator(high, low, close, window=window)
+        plus, minus, strength = adx.adx_pos(), adx.adx_neg(), adx.adx()
+    warm = (plus + minus) > 0
+    plus = plus.where(warm)
+    minus = minus.where(warm)
+    spread = plus - minus
+    balance = spread / (plus + minus) * 100
+
+    cross_age = signed_cross_age(spread)
+    signed_adx = (strength * np.sign(spread)).where(warm & (strength > 0))
+    return {
+        f"DIPlus{window}": plus,
+        f"DIMinus{window}": minus,
+        f"DIBalance{window}": balance,
+        f"DICrossAge{window}": cross_age,
+        f"SignedADX{window}": signed_adx,
+    }
 
 
 VWAP_INDICATOR_COLUMN_IDS = [
@@ -504,10 +584,18 @@ def down_monday_flag(dates: pd.Series, close: pd.Series) -> np.ndarray:
     return np.where(down, 1, -1)
 
 
-def add_indicators(data, periods_per_year=252, source_timezone=None):
+def add_indicators(data, periods_per_year=252, source_timezone=None, compute_hurst=True, symbol=None):
+    """Add every indicator column.
+
+    ``symbol`` names the stock the frame belongs to, so ``DaysToEarnings`` and ``DaysSinceEarnings`` can
+    be filled from its earnings dates. Without it (custom data, ad-hoc frames) both read 999, "none known".
+
+    ``compute_hurst=False`` leaves ``Hurst`` as NaN. The rolling Hurst exponent is by far the slowest
+    column, so a caller that knows nothing reads it (the live scan) can skip it.
+    """
     data['%Change'] = Leverage*data['Close'].pct_change()
     data['SPYBull'] = data['Spybull']
-    data['Hurst'] = hurst_exponent(data)
+    data['Hurst'] = hurst_exponent(data) if compute_hurst else pd.Series(np.nan, index=data.index)
     high = data['High']
     low = data['Low']
     close = data['Close']
@@ -560,6 +648,7 @@ def add_indicators(data, periods_per_year=252, source_timezone=None):
     data['EMA8CrossUp'] = np.where((data['Close'] > data['EMA8']) & (data['Close'].shift(1) < data['EMA8'].shift(1)), 1, -1)
     data['EMA8CrossDown'] = np.where((data['Close'] < data['EMA8']) & (data['Close'].shift(1) > data['EMA8'].shift(1)), 1, -1)
     data['EMA20'] = ta.trend.ema_indicator(data['Close'], window=20)
+    data['EMA50'] = ta.trend.ema_indicator(data['Close'], window=50)
     data['EMA100'] = ta.trend.ema_indicator(data['Close'], window=100)
     data['VolumeEMADiff'] = (data['Volume'] - ta.trend.ema_indicator(data['Volume'], window=8)) / ta.trend.ema_indicator(data['Volume'], window=8)
     data['AdjustedChange'] = data['Close']/data['Close'].shift(1) - 1
@@ -586,6 +675,10 @@ def add_indicators(data, periods_per_year=252, source_timezone=None):
     data['Close_EMA8'] = (data['Close'] - data['EMA8'])/data['Close']*100
     data['EMA20_EMA100'] = (data['EMA20'] - data['EMA100'])/data['EMA20']*100
     data['SMA50_SMA200'] = (data['SMA50'] - data['SMA200'])/data['SMA50']*100
+    # Kaufman adaptive MA: fast (2-bar EMA) when ER is high, slow (30-bar EMA) when choppy.
+    data['KAMA10'] = ta.momentum.KAMAIndicator(data['Close'], window=10, pow1=2, pow2=30).kama()
+    data['Close_KAMA10'] = (data['Close'] - data['KAMA10'])/data['Close']*100
+    data['KAMASlope10'] = data['KAMA10'].pct_change(5)*100
     data['SMA20_SMA50'] = (data['SMA20'] - data['SMA50'])/data['SMA20']*100
     data['Close_SMA200'] = (data['Close'] - data['SMA200'])/data['Close']*100
     data['Close_SMA50'] = (data['Close'] - data['SMA50'])/data['Close']*100
@@ -598,7 +691,10 @@ def add_indicators(data, periods_per_year=252, source_timezone=None):
     data['ATR50'] = ta.volatility.average_true_range(data['High'], data['Low'], data['Close'], window=50)
     data['ATR20_ATR50'] = data['ATR20'] - data['ATR50']
     data['ADX14'] = _adx14(data['High'], data['Low'], data['Close'], window=14)
-    data['PSAR'] = ta.trend.PSARIndicator(data['High'], data['Low'], data['Close']).psar()
+    for column, values in directional_indicators(data['High'], data['Low'], data['Close'], window=14).items():
+        data[column] = values
+    for column, values in psar_columns(data['High'], data['Low'], data['Close']).items():
+        data[column] = values
     data['LinRegSlope20'] = rolling_linreg_slope_pct(data['Close'], 20)
     # Prior-period Donchian levels (standard breakout: compare close to yesterday's N-day extreme)
     data['DonchianUpper20'] = data['High'].rolling(20).max().shift(1)
@@ -615,11 +711,14 @@ def add_indicators(data, periods_per_year=252, source_timezone=None):
     data['BBSqueeze'] = np.where(
         (data['BBUpper'] < data['KCUpper20']) & (data['BBLower'] > data['KCLower20']), 1, -1
     )
+    data['SqueezeRatio20'] = (data['BBUpper'] - data['BBLower']) / (data['KCUpper20'] - data['KCLower20'])
+    data['SqueezeAge20'] = squeeze_age(data['BBSqueeze'])
     close = data['Close']
     low = data['Low']
     tail = pd.DataFrame(
         {
             'ChangeVelocity': (close - close.shift(1)) / data['ATR20'].shift(1),
+            'VixChange': vix_daily_change_pct(data['Vix']),
             'HigherCloses2': np.where(
                 (close > close.shift(1)) & (close.shift(1) > close.shift(2)), 1, -1
             ),
@@ -659,6 +758,14 @@ def add_indicators(data, periods_per_year=252, source_timezone=None):
     )
     data = data.drop(columns=['StochSlow', 'Spybull'])
     data = pd.concat([data, tail], axis=1)
+    data = pd.concat([data, pd.DataFrame(cross_columns(data), index=data.index)], axis=1)
+    if source_timezone is None:  # daily frames; an intraday custom dataset has no earnings columns to fill
+        from api import earnings_data
+
+        data = earnings_data.add_earnings_columns(data, symbol)
+    else:
+        data['DaysToEarnings'] = 999.0
+        data['DaysSinceEarnings'] = 999.0
     return add_vwap_indicators(data, source_timezone=source_timezone)
 
 def buy_signal1 (data, symbol = ticker):

@@ -186,11 +186,18 @@ class BuilderConfirmPrimaryFilterTests(unittest.TestCase):
             }
         )
 
+        # Entry readiness is compiled from the strategy's real conditions, which here include a saved
+        # strategy that would need a resolver and its own data. This test is about the Buy order, so
+        # that step is replaced and only checked to have run on the confirm part of the strategy.
         with patch("api.builder_strategy.bt.load_symbol_dataset", return_value=symbol_data):
             with patch("api.builder_strategy.builder_signal_callable", return_value=signal):
-                frame, *_ = prepare_builder_refine_frame(strategy)
+                with patch("api.builder_strategy.attach_strategy_entry_ready") as attach_ready:
+                    frame, *_ = prepare_builder_refine_frame(strategy)
 
         self.assertEqual(frame["Buy"].tolist(), [False, True, False])
+        attach_ready.assert_called_once()
+        ready_strategy = attach_ready.call_args.args[1]
+        self.assertEqual([c.left for c in ready_strategy.conditions], ["strategy:sig16"])
 
 
 if __name__ == "__main__":

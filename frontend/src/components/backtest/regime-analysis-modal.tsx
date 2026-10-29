@@ -22,7 +22,19 @@ import { Button } from "@/components/ui/button";
 import { ChartContainer, type ChartConfig } from "@/components/ui/chart";
 import { MIN_REGIME_TRADES, regimeScoreColor, type RegimeDimension } from "@/lib/market-regimes";
 
-const chartConfig = { score: { label: "Regime score", color: "var(--chart-1)" } } satisfies ChartConfig;
+const chartConfig = { score: { label: "Score", color: "var(--chart-1)" } } satisfies ChartConfig;
+
+/** Which of the two scores the modal shows; follows the Market regimes dropdown. */
+export type RegimeScoreMetric = "robustness_score" | "regime_score";
+
+const SCORE_LABEL: Record<RegimeScoreMetric, string> = {
+  robustness_score: "robustness score",
+  regime_score: "regime score",
+};
+
+function scoreOf(state: RegimeGranularState, metric: RegimeScoreMetric) {
+  return (metric === "robustness_score" ? state.robustness_score : state.regime_score) ?? null;
+}
 
 function formatScore(value: number | null | undefined) {
   return value == null ? "—" : value.toFixed(1);
@@ -49,17 +61,31 @@ function formatSignedPct(value: number | null | undefined) {
 
 type ChartRow = RegimeGranularState & { score: number | null; sparse: boolean };
 
-function GranularTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload?: ChartRow }> }) {
+function GranularTooltip({
+  active,
+  payload,
+  metric,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload?: ChartRow }>;
+  metric: RegimeScoreMetric;
+}) {
   const row = payload?.[0]?.payload;
   if (!active || !row) return null;
   return (
     <div className="grid min-w-40 gap-0.5 rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl">
       <div className="mb-0.5 font-medium">{row.label}</div>
-      <div>Regime score {formatScore(row.regime_score)}</div>
-      <div className="pl-2 text-muted-foreground">Sortino score {formatScore(row.regime_score_sortino)}</div>
-      <div className="pl-2 text-muted-foreground">Return score {formatScore(row.regime_score_return)}</div>
-      <div className="pl-2 text-muted-foreground">Drawdown score {formatScore(row.regime_score_drawdown)}</div>
-      <div className="pl-2 text-muted-foreground">Robustness score {formatScore(row.regime_score_robustness)}</div>
+      <div className="capitalize">
+        {SCORE_LABEL[metric]} {formatScore(scoreOf(row, metric))}
+      </div>
+      <div className="pl-2 text-muted-foreground">Return part {formatScore(row.regime_score_return)}</div>
+      <div className="pl-2 text-muted-foreground">Robustness part {formatScore(row.regime_score_robustness)}</div>
+      {metric === "regime_score" ? (
+        <>
+          <div className="pl-2 text-muted-foreground">Sortino part {formatScore(row.regime_score_sortino)}</div>
+          <div className="pl-2 text-muted-foreground">Drawdown part {formatScore(row.regime_score_drawdown)}</div>
+        </>
+      ) : null}
       <div>{row.days} days in this state</div>
       <div>
         {row.trades} trades, {formatProfitablePct(row.profitable, row.trades)} profitable
@@ -77,20 +103,26 @@ function GranularTooltip({ active, payload }: { active?: boolean; payload?: Arra
   );
 }
 
-function GranularSection({ analysis }: { analysis: RegimeStrategyAnalysis }) {
+function GranularSection({
+  analysis,
+  metric,
+}: {
+  analysis: RegimeStrategyAnalysis;
+  metric: RegimeScoreMetric;
+}) {
   const { granular } = analysis;
   const rows: ChartRow[] = granular.states.map((state) => ({
     ...state,
-    score: state.regime_score ?? null,
+    score: scoreOf(state, metric),
     sparse: state.trades < MIN_REGIME_TRADES,
   }));
   const angled = rows.length >= 5;
-  const base = granular.base_score;
+  const base = metric === "robustness_score" ? granular.base_robustness_score : granular.base_score;
   return (
     <section className="flex flex-col gap-2">
       <div>
         <h4 className="text-xs font-semibold">
-          {granular.refined ? `${rows.length} finer states` : "States"} · regime score
+          {granular.refined ? `${rows.length} finer states` : "States"} · {SCORE_LABEL[metric]}
         </h4>
         <p className="text-[11px] text-muted-foreground">
           {granular.refined
@@ -122,7 +154,7 @@ function GranularSection({ analysis }: { analysis: RegimeStrategyAnalysis }) {
           {base != null ? (
             <ReferenceLine y={base} stroke="var(--muted-foreground)" strokeDasharray="4 3" strokeOpacity={0.8} />
           ) : null}
-          <Tooltip cursor={false} isAnimationActive={false} content={<GranularTooltip />} />
+          <Tooltip cursor={false} isAnimationActive={false} content={<GranularTooltip metric={metric} />} />
           <Bar dataKey="score" radius={[3, 3, 0, 0]} maxBarSize={72} isAnimationActive={false}>
             {rows.map((row) => (
               <Cell
@@ -142,7 +174,7 @@ function GranularSection({ analysis }: { analysis: RegimeStrategyAnalysis }) {
               <th className="px-2 py-1 text-right font-medium">Days</th>
               <th className="px-2 py-1 text-right font-medium">Trades</th>
               <th className="px-2 py-1 text-right font-medium">% Profitable</th>
-              <th className="px-2 py-1 text-right font-medium">Regime score</th>
+              <th className="px-2 py-1 text-right font-medium capitalize">{SCORE_LABEL[metric]}</th>
               <th className="px-2 py-1 text-right font-medium">Sharpe</th>
               <th className="px-2 py-1 text-right font-medium">Sortino</th>
               <th className="px-2 py-1 text-right font-medium">MaxDD</th>
@@ -157,7 +189,7 @@ function GranularSection({ analysis }: { analysis: RegimeStrategyAnalysis }) {
                 <td className="px-2 py-1 text-right">{row.days}</td>
                 <td className="px-2 py-1 text-right">{row.trades}</td>
                 <td className="px-2 py-1 text-right">{formatProfitablePct(row.profitable, row.trades)}</td>
-                <td className="px-2 py-1 text-right">{formatScore(row.regime_score)}</td>
+                <td className="px-2 py-1 text-right">{formatScore(scoreOf(row, metric))}</td>
                 <td className="px-2 py-1 text-right">{formatRatio(row.sharpe)}</td>
                 <td className="px-2 py-1 text-right">{formatRatio(row.sortino)}</td>
                 <td className="px-2 py-1 text-right">{formatDrawdown(row.max_drawdown)}</td>
@@ -201,10 +233,12 @@ export function RegimeAnalysisModal({
   dimension,
   source,
   onClose,
+  scoreMetric = "robustness_score",
 }: {
   dimension: RegimeDimension;
   source: RegimeSource;
   onClose: () => void;
+  scoreMetric?: RegimeScoreMetric;
 }) {
   const query = useQuery({
     queryKey: ["regime-strategy-analysis", source.path, JSON.stringify(source.payload), dimension.id],
@@ -272,7 +306,7 @@ export function RegimeAnalysisModal({
                   rows={showGranular ? analysis.granular.rows : analysis.rows}
                 />
               </section>
-              <GranularSection analysis={analysis} />
+              <GranularSection analysis={analysis} metric={scoreMetric} />
             </>
           ) : null}
         </div>

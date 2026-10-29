@@ -143,14 +143,69 @@ def metrics_start_label(data) -> str | None:
     return pd.to_datetime(data["Date"].iloc[first]).strftime("%Y-%m-%d")
 
 
-def compute_aggregate_metrics(data, periods_per_year=252):
+def best_year_concentration(returns):
+    """Best calendar year and how much of the summed yearly log return it supplies.
+
+    Returns ``(year, return_fraction, share)``. ``share`` is None unless the best year is
+    positive and the yearly log returns add up to a positive total; it can exceed 1 when the
+    other years lose money.
+    """
+    if not returns:
+        return None, None, None
+    year = max(returns, key=returns.get)
+    best = returns[year]
+    if best <= 0:
+        return year, best, None
+    logs = [math.log1p(r) for r in returns.values() if r > -1]
+    total = sum(logs)
+    return year, best, (math.log1p(best) / total if total > 0 else None)
+
+
+def full_period_metrics(data, returns=None, periods_per_year=252):
+    """The same ratios as ``compute_aggregate_metrics`` over every bar, best year included.
+
+    ``data`` is the frame ``compute_aggregate_metrics`` already trimmed to the first evaluable
+    bar. Nothing is left out here: this is what the equity curve actually did.
+    """
+    if data is None or data.empty:
+        return {}
+    returns = yearly_returns(data) if returns is None else returns
+    first, last = data.iloc[0], data.iloc[-1]
+    years = data.shape[0] / periods_per_year
+    cagr = None
+    if first['RollingPnL'] > 0 and last['RollingPnL'] > 0 and years > 0:
+        cagr = (last['RollingPnL'] / first['RollingPnL']) ** (1 / years) - 1
+    max_drawdown = data['Drawdown'].max()
+    cagr_pct = None if cagr is None else round(cagr * 100, 2)
+    returns_source = data[['Date', 'RollingPnL']]
+    best_year, best_return, best_share = best_year_concentration(returns)
+    return {
+        'cagr_decimal': cagr,
+        'cagr_percent': cagr_pct,
+        'sharpe': ind.sharpes_ratio(returns_source.copy(), periods_per_year=periods_per_year),
+        'sortino': ind.sortino_ratio(returns_source.copy(), periods_per_year=periods_per_year),
+        'max_drawdown': max_drawdown,
+        'calmar': None if cagr_pct is None else calmar_ratio(cagr_pct, max_drawdown),
+        'ulcer_index': ulcer_index(data),
+        'time_under_water_percent': time_under_water_percent(data),
+        'best_year': best_year,
+        'best_year_return': best_return,
+        'best_year_share': best_share,
+    }
+
+
+def compute_aggregate_metrics(data, periods_per_year=252, include_full=False):
     """
     Aggregate backtest metrics for ranking/comparison.
     Excludes the single best-return year from CAGR, Sharpe, Sortino, and max drawdown
-    when ExcludeBestReturnYear is True.
+    when ExcludeBestReturnYear is True. Those top-level figures are the ranking basis
+    (sweeps and regime scores read them); ``full`` holds the same ratios with every year in,
+    which is what a result should headline.
     Also drops the leading stretch before entry conditions could be evaluated.
     Trade statistics always reflect the full backtest run.
     Total PnL always reflects the full run.
+    ``include_full`` adds the ``full`` block; it is off by default because sweeps call this
+    thousands of times and rank on the figures above.
     """
     full = data
     data = performance_frame(data)
@@ -177,10 +232,18 @@ def compute_aggregate_metrics(data, periods_per_year=252):
         sharpe = None
         sortino = None
     else:
-        sharpe = ind.sharpes_ratio(metrics_data, periods_per_year=periods_per_year)
-        sortino = ind.sortino_ratio(metrics_data, periods_per_year=periods_per_year)
+        # Daily returns come from the unbroken series and the best year's own returns are
+        # then left out. Taking returns from metrics_data would bridge the removed year in
+        # one phantom daily return and wreck the standard deviation.
+        returns_source = data[['Date', 'RollingPnL']]
+        sharpe = ind.sharpes_ratio(
+            returns_source.copy(), periods_per_year=periods_per_year, exclude_year=excluded_year
+        )
+        sortino = ind.sortino_ratio(
+            returns_source.copy(), periods_per_year=periods_per_year, exclude_year=excluded_year
+        )
 
-    return {
+    result = {
         'excluded_year': excluded_year,
         'rolling_pnl': data['RollingPnL'].iloc[-1],
         'max_drawdown': max_drawdown,
@@ -198,6 +261,9 @@ def compute_aggregate_metrics(data, periods_per_year=252):
         'time_under_water_percent': time_under_water_percent(metrics_data),
         'trades_per_year': trades_per_year(trades, len(data), periods_per_year=periods_per_year),
     }
+    if include_full:
+        result['full'] = full_period_metrics(data, periods_per_year=periods_per_year)
+    return result
 
 
 def yearly_performance(data):

@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import copy
+import hashlib
+import threading
+import time
+
 import numpy as np
 import pandas as pd
 
@@ -7,6 +12,8 @@ import backtest as bt
 import getdata as dt
 import indicators as ind
 
+from api import vehicles
+from api.scan_position import position_from_flags, signal_flags
 from api.indicator_catalog import list_indicators
 from api.proxy_symbol import execute_with_proxy, with_proxy_description
 from api.strategy_compiler import (
@@ -77,16 +84,26 @@ def _collect_portfolio_symbols(portfolios) -> set[str]:
     from api.portfolio_service import _collect_symbols, _resolve_portfolio_strategies
 
     symbols: set[str] = set()
+    by_id = {item.id: item for item in portfolios}
+    visited = set()
+
+    def collect(portfolio):
+        if portfolio.id in visited:
+            return
+        visited.add(portfolio.id)
+        if portfolio.strategy_ids:
+            strategies = _resolve_portfolio_strategies(list(portfolio.strategy_ids))
+            proxy = getattr(portfolio, "proxy_symbol", None)
+            symbols.update(_collect_symbols(strategies, proxy.strip().upper() if proxy else None))
+        for identity in getattr(portfolio, "portfolio_ids", []):
+            if identity in by_id:
+                collect(by_id[identity])
+
     for portfolio in portfolios:
         try:
-            portfolio_strategies = _resolve_portfolio_strategies(list(portfolio.strategy_ids))
+            collect(portfolio)
         except ValueError:
             continue
-        proxy = getattr(portfolio, "proxy_symbol", None)
-        global_proxy = str(proxy).strip().upper() if proxy else None
-        if not global_proxy:
-            global_proxy = None
-        symbols.update(_collect_symbols(portfolio_strategies, global_proxy))
     return symbols
 
 
@@ -182,6 +199,12 @@ def compute_kelly(executed: pd.DataFrame) -> float | None:
     return round(float(kelly), 2)
 
 
+def _last_day(frame: pd.DataFrame) -> str | None:
+    if frame is None or frame.empty or "Date" not in frame.columns:
+        return None
+    return pd.Timestamp(frame["Date"].iloc[-1]).strftime("%Y-%m-%d")
+
+
 def _scan_trade_pnl_pct(executed: pd.DataFrame, *, is_long: bool = True) -> float:
     if executed.empty:
         return 0.0
@@ -208,7 +231,13 @@ def _scan_trade_pnl_pct(executed: pd.DataFrame, *, is_long: bool = True) -> floa
     return round(pnl * 100, 2)
 
 
-def _prepare_symbol_frame(full_data: pd.DataFrame, symbol: str, yf_symbol: str) -> pd.DataFrame:
+def _prepare_symbol_frame(
+    full_data: pd.DataFrame,
+    symbol: str,
+    yf_symbol: str,
+    *,
+    compute_hurst: bool = True,
+) -> pd.DataFrame:
     vix_close = full_data["Close", "^VIX"]
     breadth = full_data["Close", "RSP"] / full_data["Close", "SPY"]
     qqq_to_spy = full_data["Close"]["QQQ"] / full_data["Close"]["SPY"]
@@ -241,7 +270,7 @@ def _prepare_symbol_frame(full_data: pd.DataFrame, symbol: str, yf_symbol: str) 
     if "Adj close" in data.columns:
         data = data.drop(columns=["Adj close"])
     data = dt.clean_holidays(data)
-    return ind.add_indicators(data)
+    return vehicles.stamp(ind.add_indicators(data, compute_hurst=compute_hurst, symbol=symbol), symbol)
 
 
 def _legacy_scan_row(
@@ -258,15 +287,19 @@ def _legacy_scan_row(
     data_temp["Sell"] = sell
     executed = bt.execute_strategy(data_temp, days, profit, is_long)
     signal_name = buy_signal.__name__
+    buy_now = bool(executed["LongTradeIn"].iloc[-1])
+    hold_now = bool(executed["HoldLong"].iloc[-1])
+    sell_now = bool(executed["LongTradeOut"].iloc[-1])
     return {
         "id": f"legacy:{symbol}:{signal_name}",
         "source": "legacy",
         "strategy_id": None,
         "symbol": symbol,
         "signal": signal_name,
-        "buy_signal": bool(executed["LongTradeIn"].iloc[-1]),
-        "hold_long": bool(executed["HoldLong"].iloc[-1]),
-        "sell_signal": bool(executed["LongTradeOut"].iloc[-1]),
+        "buy_signal": buy_now,
+        "hold_long": hold_now,
+        "sell_signal": sell_now,
+        "position": position_from_flags(buy_now, hold_now, sell_now, as_of=_last_day(executed)),
         "days": int(days),
         "profit": int(profit),
         "trade_pnl": _scan_trade_pnl_pct(executed, is_long=is_long),
@@ -427,15 +460,19 @@ def _builder_scan_row(
     if as_of is not None:
         as_of = pd.Timestamp(as_of).strftime("%Y-%m-%d")
 
+    buy_now = bool(executed["LongTradeIn"].iloc[-1])
+    hold_now = bool(executed["HoldLong"].iloc[-1])
+    sell_now = bool(executed["LongTradeOut"].iloc[-1])
     return {
         "id": f"builder:{strategy.id}",
         "source": "builder",
         "strategy_id": strategy.id,
         "symbol": strategy.symbol,
         "signal": strategy.name,
-        "buy_signal": bool(executed["LongTradeIn"].iloc[-1]),
-        "hold_long": bool(executed["HoldLong"].iloc[-1]),
-        "sell_signal": bool(executed["LongTradeOut"].iloc[-1]),
+        "buy_signal": buy_now,
+        "hold_long": hold_now,
+        "sell_signal": sell_now,
+        "position": position_from_flags(buy_now, hold_now, sell_now, as_of=as_of),
         "days": int(strategy.hold_days),
         "profit": int(strategy.profit),
         "trade_pnl": _scan_trade_pnl_pct(executed, is_long=strategy.direction == "long"),
@@ -457,23 +494,19 @@ def _portfolio_scan_row(
     bulk_data: pd.DataFrame | None = None,
     symbol_dataset: dict[str, pd.DataFrame] | None = None,
 ) -> dict | None:
-    from api.portfolio_service import build_portfolio_overlay_frame
+    from api.portfolio_service import build_portfolio_scan_book, scan_position, signal_symbols
 
     try:
-        frame, strategies, description, max_hold, max_profit = build_portfolio_overlay_frame(
-            portfolio,
-            years=1,
-            use_cache=False,
-            bulk_data=bulk_data,
-            symbol_dataset=symbol_dataset,
-        )
+        book = build_portfolio_scan_book(portfolio, bulk_data=bulk_data, symbol_dataset=symbol_dataset)
     except ValueError:
         return None
 
+    frame = book.frame
     if frame.empty:
         return None
 
-    symbols = sorted({strategy.symbol.strip().upper() for strategy in strategies})
+    position = scan_position(book)
+    symbols = signal_symbols(book.strategies)
     return {
         "id": f"portfolio:{portfolio.id}",
         "source": "portfolio",
@@ -481,15 +514,29 @@ def _portfolio_scan_row(
         "portfolio_id": portfolio.id,
         "symbol": "+".join(symbols),
         "signal": portfolio.name,
-        "buy_signal": bool(frame["LongTradeIn"].iloc[-1]),
-        "hold_long": bool(frame["HoldLong"].iloc[-1]),
-        "sell_signal": bool(frame["LongTradeOut"].iloc[-1]),
-        "days": int(max_hold),
-        "profit": int(max_profit),
+        **signal_flags(position["action"], position["held_before"]),
+        "position": position,
+        "days": int(book.max_hold),
+        "profit": int(book.max_profit),
         "trade_pnl": _scan_trade_pnl_pct(frame, is_long=True),
         "kelly": compute_kelly(frame),
-        "description": description,
+        "description": book.description,
     }
+
+
+def exact_portfolio_position(portfolio_id: str) -> dict:
+    """The portfolio's position today with its real sizing: the full 25 years, including the regime
+    scores a regime-adjusted portfolio reads. Slower than a scan row, so only run on request."""
+    from api.portfolio_service import build_portfolio_scan_book, scan_position
+    from api.portfolio_store import get_portfolio_by_id
+
+    portfolio = get_portfolio_by_id(portfolio_id)
+    if portfolio is None:
+        raise ValueError(f"Unknown portfolio: {portfolio_id}")
+    book = build_portfolio_scan_book(portfolio, exact=True)
+    if book.frame.empty:
+        raise ValueError("No data for this portfolio")
+    return scan_position(book)
 
 
 def _scan_sort_key(row: dict) -> tuple[int, int, str]:
@@ -504,6 +551,88 @@ def _scan_sort_key(row: dict) -> tuple[int, int, str]:
     return symbol_rank, signal_rank, signal
 
 
+def _strategies_need_hurst(strategies) -> bool:
+    """True when any saved strategy reads the Hurst column. Nothing else in a scan does."""
+    for strategy in strategies:
+        for condition in [*strategy.conditions, *strategy.sell_conditions]:
+            item = _condition_dict(condition)
+            if "Hurst" in (item.get("left"), item.get("right")):
+                return True
+    return False
+
+
+# One scan costs seconds and its inputs rarely change between refreshes, so the last result is reused
+# while the saved strategies/portfolios and leverage settings are unchanged, the downloaded bars match
+# the last scan's (within float noise) and a short clock window has not run out. The clock window
+# bounds staleness from inputs the comparison cannot see: the regime calendar and the leverage-vehicle
+# price files refresh on their own.
+SCAN_CACHE_TTL_SECONDS = 300
+SCAN_CACHE_RTOL = 1e-5
+_scan_cache: dict = {"signature": None, "data": None, "rows": None, "at": 0.0}
+_scan_cache_lock = threading.Lock()
+
+
+def _file_stamp(path) -> tuple:
+    try:
+        stat = path.stat()
+    except OSError:
+        return (None, None)
+    return (stat.st_mtime_ns, stat.st_size)
+
+
+def _scan_signature(strategies, portfolios) -> tuple:
+    """What, besides the price bars, the scan result depends on."""
+    from api import leverage_settings
+
+    content = hashlib.sha1(repr((strategies, portfolios)).encode()).hexdigest()
+    return (content, _file_stamp(leverage_settings.DEFAULT_STORE_PATH))
+
+
+def _frames_match(old: pd.DataFrame, new: pd.DataFrame) -> bool:
+    """Same bars, ignoring the ~1e-7 float noise Yahoo adds between downloads of identical history."""
+    try:
+        if old.shape != new.shape or not old.index.equals(new.index) or not old.columns.equals(new.columns):
+            return False
+        return bool(
+            np.allclose(
+                old.to_numpy(dtype=float),
+                new.to_numpy(dtype=float),
+                rtol=SCAN_CACHE_RTOL,
+                atol=0.0,
+                equal_nan=True,
+            )
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+def clear_scan_cache() -> None:
+    with _scan_cache_lock:
+        _scan_cache.update(signature=None, data=None, rows=None, at=0.0)
+
+
+def _scan_cache_get(signature: tuple, full_data: pd.DataFrame):
+    with _scan_cache_lock:
+        if (
+            _scan_cache["signature"] == signature
+            and _scan_cache["rows"] is not None
+            and time.monotonic() - _scan_cache["at"] < SCAN_CACHE_TTL_SECONDS
+            and _frames_match(_scan_cache["data"], full_data)
+        ):
+            return copy.deepcopy(_scan_cache["rows"])
+    return None
+
+
+def _scan_cache_put(signature: tuple, full_data: pd.DataFrame, rows: list[dict]) -> None:
+    with _scan_cache_lock:
+        _scan_cache.update(
+            signature=signature,
+            data=full_data.copy(),
+            rows=copy.deepcopy(rows),
+            at=time.monotonic(),
+        )
+
+
 def run_scan(
     *,
     full_data: pd.DataFrame | None = None,
@@ -512,6 +641,8 @@ def run_scan(
     rows: list[dict] = []
     strategies = list_strategies()
     portfolios = list_portfolios()
+    need_hurst = _strategies_need_hurst(strategies)
+    cache_signature = None
 
     if symbol_frames is None:
         download_symbols = _scan_download_symbols(strategies, portfolios)
@@ -520,17 +651,26 @@ def run_scan(
         if full_data is None:
             full_data = dt.get_bulk_data(yf_symbols, years=1)
 
+        cache_signature = _scan_signature(strategies, portfolios)
+        cached = _scan_cache_get(cache_signature, full_data)
+        if cached is not None:
+            return cached
+
         symbol_frames = {}
         for symbol, yf_symbol in symbol_mapping.items():
             if symbol in SKIP_SCAN_SYMBOLS:
                 continue
-            symbol_frames[symbol] = _prepare_symbol_frame(full_data, symbol, yf_symbol)
+            symbol_frames[symbol] = _prepare_symbol_frame(
+                full_data, symbol, yf_symbol, compute_hurst=need_hurst
+            )
 
     symbol_dataset: dict | None = None
     if full_data is not None:
         dataset_symbols = _scan_dataset_symbols(strategies, portfolios)
         if dataset_symbols:
-            symbol_dataset = bt.build_symbol_dataset(full_data, sorted(dataset_symbols))
+            symbol_dataset = bt.build_symbol_dataset(
+                full_data, sorted(dataset_symbols), compute_hurst=need_hurst
+            )
 
     for symbol, data in symbol_frames.items():
         if symbol not in LEGACY_SCAN_SYMBOLS:
@@ -562,4 +702,6 @@ def run_scan(
             rows.append(row)
 
     rows.sort(key=_scan_sort_key)
+    if cache_signature is not None:
+        _scan_cache_put(cache_signature, full_data, rows)
     return rows

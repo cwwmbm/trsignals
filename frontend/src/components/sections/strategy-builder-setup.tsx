@@ -57,6 +57,10 @@ import {
 } from '@/components/strategy-builder/regime-condition-list'
 import {
   holdDaysSweepRowValues,
+  comboSweepRowToConditionRows,
+  entryCheckRowRemoval,
+  isComboSweepRow,
+  locateRemovedCondition,
   isHoldDaysSweepRow,
   isRegimeSweepRow,
   regimeSweepRowId,
@@ -97,9 +101,10 @@ function uniqueSavedStrategiesByName(strategies: SavedStrategy[], preferredSymbo
   })
 }
 
+/** A placeholder that is true on every bar (Close > 0): "always a buy signal" until a rule replaces it. */
 function defaultEntryConditions(): ConditionRow[] {
   return [
-    { id: 'c0', left: 'Close', operator: '<=', right: 'SMA200', logic: 'AND' },
+    { id: 'c0', left: 'Close', operator: '>', right: '0', logic: 'AND' },
   ]
 }
 
@@ -688,7 +693,6 @@ export const StrategyBuilderSetup = forwardRef<
           eodExit,
           backtestAllData,
           holdOnBuySignal,
-          years,
         ),
       buildRefineDraft: () =>
         buildPayload(
@@ -722,6 +726,25 @@ export const StrategyBuilderSetup = forwardRef<
           return `Applied ${values.holdDays}d hold · ${values.profit} profit close${values.profit === 1 ? '' : 's'}.`
         }
 
+        const removed = entryCheckRowRemoval(row)
+        if (removed) {
+          const found = locateRemovedCondition(removed, regimeConditions, entryConditions)
+          if (!found) {
+            return 'Could not find this condition in the draft. It may have changed since the check ran.'
+          }
+          if (regimeConditions.length + entryConditions.length <= 1) {
+            return 'Could not remove the only entry condition.'
+          }
+          const drop = (prev: ConditionRow[]) => prev.filter((_, index) => index !== found.index)
+          if (found.list === 'regime') {
+            setRegimeConditions(drop)
+          } else {
+            setEntryConditions(drop)
+          }
+          const label = String(row.Removed ?? removed.left)
+          return `Removed ${label} from ${found.list === 'regime' ? 'market regimes' : 'entry'}. Run the check again to see the rest without it.`
+        }
+
         if (isSymbolConfirmSweepRow(row)) {
           const value = symbolConfirmSweepRowValues(row)
           if (value === null) return 'Could not apply confirmation symbols from this sweep row.'
@@ -742,6 +765,19 @@ export const StrategyBuilderSetup = forwardRef<
           )
           setRegimeOpen(true)
           return `Added ${regimeConditionLabel(left) ?? left} ${operator} to market regimes.`
+        }
+
+        if (isComboSweepRow(row)) {
+          const rows = comboSweepRowToConditionRows(row, builderIndicators)
+          if (!rows) return 'Could not map this sweep row to builder conditions.'
+          setEntryConditions((prev) =>
+            rows.reduce(
+              (acc, next) => appendConditionRow(acc, next, builderIndicators, 1),
+              prev,
+            ),
+          )
+          setEntryOpen(true)
+          return `Added ${rows.length} filters to entry.`
         }
 
         const mapped = sweepRowToConditionRow(row, builderIndicators)
@@ -774,6 +810,7 @@ export const StrategyBuilderSetup = forwardRef<
       name,
       description,
       confirmSymbols,
+      proxySymbol,
       entryConditions,
       regimeConditions,
       exitConditions,

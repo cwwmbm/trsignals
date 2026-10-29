@@ -5,6 +5,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from api.drawdown_risk import drawdown_risk_for_frame
 from api.market_regimes import (
     analyze_strategy_regime,
     atr_regime_from_row,
@@ -14,6 +15,7 @@ from api.market_regimes import (
     regime_coverage,
     market_regimes_for_timestamp,
 )
+from api.benchmark import BENCHMARK_COLUMN_PREFIX, BenchmarkInputs, benchmark_for
 from stats import compute_aggregate_metrics, metrics_start_label, monthly_performance, performance_frame, yearly_performance
 
 MAX_EQUITY_CURVE_POINTS = 2000
@@ -70,7 +72,7 @@ def summary_payload(
     *,
     periods_per_year: int = 252,
 ) -> dict:
-    metrics = compute_aggregate_metrics(data, periods_per_year=periods_per_year)
+    metrics = compute_aggregate_metrics(data, periods_per_year=periods_per_year, include_full=True)
     payload = {
         "description": description,
         "days": days,
@@ -88,6 +90,12 @@ def summary_payload(
         "sharpe": metrics["sharpe"],
         "sortino": metrics["sortino"],
     }
+    # Same ratios with every year in. The figures above leave the best year out (the ranking
+    # basis), so a result is headlined from these.
+    full = metrics.get("full") or {}
+    for key in ("cagr_percent", "sharpe", "sortino", "max_drawdown", "calmar", "ulcer_index", "best_year", "best_year_return", "best_year_share"):
+        value = full.get(key)
+        payload[f"full_{key}"] = None if isinstance(value, float) and not math.isfinite(value) else value
     started = metrics_start_label(data)
     if started:
         payload["metrics_start"] = started
@@ -137,7 +145,8 @@ def equity_curve_payload(
     is_intraday: bool = False,
     max_points: int = MAX_EQUITY_CURVE_POINTS,
 ) -> list[dict]:
-    rows = data[["Date", "RollingPnL", "Drawdown"]].copy()
+    extra = [column for column in data.columns if str(column).startswith(BENCHMARK_COLUMN_PREFIX)]
+    rows = data[["Date", "RollingPnL", "Drawdown", *extra]].copy()
     rows = _downsample_for_chart(rows, max_points)
     rows["Date"] = rows["Date"].apply(lambda value: _format_timestamp(value, is_intraday=is_intraday))
     rows = rows.rename(
@@ -145,6 +154,7 @@ def equity_curve_payload(
             "Date": "date",
             "RollingPnL": "rolling_pnl",
             "Drawdown": "drawdown",
+            **{column: column.lower() for column in extra},
         }
     )
     return dataframe_records(rows)
@@ -238,10 +248,13 @@ def detailed_backtest_payload(
     is_intraday: bool = False,
     portfolio_equity: bool = False,
     years: int | None = None,
+    benchmark: BenchmarkInputs | None = None,
 ) -> dict:
     scored = performance_frame(data)
     total_bars = int(scored.shape[0])
-    equity_curve = equity_curve_payload(scored, is_intraday=is_intraday)
+    compared = None if is_intraday else benchmark_for(scored, benchmark)
+    chart_frame = scored if compared is None else scored.assign(**compared[0])
+    equity_curve = equity_curve_payload(chart_frame, is_intraday=is_intraday)
     regime_calendar = load_regime_calendar(years) if years is not None else None
     payload = {
         "summary": summary_payload(
@@ -264,6 +277,19 @@ def detailed_backtest_payload(
         "equity_curve_total_points": total_bars,
         "equity_curve_shown_points": len(equity_curve),
     }
+    if compared is not None:
+        payload["benchmark"] = compared[1]
+    payload["drawdown_risk"] = drawdown_risk_for_frame(data, periods_per_year=periods_per_year)
+    traded = data.attrs.get("traded") if hasattr(data, "attrs") else None
+    if traded and "VehicleHold" in data.columns:
+        # Which instrument each closed trade earned its return in.
+        closed = data["LongTradeOut"].to_numpy(dtype=bool)
+        on_leverage_symbol = data["VehicleHold"].to_numpy(dtype=bool)[closed]
+        payload["vehicle"] = {
+            **traded,
+            "trades_on_leverage_symbol": int(on_leverage_symbol.sum()),
+            "trades_on_stand_in": int((~on_leverage_symbol).sum()),
+        }
     if years is not None:
         payload["market_regime_sharpe"] = compute_market_regime_sharpe(
             scored,

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { DragEndEvent } from '@dnd-kit/core'
 import { arrayMove } from '@dnd-kit/sortable'
 import {
@@ -18,7 +18,10 @@ import {
 import { sortSymbols } from '@/lib/symbol-order'
 import {
   SCAN_LANES,
+  copyLanes,
+  emptyLanes,
   findLaneForRow,
+  findRowInLanes,
   groupScanRows,
   parseLaneContainerId,
   resolvePortfolioScanLane,
@@ -68,7 +71,7 @@ function buildPortfolioLaneUpdates(
   return updates
 }
 
-export function useScanBoard(initialExpanded: string[] = ['active', 'legacy']) {
+export function useScanBoard(initialExpanded: string[] = ['live', 'active', 'legacy']) {
   const queryClient = useQueryClient()
   const [query, setQuery] = useState('')
   const [symbolFilter, setSymbolFilter] = useState<string>('all')
@@ -76,11 +79,7 @@ export function useScanBoard(initialExpanded: string[] = ['active', 'legacy']) {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     () => new Set(initialExpanded),
   )
-  const [laneRows, setLaneRows] = useState<LaneRows>({
-    active: [],
-    testing: [],
-    archived: [],
-  })
+  const [laneRows, setLaneRows] = useState<LaneRows>(emptyLanes)
   const [legacyRows, setLegacyRows] = useState<ScanRow[]>([])
 
   const {
@@ -89,9 +88,18 @@ export function useScanBoard(initialExpanded: string[] = ['active', 'legacy']) {
     isFetching,
     error,
     refetch,
+    dataUpdatedAt,
   } = useQuery({
     queryKey: ['scan', dataSource],
     queryFn: () => getScan(dataSource),
+    // Prices move, so the board refreshes itself: every minute while the tab is visible (React Query
+    // pauses this in a background tab) and when the window regains focus once the data is 30 s old.
+    // Interactive Brokers scans open a Gateway connection each time, so only Yahoo auto-refreshes.
+    // The previous rows stay on screen while a refresh runs.
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
+    refetchInterval: dataSource === 'yahoo' ? 60_000 : false,
+    placeholderData: keepPreviousData,
   })
   const { data: savedStrategies = [] } = useQuery({
     queryKey: ['strategies'],
@@ -194,19 +202,13 @@ export function useScanBoard(initialExpanded: string[] = ['active', 'legacy']) {
       const currentLane = resolveScanLane(strategy)
       if (currentLane === lane) return
 
-      const nextLanes: LaneRows = {
-        active: [...laneRows.active],
-        testing: [...laneRows.testing],
-        archived: [...laneRows.archived],
-      }
+      const nextLanes = copyLanes(laneRows)
       for (const sourceLane of SCAN_LANES) {
         nextLanes[sourceLane] = nextLanes[sourceLane].filter((row) => row.strategy_id !== strategy.id)
       }
       const movedRow =
         laneRows[currentLane].find((row) => row.strategy_id === strategy.id) ??
-        laneRows.testing.find((row) => row.strategy_id === strategy.id) ??
-        laneRows.active.find((row) => row.strategy_id === strategy.id) ??
-        laneRows.archived.find((row) => row.strategy_id === strategy.id)
+        findRowInLanes(laneRows, (row) => row.strategy_id === strategy.id)
       if (movedRow) {
         nextLanes[lane] = [...nextLanes[lane], movedRow]
       }
@@ -232,11 +234,7 @@ export function useScanBoard(initialExpanded: string[] = ['active', 'legacy']) {
       const currentLane = resolvePortfolioScanLane(portfolio)
       if (currentLane === lane) return
 
-      const nextLanes: LaneRows = {
-        active: [...laneRows.active],
-        testing: [...laneRows.testing],
-        archived: [...laneRows.archived],
-      }
+      const nextLanes = copyLanes(laneRows)
       for (const sourceLane of SCAN_LANES) {
         nextLanes[sourceLane] = nextLanes[sourceLane].filter(
           (row) => row.portfolio_id !== portfolio.id,
@@ -244,9 +242,7 @@ export function useScanBoard(initialExpanded: string[] = ['active', 'legacy']) {
       }
       const movedRow =
         laneRows[currentLane].find((row) => row.portfolio_id === portfolio.id) ??
-        laneRows.testing.find((row) => row.portfolio_id === portfolio.id) ??
-        laneRows.active.find((row) => row.portfolio_id === portfolio.id) ??
-        laneRows.archived.find((row) => row.portfolio_id === portfolio.id)
+        findRowInLanes(laneRows, (row) => row.portfolio_id === portfolio.id)
       if (movedRow) {
         nextLanes[lane] = [...nextLanes[lane], movedRow]
       }
@@ -279,11 +275,7 @@ export function useScanBoard(initialExpanded: string[] = ['active', 'legacy']) {
 
       const targetLane = parseLaneContainerId(overId) ?? findLaneForRow(laneRows, overId) ?? sourceLane
 
-      const nextLanes: LaneRows = {
-        active: [...laneRows.active],
-        testing: [...laneRows.testing],
-        archived: [...laneRows.archived],
-      }
+      const nextLanes = copyLanes(laneRows)
 
       const sourceRows = [...nextLanes[sourceLane]]
       const activeIndex = sourceRows.findIndex((row) => row.id === activeId)
@@ -350,6 +342,7 @@ export function useScanBoard(initialExpanded: string[] = ['active', 'legacy']) {
     isFetching,
     error,
     refetch,
+    dataUpdatedAt,
     handleLaneChange,
     handlePortfolioLaneChange,
     handleDragEnd,

@@ -51,6 +51,10 @@ def unavailable_indicator_ids() -> list[str]:
             ids.append(item["id"])
     if "SPYBull" not in ids:
         ids.append("SPYBull")
+    # Derived from Vix, which a custom dataset does not carry.
+    ids.append("VixChange")
+    # Earnings dates are looked up for a stock's daily history, not for an uploaded intraday series.
+    ids.extend(["DaysToEarnings", "DaysSinceEarnings"])
     return sorted(set(ids))
 
 

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Area, AreaChart, CartesianGrid, ReferenceLine, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, CartesianGrid, ComposedChart, Line, ReferenceLine, XAxis, YAxis } from "recharts";
+import type { BenchmarkPayload, BenchmarkSeries, EquityCurvePoint } from "@/api";
 import {
   ChartContainer,
   ChartTooltip,
@@ -23,11 +24,14 @@ const drawdownConfig = {
   },
 } satisfies ChartConfig;
 
-export type EquityDrawdownPoint = {
-  date: string;
-  rolling_pnl: number;
-  drawdown: number;
-};
+export type EquityDrawdownPoint = EquityCurvePoint;
+
+const NO_BENCHMARKS: BenchmarkSeries[] = [];
+
+const BENCHMARK_STYLE = {
+  underlying: { color: "var(--chart-3)", dash: "5 4" },
+  vehicle: { color: "var(--chart-4)", dash: "2 3" },
+} as const;
 
 const MAX_CHART_POINTS = 2000;
 
@@ -53,11 +57,36 @@ function formatPercent(value: number) {
 export function EquityDrawdownPanel({
   data,
   totalPoints,
+  benchmark = null,
 }: {
   data: EquityDrawdownPoint[];
   totalPoints?: number;
+  benchmark?: BenchmarkPayload | null;
 }) {
   const [logScale, setLogScale] = useState(true);
+  const [hiddenBenchmarks, setHiddenBenchmarks] = useState<ReadonlySet<string>>(new Set());
+  const benchmarkSeries = benchmark?.series ?? NO_BENCHMARKS;
+  const shownBenchmarks = benchmarkSeries.filter((item) => !hiddenBenchmarks.has(item.id));
+  const equityChartConfig = useMemo(
+    () =>
+      ({
+        ...equityConfig,
+        ...Object.fromEntries(
+          benchmarkSeries.map((item) => [
+            `benchmark_${item.id}`,
+            { label: item.label, color: BENCHMARK_STYLE[item.id].color },
+          ]),
+        ),
+      }) satisfies ChartConfig,
+    [benchmarkSeries],
+  );
+  const toggleBenchmark = (id: string, show: boolean) =>
+    setHiddenBenchmarks((current) => {
+      const next = new Set(current);
+      if (show) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const chartData = useMemo(
     () =>
@@ -65,6 +94,8 @@ export function EquityDrawdownPanel({
         data.map((point) => ({
           date: point.date,
           equity: point.rolling_pnl,
+          benchmark_underlying: point.benchmark_underlying ?? undefined,
+          benchmark_vehicle: point.benchmark_vehicle ?? undefined,
           drawdown: -Math.abs(Number(point.drawdown) || 0) * 100,
         })),
         MAX_CHART_POINTS,
@@ -91,7 +122,25 @@ export function EquityDrawdownPanel({
               : null}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1">
+          {benchmarkSeries.map((item) => (
+            <div key={item.id} className="flex items-center gap-2">
+              <span
+                aria-hidden
+                className="inline-block h-0 w-4 border-t-2"
+                style={{ borderColor: BENCHMARK_STYLE[item.id].color, borderTopStyle: "dashed" }}
+              />
+              <Label htmlFor={`equity-dd-bench-${item.id}`} className="text-xs text-muted-foreground">
+                {item.label}
+              </Label>
+              <Switch
+                id={`equity-dd-bench-${item.id}`}
+                checked={!hiddenBenchmarks.has(item.id)}
+                onCheckedChange={(checked) => toggleBenchmark(item.id, checked)}
+              />
+            </div>
+          ))}
+          <div className="flex items-center gap-2">
           <Label htmlFor="equity-dd-log-scale" className="text-xs text-muted-foreground">
             Equity log scale
           </Label>
@@ -100,13 +149,14 @@ export function EquityDrawdownPanel({
             checked={logScale}
             onCheckedChange={setLogScale}
           />
+          </div>
         </div>
       </div>
 
       <div className="flex flex-col gap-1">
         <p className="text-[11px] font-medium text-muted-foreground">Equity</p>
-        <ChartContainer config={equityConfig} className="h-[280px] w-full">
-          <AreaChart
+        <ChartContainer config={equityChartConfig} className="h-[280px] w-full">
+          <ComposedChart
             data={chartData}
             margin={{ left: 8, right: 8, top: 8, bottom: 0 }}
           >
@@ -146,7 +196,20 @@ export function EquityDrawdownPanel({
               dot={false}
               isAnimationActive={false}
             />
-          </AreaChart>
+            {shownBenchmarks.map((item) => (
+              <Line
+                key={item.id}
+                dataKey={`benchmark_${item.id}`}
+                type="monotone"
+                stroke={BENCHMARK_STYLE[item.id].color}
+                strokeDasharray={BENCHMARK_STYLE[item.id].dash}
+                strokeWidth={1.5}
+                dot={false}
+                connectNulls
+                isAnimationActive={false}
+              />
+            ))}
+          </ComposedChart>
         </ChartContainer>
       </div>
 

@@ -40,6 +40,8 @@ class IndicatorDef(TypedDict, total=False):
     aliases: list[str]
     compareMode: CompareMode
     compareIndicatorKinds: list[IndicatorKind]
+    # Exact right-hand indicators allowed besides numbers, for oscillators that pair with one sibling.
+    compareIndicatorIds: list[str]
     defaultCompareIndicator: str
     defaultCompareNumber: str
 
@@ -56,6 +58,7 @@ def _entry(
     builder_eligible: bool = True,
     custom_data_only: bool = False,
     aliases: list[str] | None = None,
+    compare_indicator_ids: list[str] | None = None,
 ) -> IndicatorDef:
     item: IndicatorDef = {
         "id": id,
@@ -73,6 +76,9 @@ def _entry(
         item["typicalRange"] = typical_range
     if aliases:
         item["aliases"] = aliases
+    if compare_indicator_ids:
+        item["compareMode"] = "both"
+        item["compareIndicatorIds"] = compare_indicator_ids
     return item
 
 
@@ -89,6 +95,7 @@ _SWEEP = {
     "ValueCharts": {"min": -12, "max": 12},
     "ER": {"min": 0.1, "max": 0.9},
     "Vix": {"min": 10, "max": 50},
+    "VixChange": {"min": -15, "max": 20},
     "ChangeVelocity": {"min": -2, "max": 2},
     "Close_EMA8": {"min": -10, "max": 10},
     "VFI10": {"min": -8, "max": 8},
@@ -97,15 +104,28 @@ _SWEEP = {
     "VFI80": {"min": -8, "max": 8},
     "%Change": {"min": -0.06, "max": 0.06},
     "ADX14": {"min": 10, "max": 50},
+    "DIPlus14": {"min": 10, "max": 40},
+    "DIMinus14": {"min": 10, "max": 40},
+    "DIBalance14": {"min": -40, "max": 40},
+    "DICrossAge14": {"min": -30, "max": 30},
+    "SignedADX14": {"min": -40, "max": 40},
     "WilliamsR14": {"min": -90, "max": -10},
     "ROC20": {"min": -10, "max": 10},
     "CMF20": {"min": -0.4, "max": 0.4},
     "BBPercentB": {"min": 0, "max": 1},
     "BBWidth": {"min": 0, "max": 0.2},
+    "Close_KAMA10": {"min": -4, "max": 4},
+    "KAMASlope10": {"min": -2, "max": 2},
+    "PSARFlipAge": {"min": -20, "max": 20},
+    "Close_PSAR": {"min": -8, "max": 8},
+    "SqueezeRatio20": {"min": 0.8, "max": 2.6},
+    "SqueezeAge20": {"min": -20, "max": 10},
     "LinRegSlope20": {"min": -2, "max": 2},
     "OBVSlope20": {"min": -5, "max": 5},
     "VolatilityPercentile": {"min": 0, "max": 100},
     "TRIX": {"min": -0.5, "max": 0.5},
+    "DaysToEarnings": {"min": 1, "max": 20},
+    "DaysSinceEarnings": {"min": 0, "max": 10},
     "Close_VWAP": {"min": -2, "max": 2},
     "VWAPSlope8": {"min": -2, "max": 2},
     "VWAPSlope20": {"min": -2, "max": 2},
@@ -140,6 +160,7 @@ _DEFAULT_COMPARE_NUMBER: dict[str, str] = {
     "RSI14": "50",
     "CCI": "0",
     "Vix": "20",
+    "VixChange": "0",
     "BBPercentB": "0.5",
     "VWAPPercentB": "0.5",
     "Stoch": "20",
@@ -154,6 +175,9 @@ _DEFAULT_COMPARE_NUMBER: dict[str, str] = {
     "Close_EMA8": "0",
     "Close_SMA20": "0",
     "Close_SMA50": "0",
+    "Close_KAMA10": "0",
+    "Close_PSAR": "0",
+    "KAMASlope10": "0",
     "Close_SMA200": "0",
     "Close_VWAP": "0",
     "EMA20_EMA100": "0",
@@ -162,6 +186,8 @@ _DEFAULT_COMPARE_NUMBER: dict[str, str] = {
     "ATR20_ATR50": "0",
     "%Change": "0",
     "VolumeEMADiff": "0",
+    "DaysToEarnings": "5",
+    "DaysSinceEarnings": "2",
 }
 
 _PRICE_TREND_COMPARE_KINDS: list[IndicatorKind] = ["price", "trend"]
@@ -238,10 +264,12 @@ INDICATOR_CATALOG: list[IndicatorDef] = [
     _entry("SMA10", "SMA(10)", "Moving averages", "trend", "continuous", description="10-day simple moving average of close."),
     _entry("SMA20", "SMA(20)", "Moving averages", "trend", "continuous", description="20-day simple moving average of close."),
     _entry("SMA50", "SMA(50)", "Moving averages", "trend", "continuous", description="50-day simple moving average of close."),
+    _entry("KAMA10", "KAMA(10, 2, 30)", "Moving averages", "trend", "continuous", description="Kaufman adaptive moving average: follows price like a 2-bar EMA when the 10-bar efficiency ratio is high and flattens like a 30-bar EMA when the market chops."),
     _entry("SMA100", "SMA(100)", "Moving averages", "trend", "continuous", description="100-day simple moving average of close."),
     _entry("SMA200", "SMA(200)", "Moving averages", "trend", "continuous", description="200-day simple moving average of close."),
     _entry("EMA8", "EMA(8)", "Moving averages", "trend", "continuous", description="8-day exponential moving average of close."),
     _entry("EMA20", "EMA(20)", "Moving averages", "trend", "continuous", description="20-day exponential moving average of close."),
+    _entry("EMA50", "EMA(50)", "Moving averages", "trend", "continuous", description="50-day exponential moving average of close."),
     _entry("EMA100", "EMA(100)", "Moving averages", "trend", "continuous", description="100-day exponential moving average of close."),
     _entry("BBUpper", "Bollinger upper", "Moving averages", "trend", "continuous", description="Upper Bollinger band (default 20-period, 2 std dev) on close."),
     _entry("BBMiddle", "Bollinger middle", "Moving averages", "trend", "continuous", description="Middle Bollinger band — the 20-day SMA of close."),
@@ -265,6 +293,11 @@ INDICATOR_CATALOG: list[IndicatorDef] = [
     _entry("ValueCharts", "ValueCharts(5)", "Momentum / oscillators", "momentum", "continuous", typical_range=_range("ValueCharts"), description="5-period ValueCharts oscillator measuring close deviation from a smoothed mid-range."),
     _entry("Hurst", "Hurst exponent", "Momentum / oscillators", "momentum", "continuous", description="Rolling 100-bar Hurst exponent on close. Above 0.5 suggests trending; below 0.5 suggests mean-reverting."),
     _entry("ADX14", "ADX(14)", "Momentum / oscillators", "momentum", "continuous", typical_range=_range("ADX14"), description="14-period Average Directional Index — trend strength from 0 (no trend) to 100 (strong trend)."),
+    _entry("DIPlus14", "+DI(14)", "Momentum / oscillators", "momentum", "continuous", typical_range=_range("DIPlus14"), compare_indicator_ids=["DIMinus14"], description="14-period positive Directional Indicator — share of recent range that pushed higher. Compare with −DI(14): +DI above −DI means buyers lead."),
+    _entry("DIMinus14", "−DI(14)", "Momentum / oscillators", "momentum", "continuous", typical_range=_range("DIMinus14"), compare_indicator_ids=["DIPlus14"], description="14-period negative Directional Indicator — share of recent range that pushed lower. Spikes higher than +DI in sell-offs."),
+    _entry("DIBalance14", "DI balance (14)", "Momentum / oscillators", "momentum", "continuous", typical_range=_range("DIBalance14"), description="(+DI − −DI) / (+DI + −DI) × 100, from −100 to +100. Above 0 means +DI leads; the size is how decisively, comparable across calm and volatile periods."),
+    _entry("DICrossAge14", "DI cross age (14)", "Momentum / oscillators", "momentum", "continuous", typical_range=_range("DICrossAge14"), description="Trading days since +DI and −DI last crossed: positive while +DI leads, negative while −DI leads. 1 is the day of a bullish cross, −1 a bearish one."),
+    _entry("SignedADX14", "Signed ADX (14)", "Momentum / oscillators", "momentum", "continuous", typical_range=_range("SignedADX14"), description="ADX(14) with the sign of the leading DI: positive in an uptrend, negative in a downtrend. Trend strength and direction in one number."),
     _entry("WilliamsR14", "Williams %R(14)", "Momentum / oscillators", "momentum", "continuous", typical_range=_range("WilliamsR14"), description="14-period Williams %R — oversold/overbought oscillator ranging from −100 (oversold) to 0 (overbought)."),
     _entry("ROC20", "ROC(20)", "Momentum / oscillators", "momentum", "continuous", typical_range=_range("ROC20"), description="20-bar rate of change of close — plain momentum distinct from leveraged daily % change."),
     _entry("TRIX", "TRIX(15)", "Momentum / oscillators", "momentum", "continuous", typical_range=_range("TRIX"), description="15-period TRIX — triple-smoothed EMA rate of change; less noisy than MACD histogram alone."),
@@ -277,8 +310,11 @@ INDICATOR_CATALOG: list[IndicatorDef] = [
         typical_range=_range("LinRegSlope20"),
         description="20-bar linear regression slope of close, normalized as percent of price per bar.",
     ),
+    _entry("PSARFlipAge", "PSAR flip age", "Momentum / oscillators", "momentum", "continuous", typical_range=_range("PSARFlipAge"), description="Trading days since Parabolic SAR last flipped: positive while the SAR trails below price (uptrend), negative while it sits above. 1 is the day of a bullish flip, −1 a bearish one."),
+    _entry("KAMASlope10", "KAMA slope (5d %)", "Momentum / oscillators", "momentum", "continuous", typical_range=_range("KAMASlope10"), description="5-day percent change of KAMA(10, 2, 30). Near 0 means KAMA has gone flat, which it does when the market chops; the sign gives the direction."),
     # Volatility / risk
     _entry("Vix", "VIX", "Volatility / risk", "volatility", "continuous", typical_range=_range("Vix"), aliases=["VIX"], description="CBOE Volatility Index closing level — a measure of expected market volatility."),
+    _entry("VixChange", "VIX daily change", "Volatility / risk", "volatility", "continuous", typical_range=_range("VixChange"), description="VIX close-to-close change, in percent points (-10 means the VIX fell 10% that day). Blank on the first VIX day and after a missing VIX close."),
     _entry("%Change", "% change", "Volatility / risk", "volatility", "percent", typical_range=_range("%Change"), description="Leveraged daily percent change in close (leverage factor from config)."),
     _entry("ATR20", "ATR(20)", "Volatility / risk", "volatility", "continuous", description="20-day Average True Range — average daily price range in price units."),
     _entry("ATR50", "ATR(50)", "Volatility / risk", "volatility", "continuous", description="50-day Average True Range — average daily price range in price units."),
@@ -293,9 +329,37 @@ INDICATOR_CATALOG: list[IndicatorDef] = [
         description="Percentile rank (0–100) of current realized volatility vs the trailing 252 trading days.",
     ),
     _entry("BBWidth", "Bollinger width", "Volatility / risk", "volatility", "continuous", typical_range=_range("BBWidth"), description="Bollinger band width as a fraction of the middle band — low values indicate compression."),
+    _entry("SqueezeRatio20", "Squeeze ratio (20)", "Volatility / risk", "volatility", "continuous", typical_range=_range("SqueezeRatio20"), description="Bollinger width (20, 2σ) ÷ Keltner width (20 EMA, 1.5× ATR). Below about 1 is a TTM squeeze; around 1.5 is normal, above 2.5 is expanding volatility."),
+    _entry("SqueezeAge20", "Squeeze age (20)", "Volatility / risk", "volatility", "continuous", typical_range=_range("SqueezeAge20"), description="Days into the current BB/Keltner squeeze (1, 2, …) or since the last one released (−1 is the first day after it ends). Blank before the first squeeze."),
     _entry("BBPercentB", "Bollinger %B", "Volatility / risk", "volatility", "continuous", typical_range=_range("BBPercentB"), description="Position of close within the Bollinger bands: 0 = lower band, 1 = upper band, 0.5 = middle."),
     _entry("ChangeVelocity", "Change velocity", "Volatility / risk", "volatility", "continuous", typical_range=_range("ChangeVelocity"), description="One-day price change divided by the prior bar's ATR(20). Normalizes momentum by recent volatility."),
     # Efficiency / flow
+    # Earnings (stocks only; 999 when no date is known, which is every ETF)
+    _entry(
+        "DaysToEarnings",
+        "Days to earnings",
+        "Earnings",
+        "reference",
+        "continuous",
+        typical_range=_range("DaysToEarnings"),
+        description=(
+            "Trading days until the next earnings reaction day: 1 on the last bar before it, 0 on the day itself. "
+            "A report before the open reacts the same day, one after the close the next session. "
+            "999 when no date is known (ETFs, indexes), so `> 3` stays true there and `<= 1` never fires."
+        ),
+    ),
+    _entry(
+        "DaysSinceEarnings",
+        "Days since earnings",
+        "Earnings",
+        "reference",
+        "continuous",
+        typical_range=_range("DaysSinceEarnings"),
+        description=(
+            "Trading days since the last earnings reaction day: 0 on the day itself, 1 the day after. "
+            "999 when no earlier date is known."
+        ),
+    ),
     _entry("ER", "Efficiency ratio", "Efficiency / flow", "momentum", "continuous", typical_range=_range("ER"), description="Kaufman Efficiency Ratio over 10 bars. Near 1 means directional; near 0 means choppy."),
     _entry("IBR", "IBR", "Efficiency / flow", "momentum", "continuous", typical_range=_range("IBR"), description="Internal Bar Range — where close sits within the day's high-low range (0 = at low, 1 = at high)."),
     _entry("IBR2", "IBR(2)", "Efficiency / flow", "momentum", "continuous", typical_range=_range("IBR2"), description="IBR of a 2-bar composite candle (max high, min low, current close). 0 = close at the 2-bar low, 1 = at the 2-bar high."),
@@ -308,6 +372,8 @@ INDICATOR_CATALOG: list[IndicatorDef] = [
     _entry("Close_EMA8", "Close vs EMA(8) %", "Spreads & composites", "composite", "percent", typical_range=_range("Close_EMA8"), description="Percent distance of close from EMA(8): (close − EMA8) / close × 100."),
     _entry("Close_SMA20", "Close vs SMA(20) %", "Spreads & composites", "composite", "percent", description="Percent distance of close from SMA(20): (close − SMA20) / close × 100."),
     _entry("Close_SMA50", "Close vs SMA(50) %", "Spreads & composites", "composite", "percent", description="Percent distance of close from SMA(50): (close − SMA50) / close × 100."),
+    _entry("Close_PSAR", "Close vs PSAR %", "Spreads & composites", "composite", "percent", typical_range=_range("Close_PSAR"), description="Percent distance of close from Parabolic SAR: (close − SAR) / close × 100. Positive in a PSAR uptrend; small values mean the trailing stop is close."),
+    _entry("Close_KAMA10", "Close vs KAMA(10) %", "Spreads & composites", "composite", "percent", typical_range=_range("Close_KAMA10"), description="Percent distance of close from KAMA(10, 2, 30): (close − KAMA) / close × 100."),
     _entry("Close_SMA200", "Close vs SMA(200) %", "Spreads & composites", "composite", "percent", description="Percent distance of close from SMA(200): (close − SMA200) / close × 100."),
     _entry("EMA20_EMA100", "EMA(20) vs EMA(100) %", "Spreads & composites", "composite", "percent", description="Percent spread between EMA(20) and EMA(100): (EMA20 − EMA100) / EMA20 × 100."),
     _entry("SMA20_SMA50", "SMA(20) vs SMA(50) %", "Spreads & composites", "composite", "percent", description="Percent spread between SMA(20) and SMA(50): (SMA20 − SMA50) / SMA20 × 100."),
@@ -459,6 +525,34 @@ INDICATOR_CATALOG.extend(
     for spec in REGIME_INDICATOR_SPECS
 )
 
+
+
+def _cross_entries() -> list[IndicatorDef]:
+    """Four flags per pair in cross_pairs.CROSS_PAIRS, labelled with the pair's own labels."""
+    from cross_pairs import CROSS_PAIRS, down_column, down_prev_column, up_column, up_prev_column
+
+    labels = {item["id"]: item["label"] for item in INDICATOR_CATALOG}
+    entries = []
+    for pair in CROSS_PAIRS:
+        a, b = labels.get(pair.left, pair.left), labels.get(pair.right, pair.right)
+        for column, direction, when in (
+            (up_column(pair), "above", "today"),
+            (down_column(pair), "below", "today"),
+            (up_prev_column(pair), "above", "yesterday"),
+            (down_prev_column(pair), "below", "yesterday"),
+        ):
+            bar = "this bar" if when == "today" else "the previous bar, whatever it has done since"
+            entries.append(
+                _entry(
+                    column, f"{a} crossed {direction} {b} {when}", "Crosses", "pattern", "flag",
+                    description=f"Flag (1) when {a} crossed {direction} {b} on {bar}; otherwise −1.",
+                )
+            )
+    return entries
+
+
+INDICATOR_CATALOG.extend(_cross_entries())
+
 for _item in INDICATOR_CATALOG:
     _CATALOG_BY_ID[_item["id"]] = _item
 
@@ -472,7 +566,9 @@ _CATEGORY_ORDER = [
     "Spreads & composites",
     "VWAP / fair value",
     "Pattern / signal flags",
+    "Crosses",
     "Breadth RSI",
+    "Earnings",
     "Market regimes",
     "Internal",
 ]
@@ -585,6 +681,9 @@ def is_compare_indicator_allowed(left_id: str, right_id: str) -> bool:
         if left_id in PRICE_LIKE_IDS or left_item.get("kind") in {"price", "trend"}:
             return True
 
+    if left_item.get("compareIndicatorIds"):
+        return right_id in left_item["compareIndicatorIds"]
+
     allowed_kinds = left_item.get("compareIndicatorKinds") or resolve_compare_indicator_kinds(left_item)
     return right_item.get("kind", "momentum") in allowed_kinds
 
@@ -648,13 +747,17 @@ def builder_eligible_ids() -> list[str]:
     return [item["id"] for item in INDICATOR_CATALOG if item.get("builderEligible", True)]
 
 
-# Cross-market / shared series — same values on every symbol frame.
+# Cross-market / shared series — same values on every symbol frame — plus the earnings counters,
+# which describe the traded symbol only (a confirm symbol's earnings are not its business).
 # When confirm symbols are set, these gate primary Buy after confirm merge
 # (matching indicator-sweep), not per-symbol confirm hold logic.
 _MARKET_WIDE_INDICATOR_IDS = frozenset(
     {
         "Vix",
+        "VixChange",
         "SPYBull",
+        "DaysToEarnings",
+        "DaysSinceEarnings",
         *(item["id"] for item in INDICATOR_CATALOG if item.get("kind") == "breadth"),
         *(spec.id for spec in REGIME_INDICATOR_SPECS if spec.market_wide),
     }

@@ -10,6 +10,7 @@ import {
   ListChecks,
   Menu,
   Radar,
+  Settings,
   Wrench,
   X,
 } from 'lucide-react'
@@ -24,9 +25,10 @@ import { HelpSection } from '@/components/sections/help-section'
 import { PortfolioSection, type PortfolioInitialState } from '@/components/sections/portfolio-section'
 import { QuoteSection } from '@/components/sections/quote-section'
 import { RegimesSection } from '@/components/sections/regimes-section'
+import { SettingsSection } from '@/components/sections/settings-section'
 import { subscribeRegimeConditionRequests } from '@/lib/regime-condition'
 
-type SectionId = 'strategies' | 'builder' | 'scan' | 'quote' | 'portfolio' | 'regimes' | 'help'
+type SectionId = 'strategies' | 'builder' | 'scan' | 'quote' | 'portfolio' | 'regimes' | 'settings' | 'help'
 
 const NAV: { id: SectionId; label: string; icon: typeof Wrench }[] = [
   { id: 'strategies', label: 'All strategies', icon: ListChecks },
@@ -35,6 +37,7 @@ const NAV: { id: SectionId; label: string; icon: typeof Wrench }[] = [
   { id: 'quote', label: 'Quote', icon: LineChart },
   { id: 'portfolio', label: 'Portfolio', icon: Briefcase },
   { id: 'regimes', label: 'Regimes', icon: Activity },
+  { id: 'settings', label: 'Settings', icon: Settings },
   { id: 'help', label: 'Help', icon: HelpCircle },
 ]
 
@@ -42,14 +45,18 @@ const TITLES: Record<SectionId, { title: string; subtitle: string }> = {
   strategies: { title: 'All strategies', subtitle: 'Every saved strategy with its key metrics.' },
   builder: { title: 'Strategy Builder', subtitle: 'Compose entry rules, or load a saved strategy, then backtest and save.' },
   scan: { title: 'Scan', subtitle: 'Latest signal scan across the symbol universe.' },
-  quote: { title: 'Quote', subtitle: 'SPY, QQQ, SOXX, and VIX snapshot with IBR, RSI, Stochastic, and missing-day checks.' },
+  quote: { title: 'Quote', subtitle: 'Saved symbols with IBR, RSI, Stochastic, and missing-day checks.' },
   portfolio: {
     title: 'Portfolio',
-    subtitle: 'Combine saved strategies and simulate shared all-in performance.',
+    subtitle: 'Combine saved strategies and simulate portfolio performance under an allocation model.',
   },
   regimes: {
     title: 'Regimes',
     subtitle: 'How many trading days each market regime state was active, per year.',
+  },
+  settings: {
+    title: 'Settings',
+    subtitle: 'How symbols are leveraged: general leverage, and the leveraged product traded for a symbol.',
   },
   help: { title: 'Help', subtitle: 'Documentation, run modes, and glossary.' },
 }
@@ -208,6 +215,7 @@ export function AppShell() {
           {active === 'quote' && <QuoteSection />}
           {active === 'portfolio' && <PortfolioSection initialState={portfolioInitial} />}
           {active === 'regimes' && <RegimesSection />}
+          {active === 'settings' && <SettingsSection />}
           {active === 'help' && <HelpSection />}
         </main>
       </div>

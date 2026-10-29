@@ -17,7 +17,8 @@ import {
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { ConditionSnapshotHint } from '@/components/scan/condition-snapshot-hint'
-import { ScanSignalBadge } from '@/components/scan/scan-signal-indicator'
+import { ActionChip, PositionSummary, ScanCapitalInput } from '@/components/scan/scan-position'
+import { useScanCapital } from '@/hooks/use-scan-capital'
 import { useScanBoard } from '@/hooks/use-scan-board'
 import { scanCardAccentClass } from '@/lib/scan-signals'
 import {
@@ -30,6 +31,7 @@ import {
 
 function ScanMobileCard({
   row,
+  capital,
   strategy,
   portfolio,
   onLaneChange,
@@ -37,6 +39,7 @@ function ScanMobileCard({
   lanePending,
 }: {
   row: ScanRow
+  capital: number | null
   strategy?: SavedStrategy
   portfolio?: SavedPortfolio
   onLaneChange: (strategy: SavedStrategy, lane: ScanLane) => void
@@ -57,10 +60,9 @@ function ScanMobileCard({
             <ConditionSnapshotHint row={row} />
           </div>
         </div>
-        <div className="flex shrink-0 gap-1">
-          <ScanSignalBadge row={row} kind="buy" />
-          <ScanSignalBadge row={row} kind="hold" />
-          <ScanSignalBadge row={row} kind="sell" />
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <ActionChip row={row} />
+          <PositionSummary row={row} capital={capital} />
         </div>
       </div>
 
@@ -117,7 +119,7 @@ function ScanMobileCard({
   )
 }
 
-function LegacyMobileCard({ row }: { row: ScanRow }) {
+function LegacyMobileCard({ row, capital }: { row: ScanRow; capital: number | null }) {
   return (
     <Card className={cn('gap-2 p-3 shadow-none', scanCardAccentClass(row))}>
       <div className="flex items-start justify-between gap-2">
@@ -128,10 +130,9 @@ function LegacyMobileCard({ row }: { row: ScanRow }) {
             <ConditionSnapshotHint row={row} />
           </div>
         </div>
-        <div className="flex shrink-0 gap-1">
-          <ScanSignalBadge row={row} kind="buy" />
-          <ScanSignalBadge row={row} kind="hold" />
-          <ScanSignalBadge row={row} kind="sell" />
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <ActionChip row={row} />
+          <PositionSummary row={row} capital={capital} />
         </div>
       </div>
       <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs tabular-nums">
@@ -150,8 +151,12 @@ function LegacyMobileCard({ row }: { row: ScanRow }) {
 }
 
 export function ScanMobileSection() {
-  const [activeLane, setActiveLane] = useState<ScanLane | 'legacy'>('active')
-  const board = useScanBoard(['active'])
+  // Until a tab is picked, show the first section that has rows (Live, when it has any).
+  const [pickedLane, setActiveLane] = useState<ScanLane | 'legacy' | null>(null)
+  const board = useScanBoard(['live'])
+  const { text: capitalText, setText: setCapitalText, capital } = useScanCapital()
+  const activeLane: ScanLane | 'legacy' =
+    pickedLane ?? SCAN_LANES.find((lane) => board.laneRows[lane].length > 0) ?? 'live'
 
   const laneRows =
     activeLane === 'legacy' ? board.legacyRows : board.laneRows[activeLane as ScanLane]
@@ -176,6 +181,7 @@ export function ScanMobileSection() {
             onCheckedChange={(checked) => board.setDataSource(checked ? 'ib' : 'yahoo')}
           />
         </div>
+        <ScanCapitalInput text={capitalText} onChange={setCapitalText} id="scan-capital-mobile" className="justify-between" />
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -268,7 +274,7 @@ export function ScanMobileSection() {
           {board.legacyRows.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">No legacy rows.</p>
           ) : (
-            board.legacyRows.map((row) => <LegacyMobileCard key={row.id} row={row} />)
+            board.legacyRows.map((row) => <LegacyMobileCard key={row.id} row={row} capital={capital} />)
           )}
         </div>
       ) : (
@@ -280,6 +286,7 @@ export function ScanMobileSection() {
               <ScanMobileCard
                 key={row.id}
                 row={row}
+                capital={capital}
                 strategy={row.strategy_id ? board.strategyById.get(row.strategy_id) : undefined}
                 portfolio={row.portfolio_id ? board.portfolioById.get(row.portfolio_id) : undefined}
                 onLaneChange={board.handleLaneChange}

@@ -6,6 +6,7 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 
+import config
 from api.builder_strategy import (
     backtest_builder_signal_combinations,
     backtest_builder_signal_sweep,
@@ -21,6 +22,11 @@ from api.schemas import (
 )
 from api.services import run_builder_backtest, run_builder_refine, run_builder_refine_outcome
 from api.strategy_store import create_strategy, get_strategy_by_id
+
+
+# Refine drops rows with fewer in-sample trades than config.MIN_IN_SAMPLE_TRADES, and a row with no
+# trade count counts as zero. Mocked sweep rows therefore carry a count that clears it.
+ENOUGH_TRADES = config.MIN_IN_SAMPLE_TRADES
 
 
 def _draft_request(**overrides) -> BuilderBacktestRequest:
@@ -163,10 +169,10 @@ class BuilderRefineServiceTests(unittest.TestCase):
             captured_secondaries.extend(secondaries)
             return pd.DataFrame(
                 [
-                    {"Primary": "Draft RSI", "Secondary": "Secondary A", "Mode": "AND", "Sharpe": 1.2},
-                    {"Primary": "Draft RSI", "Secondary": "Secondary A", "Mode": "OR", "Sharpe": 1.0},
-                    {"Primary": "Draft RSI", "Secondary": "Secondary B", "Mode": "AND", "Sharpe": 0.9},
-                    {"Primary": "Draft RSI", "Secondary": "Secondary B", "Mode": "OR", "Sharpe": 0.8},
+                    {"Primary": "Draft RSI", "Secondary": "Secondary A", "Mode": "AND", "Sharpe": 1.2, "Trades": ENOUGH_TRADES},
+                    {"Primary": "Draft RSI", "Secondary": "Secondary A", "Mode": "OR", "Sharpe": 1.0, "Trades": ENOUGH_TRADES},
+                    {"Primary": "Draft RSI", "Secondary": "Secondary B", "Mode": "AND", "Sharpe": 0.9, "Trades": ENOUGH_TRADES},
+                    {"Primary": "Draft RSI", "Secondary": "Secondary B", "Mode": "OR", "Sharpe": 0.8, "Trades": ENOUGH_TRADES},
                 ]
             )
 
@@ -202,7 +208,7 @@ class BuilderRefineServiceTests(unittest.TestCase):
         ) as prepare:
             with patch("api.services.bt.backtest_days") as backtest_days:
                 backtest_days.return_value = pd.DataFrame(
-                    [{"Days": 2, "Prf": 1, "Sharpe": 1.0}]
+                    [{"Days": 2, "Prf": 1, "Sharpe": 1.0, "Trades": ENOUGH_TRADES}]
                 )
                 payload = run_builder_refine(request)
 
@@ -230,8 +236,8 @@ class BuilderRefineServiceTests(unittest.TestCase):
             with patch("api.services.indicator_tryout") as tryout:
                 tryout.return_value = pd.DataFrame(
                     [
-                        {"Indicator": "RSI2", "Value": 20, "Sharpe": 1.1},
-                        {"Indicator": "RSI5", "Value": 25, "Sharpe": 0.9},
+                        {"Indicator": "RSI2", "Value": 20, "Sharpe": 1.1, "Trades": ENOUGH_TRADES},
+                        {"Indicator": "RSI5", "Value": 25, "Sharpe": 0.9, "Trades": ENOUGH_TRADES},
                     ]
                 )
                 payload = run_builder_refine(request)
@@ -260,7 +266,7 @@ class BuilderRefineServiceTests(unittest.TestCase):
             store.load_backtest_frame.return_value = data.copy()
             with patch("api.services.indicator_tryout") as tryout:
                 tryout.return_value = pd.DataFrame(
-                    [{"Indicator": "RSI2", "Value": 20, "Sharpe": 1.1}]
+                    [{"Indicator": "RSI2", "Value": 20, "Sharpe": 1.1, "Trades": ENOUGH_TRADES}]
                 )
                 payload = run_builder_refine(request)
 
@@ -292,7 +298,7 @@ class BuilderRefineServiceTests(unittest.TestCase):
             store.load_backtest_frame.return_value = data.copy()
             with patch("api.services.indicator_tryout") as tryout:
                 tryout.return_value = pd.DataFrame(
-                    [{"Indicator": "Close_VWAP", "Value": 0.5, "Sharpe": 1.2}]
+                    [{"Indicator": "Close_VWAP", "Value": 0.5, "Sharpe": 1.2, "Trades": ENOUGH_TRADES}]
                 )
                 payload = run_builder_refine(request)
 
@@ -394,6 +400,33 @@ class BuilderRefineServiceTests(unittest.TestCase):
         filtered = _filter_rows_by_min_in_sample_trades(rows, minimum=100)
         self.assertEqual([row["Indicator"] for row in filtered], ["RSI2", "ADX14"])
 
+    def test_refine_counts_a_row_without_a_trade_count_as_zero_trades(self):
+        from api.services import _filter_rows_by_min_in_sample_trades
+
+        rows = [
+            {"Indicator": "RSI2", "Sharpe": 1.2},
+            {"Indicator": "RSI5", "Trades": None, "Sharpe": 1.1},
+            {"Indicator": "ADX14", "Trades": ENOUGH_TRADES, "Sharpe": 1.0},
+        ]
+        self.assertEqual([r["Indicator"] for r in _filter_rows_by_min_in_sample_trades(rows)], ["ADX14"])
+        self.assertEqual(len(_filter_rows_by_min_in_sample_trades(rows, minimum=0)), 3)
+
+    def test_refine_applies_the_configured_minimum_and_reports_it(self):
+        request = BuilderRefineRequest(
+            mode="indicator-sweep", strategy=_draft_request(), check_both=False, check_breadth=False
+        )
+        rows = pd.DataFrame(
+            [
+                {"Indicator": "RSI2", "Value": 20, "Sharpe": 1.1, "Trades": ENOUGH_TRADES},
+                {"Indicator": "RSI5", "Value": 25, "Sharpe": 1.5, "Trades": ENOUGH_TRADES - 1},
+            ]
+        )
+        with patch("api.services.load_ticker_data", return_value=_sample_data()):
+            with patch("api.services.indicator_tryout", return_value=rows):
+                payload = run_builder_refine(request)
+        self.assertEqual([row["Indicator"] for row in payload["rows"]], ["RSI2"])
+        self.assertEqual(payload["meta"]["min_in_sample_trades"], ENOUGH_TRADES)
+
     def test_refine_attaches_full_period_for_rows_with_yearly(self):
         request = BuilderRefineRequest(
             mode="indicator-sweep",
@@ -420,6 +453,7 @@ class BuilderRefineServiceTests(unittest.TestCase):
                                 "Value": 20,
                                 "Buysell": "Buy",
                                 "Sharpe": 1.1,
+                                "Trades": ENOUGH_TRADES,
                                 "Yearly": [{"year": 2020, "pnl_percent": 1.0}],
                             },
                             {
@@ -428,6 +462,7 @@ class BuilderRefineServiceTests(unittest.TestCase):
                                 "Value": 25,
                                 "Buysell": "Buy",
                                 "Sharpe": 0.9,
+                                "Trades": ENOUGH_TRADES,
                             },
                         ]
                     )
@@ -452,6 +487,90 @@ class BuilderRefineServiceTests(unittest.TestCase):
         )
         self.assertNotIn("FullPeriod", payload["rows"][1])
         evaluate.assert_called_once()
+
+
+class DraftBaselineTests(unittest.TestCase):
+    """The draft as it stands is scored beside the sweep rows, on the same two windows."""
+
+    @staticmethod
+    def _frames():
+        """Several years of bars, so the best-year exclusion leaves something to score."""
+        rng = np.random.default_rng(5)
+        dates = pd.bdate_range("2015-01-01", periods=900)
+        close = pd.Series(100 * np.cumprod(1 + rng.normal(0.0007, 0.012, len(dates))), index=dates)
+        buy = np.zeros(len(dates), dtype=bool)
+        buy[10::15] = True
+        full = pd.DataFrame(
+            {
+                "Date": dates,
+                "Close": close.to_numpy(),
+                "%Change": config.Leverage * close.pct_change().fillna(0.0).to_numpy(),
+                "Buy": buy,
+                "Sell": False,
+            }
+        )
+        full.attrs["symbol"] = "SOXX"
+        cut = dates[600]
+
+        def prepare(strategy, **kwargs):
+            end = kwargs.get("in_sample_end")
+            data = full if end is None else full[full["Date"] <= end].copy()
+            data.attrs["symbol"] = "SOXX"
+            return data, 3, 2, True, None
+
+        return full, cut, prepare
+
+    def test_baseline_is_the_drafts_own_ranking_metrics_on_both_windows(self):
+        from api import fast_metrics
+        from api.services import _draft_baseline
+        from tests.test_vehicles import settings
+
+        full, cut, prepare = self._frames()
+        primary = draft_to_saved_strategy(_draft_request())
+        with settings(), patch("api.services.prepare_builder_refine_frame", side_effect=prepare):
+            baseline = _draft_baseline(primary, None, years=25, labels={}, in_sample_end=cut)
+            expected = {
+                "in_sample": fast_metrics.run_metrics(full[full["Date"] <= cut].copy(), 3, 2, True),
+                "full_period": fast_metrics.run_metrics(full.copy(), 3, 2, True),
+            }
+        for key, metrics in expected.items():
+            self.assertEqual(baseline[key]["Trades"], metrics["Trades"])
+            self.assertEqual(baseline[key]["%Pstv"], round(float(metrics["%Pstv"]), 1))
+            self.assertEqual(baseline[key]["Sharpe"], round(float(metrics["Sharpe"]), 2))
+            self.assertIn("PnL", baseline[key])
+        self.assertLess(baseline["in_sample"]["Trades"], baseline["full_period"]["Trades"])
+
+    def test_a_draft_that_cannot_be_scored_gives_none_and_does_not_raise(self):
+        from api.services import _draft_baseline
+
+        primary = draft_to_saved_strategy(_draft_request())
+        with patch("api.services.prepare_builder_refine_frame", side_effect=ValueError("no data")):
+            with self.assertLogs("api.services", level="WARNING"):
+                self.assertIsNone(_draft_baseline(primary, None, years=25, labels={}, in_sample_end=None))
+
+    def test_refine_meta_carries_the_baseline_except_for_a_basket_test(self):
+        from tests.test_vehicles import settings
+
+        _, _, prepare = self._frames()
+        request = BuilderRefineRequest(
+            mode="hold-days-sweep",
+            strategy=_draft_request(confirm_symbols=["SMH"]),
+            max_days=3,
+        )
+        rows = pd.DataFrame([{"Days": 2, "Prf": 1, "Sharpe": 1.0, "Trades": ENOUGH_TRADES}])
+        with settings(), patch("api.services.prepare_builder_refine_frame", side_effect=prepare):
+            with patch("api.services.bt.backtest_days", return_value=rows):
+                payload = run_builder_refine(request)
+        draft = payload["meta"]["draft"]
+        self.assertEqual(set(draft), {"in_sample", "full_period"})
+        self.assertGreater(draft["full_period"]["Trades"], 0)
+
+        basket = BuilderRefineRequest(
+            mode="basket-sweep", strategy=_draft_request(), basket_symbols=["QQQ"]
+        )
+        with patch("api.services.load_ticker_data", return_value=_sample_data()):
+            with patch("api.services.run_basket_sweep", return_value=([{"Symbol": "QQQ"}], {})):
+                self.assertNotIn("draft", run_builder_refine(basket)["meta"])
 
 
 class BuilderComboSweepTests(unittest.TestCase):
@@ -515,3 +634,31 @@ class BuilderComboSweepTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RefineVfiToggleTests(unittest.TestCase):
+    VFI = {"VFI10", "VFI20", "VFI40", "VFI80"}
+
+    def _excluded(self, **flags):
+        request = BuilderRefineRequest(
+            mode="indicator-sweep", strategy=_draft_request(), check_breadth=False, **flags
+        )
+        empty = pd.DataFrame(columns=["Indicator", "Value", "Sharpe", "Trades"])
+        with patch("api.services.load_ticker_data", return_value=_sample_data()):
+            with patch("api.services.indicator_tryout", return_value=empty) as tryout:
+                run_builder_refine(request)
+        return set(tryout.call_args.kwargs["exclude_columns"] or ())
+
+    def test_vfi_is_left_out_by_default(self):
+        self.assertTrue(self.VFI <= self._excluded())
+
+    def test_vfi_is_swept_when_asked_for(self):
+        self.assertFalse(self.VFI & self._excluded(include_vfi=True))
+
+    def test_combination_sweep_follows_the_same_flag(self):
+        from api.services import _refine_exclude_columns
+
+        off = BuilderRefineRequest(mode="indicator-combo-sweep", strategy=_draft_request())
+        on = BuilderRefineRequest(mode="indicator-combo-sweep", strategy=_draft_request(), include_vfi=True)
+        self.assertTrue(self.VFI <= _refine_exclude_columns(off, None))
+        self.assertIsNone(_refine_exclude_columns(on, None))

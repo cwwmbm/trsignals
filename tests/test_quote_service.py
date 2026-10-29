@@ -201,6 +201,27 @@ class BuildQuoteSnapshotTests(unittest.TestCase):
         self.assertAlmostEqual(by_symbol["VIX"]["close"], 15.5)
         self.assertAlmostEqual(by_symbol["VIX"]["pct_change"], 15.5 / 15.8 - 1.0)
 
+    def test_custom_symbol_list_replaces_defaults(self):
+        dates = ["2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21"]
+        bulk = _bulk(dates, {"IWM": [210.0, 211.0, 212.0, 213.0, 214.0], "SPY": [1, 1, 1, 1, 1]})
+        now = datetime(2026, 8, 21, 17, 0, tzinfo=ET)
+        snapshot = build_quote_snapshot(full_data=bulk, now=now, symbols=[("IWM", "IWM")])
+        self.assertEqual([row["symbol"] for row in snapshot["quotes"]], ["IWM"])
+        self.assertAlmostEqual(snapshot["quotes"][0]["close"], 214.0)
+
+    def test_empty_symbol_list_skips_download(self):
+        snapshot = build_quote_snapshot(symbols=[])
+        self.assertEqual(snapshot, {"as_of": None, "quotes": []})
+
+    def test_single_symbol_flat_frame(self):
+        rows = []
+        for day_index, close in enumerate([100.0, 101.0, 102.0, 103.0, 104.0]):
+            rows.append((f"2026-08-{17 + day_index}", close + 1.0, close - 1.0, close))
+        now = datetime(2026, 8, 21, 17, 0, tzinfo=ET)
+        snapshot = build_quote_snapshot(full_data=_ohlcv(rows), now=now, symbols=[("DIA", "DIA")])
+        self.assertEqual(snapshot["quotes"][0]["symbol"], "DIA")
+        self.assertAlmostEqual(snapshot["quotes"][0]["close"], 104.0)
+
 
 if __name__ == "__main__":
     unittest.main()

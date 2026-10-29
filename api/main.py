@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 import config
+from api import leverage_settings
 from api.schemas import (
     BuilderBacktestRequest,
     BuilderRefineOutcomeRequest,
@@ -15,16 +16,20 @@ from api.schemas import (
     CustomDatasetResponse,
     HoldDaysSweepRequest,
     IndicatorSweepRequest,
+    LeverageEstimateRequest,
+    LeverageSettingsModel,
     MonteCarloRequest,
     SaveStrategyRequest,
     SignalComboSweepRequest,
     SingleBacktestRequest,
     SymbolConfirmDetailRequest,
     SymbolConfirmSweepRequest,
+    PortfolioAllocationComparisonRequest,
     PortfolioShapleyRequest,
     PortfolioSimulateRequest,
     PortfolioRegimeRequest,
     QuoteResponse,
+    QuoteSymbolRequest,
     RegimeAnalyzeRequest,
     SavePortfolioRequest,
     UpdatePortfolioRequest,
@@ -34,15 +39,22 @@ from api.services import (
     delete_custom_dataset,
     delete_saved_strategy,
     delete_saved_portfolio,
+    estimate_leverage_costs,
     get_custom_dataset_metadata,
+    read_leverage_settings,
+    write_leverage_settings,
     run_builder_backtest,
     run_builder_refine,
     run_builder_refine_outcome,
     run_hold_days_sweep,
     run_indicator_sweep,
+    run_exact_scan_position,
     run_live_scan,
+    add_saved_quote_symbol,
+    remove_saved_quote_symbol,
     run_quotes,
     run_monte_carlo_simulation,
+    run_portfolio_allocation_comparison,
     run_portfolio_shapley,
     run_portfolio_regimes,
     run_portfolio_simulation,
@@ -90,6 +102,21 @@ def signals() -> list[dict]:
     return list_signals()
 
 
+@app.get("/settings/leverage")
+def get_leverage_settings() -> dict:
+    return read_leverage_settings()
+
+
+@app.put("/settings/leverage")
+def put_leverage_settings(request: LeverageSettingsModel) -> dict:
+    return _handle_errors(write_leverage_settings, request)
+
+
+@app.post("/settings/leverage/estimate")
+def post_leverage_estimate(request: LeverageEstimateRequest) -> dict:
+    return _handle_errors(estimate_leverage_costs, request)
+
+
 @app.get("/indicators")
 def indicators(builder_only: bool = True) -> list[dict]:
     return list_indicators(builder_only=builder_only, include_regimes=False)
@@ -99,7 +126,7 @@ def indicators(builder_only: bool = True) -> list[dict]:
 def read_config() -> dict:
     return {
         "ticker": config.ticker,
-        "leverage": config.Leverage,
+        "leverage": leverage_settings.general_leverage(),
         "exclude_best_return_year": config.ExcludeBestReturnYear,
         "in_sample_fraction": config.IN_SAMPLE_FRACTION,
         "min_in_sample_trades": config.MIN_IN_SAMPLE_TRADES,
@@ -241,10 +268,32 @@ def scan(source: str = Query("yahoo", pattern="^(yahoo|ib)$")) -> list[dict]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.get("/api/scan/portfolios/{portfolio_id}/position")
+def scan_exact_position(portfolio_id: str) -> dict:
+    """A portfolio's position today at its real sizing (slower than the scan row; on request)."""
+    return _handle_errors(run_exact_scan_position, portfolio_id)
+
+
 @app.get("/api/quote")
 def quote() -> QuoteResponse:
     try:
         return run_quotes()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/quote/symbols")
+def create_quote_symbol(request: QuoteSymbolRequest) -> QuoteResponse:
+    try:
+        return add_saved_quote_symbol(request.symbol)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.delete("/api/quote/symbols/{symbol}")
+def delete_quote_symbol(symbol: str) -> QuoteResponse:
+    try:
+        return remove_saved_quote_symbol(symbol)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -278,6 +327,11 @@ def portfolio_shapley(request: PortfolioShapleyRequest) -> dict:
 @app.post("/portfolios/regimes")
 def portfolio_regimes(request: PortfolioRegimeRequest) -> dict:
     return _handle_errors(run_portfolio_regimes, request)
+
+
+@app.post("/portfolios/allocation-comparison")
+def portfolio_allocation_comparison(request: PortfolioAllocationComparisonRequest) -> dict:
+    return _handle_errors(run_portfolio_allocation_comparison, request)
 
 
 @app.get("/portfolios")

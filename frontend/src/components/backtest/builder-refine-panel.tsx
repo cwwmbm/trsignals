@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -19,6 +20,7 @@ import {
   refineModesForCustomData,
   type BuilderRefineMode,
 } from "@/lib/builder-refine-config";
+import { BASKET_PRESETS, parseBasket } from "@/lib/baskets";
 import { cn } from "@/lib/utils";
 
 function Field({
@@ -112,8 +114,14 @@ export type BuilderRefinePanelProps = {
   onCheckBreadthChange: (value: boolean) => void;
   checkBoth: boolean;
   onCheckBothChange: (value: boolean) => void;
+  includeVfi: boolean;
+  onIncludeVfiChange: (value: boolean) => void;
   isSell: boolean;
   onIsSellChange: (value: boolean) => void;
+  comboSize: 2 | 3;
+  onComboSizeChange: (value: 2 | 3) => void;
+  basketSymbols: string;
+  onBasketSymbolsChange: (value: string) => void;
   onRun: () => void;
   isRunning: boolean;
   isCustomData?: boolean;
@@ -133,8 +141,14 @@ export function BuilderRefinePanel({
   onCheckBreadthChange,
   checkBoth,
   onCheckBothChange,
+  includeVfi,
+  onIncludeVfiChange,
   isSell,
   onIsSellChange,
+  comboSize,
+  onComboSizeChange,
+  basketSymbols,
+  onBasketSymbolsChange,
   onRun,
   isRunning,
   isCustomData = false,
@@ -149,6 +163,11 @@ export function BuilderRefinePanel({
   );
 
   const comboReady = mode !== "signal-combo-sweep" || comboSecondaryStrategies.length > 0;
+  const basketCount = useMemo(
+    () => parseBasket(basketSymbols).filter((symbol) => symbol !== draftSymbol).length,
+    [basketSymbols, draftSymbol],
+  );
+  const basketReady = mode !== "basket-sweep" || basketCount > 0;
 
   return (
     <div className="flex flex-col gap-3">
@@ -222,6 +241,46 @@ export function BuilderRefinePanel({
         </Section>
       )}
 
+      {mode === "basket-sweep" && (
+        <Section title="Basket test">
+          <div className="flex flex-col gap-2">
+            <Field label="Symbols (comma or space separated)" htmlFor="builder-basket-symbols">
+              <Textarea
+                id="builder-basket-symbols"
+                value={basketSymbols}
+                onChange={(e) => onBasketSymbolsChange(e.target.value.toUpperCase())}
+                rows={2}
+                className="min-h-14 font-mono text-sm"
+              />
+            </Field>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] text-muted-foreground">Presets</span>
+              {BASKET_PRESETS.map((preset) => (
+                <Button
+                  key={preset.id}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-[11px]"
+                  onClick={() => onBasketSymbolsChange(preset.symbols.join(", "))}
+                >
+                  {preset.label}
+                </Button>
+              ))}
+            </div>
+            <p className="text-[11px] leading-snug text-muted-foreground">
+              {basketCount > 0
+                ? `${basketCount} symbol${basketCount === 1 ? "" : "s"} besides ${draftSymbol}, which is run as the reference row.`
+                : "Add at least one symbol other than the draft's own."}{" "}
+              Each symbol is loaded and cached on first use, so a new basket can take a few seconds per
+              symbol. A confirm symbol equal to a basket symbol is dropped for that symbol, and the proxy
+              symbol is ignored. Stocks in a basket tend to move together, so treat the rows as related
+              checks, not independent proof.
+            </p>
+          </div>
+        </Section>
+      )}
+
       {mode === "hold-days-sweep" && (
         <Field
           label={isCustomData ? "Max hold bars" : "Max hold days"}
@@ -250,19 +309,50 @@ export function BuilderRefinePanel({
         </Section>
       )}
 
-      {mode === "indicator-sweep" && (
-        <Section title="Indicator sweep">
+      {mode === "entry-loo" && (
+        <Section title="Entry condition check">
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            Row 0 is the draft as it is. Each other row removes one entry condition and reruns the
+            rest, scored in-sample and out-of-sample (OOS) over the same dates as the draft.
+            ΔSharpe is the change from the draft: negative means the strategy is worse without the
+            condition, so the condition is pulling its weight. Compare Sharpe, not PnL: removing a
+            filter adds trades, and PnL and drawdown grow with exposure alone. Blocks is the share
+            of the other conditions&apos; entries this one removes. The verdict is Helps or Hurts
+            only when both halves agree by more than 0.05.
+          </p>
+        </Section>
+      )}
+
+      {(mode === "indicator-sweep" || mode === "indicator-combo-sweep") && (
+        <Section title={mode === "indicator-combo-sweep" ? "Indicator combo sweep" : "Indicator sweep"}>
           <div className="flex flex-wrap gap-4">
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="builder-is-sell"
-                checked={isSell}
-                onCheckedChange={(checked) => onIsSellChange(checked === true)}
-              />
-              <Label htmlFor="builder-is-sell" className="text-xs font-normal">
-                Sweep sell filters
-              </Label>
-            </div>
+            {mode === "indicator-sweep" ? (
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="builder-is-sell"
+                  checked={isSell}
+                  onCheckedChange={(checked) => onIsSellChange(checked === true)}
+                />
+                <Label htmlFor="builder-is-sell" className="text-xs font-normal">
+                  Sweep sell filters
+                </Label>
+              </div>
+            ) : (
+              <Field label="Filters per combination" htmlFor="builder-combo-size">
+                <Select
+                  value={String(comboSize)}
+                  onValueChange={(v) => v && onComboSizeChange(v === "3" ? 3 : 2)}
+                >
+                  <SelectTrigger id="builder-combo-size" size="sm" className="h-8 w-32 text-sm">
+                    <SelectValue>{(value: string) => (value === "3" ? "Trios" : "Pairs")}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="2">Pairs</SelectItem>
+                    <SelectItem value="3">Trios</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+            )}
             <div className="flex items-center gap-2">
               <Checkbox
                 id="builder-check-breadth"
@@ -284,7 +374,28 @@ export function BuilderRefinePanel({
                 Include price/momentum
               </Label>
             </div>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="builder-include-vfi"
+                checked={includeVfi}
+                onCheckedChange={(checked) => onIncludeVfiChange(checked === true)}
+              />
+              <Label
+                htmlFor="builder-include-vfi"
+                className="text-xs font-normal"
+                title="Yahoo revises volume after the fact, so VFI readings can drift."
+              >
+                Include VFI
+              </Label>
+            </div>
           </div>
+          {mode === "indicator-combo-sweep" ? (
+            <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
+              Entry filters only. With confirmation symbols, only market-wide indicators are
+              combined. Searching many combinations finds lucky ones: compare the in-sample row
+              with its full-period figures.
+            </p>
+          ) : null}
         </Section>
       )}
 
@@ -293,7 +404,7 @@ export function BuilderRefinePanel({
           type="button"
           size="sm"
           className="h-8 gap-1.5"
-          disabled={isRunning || !draftValid || !comboReady}
+          disabled={isRunning || !draftValid || !comboReady || !basketReady}
           onClick={onRun}
         >
           {isRunning ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}

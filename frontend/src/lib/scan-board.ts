@@ -1,15 +1,35 @@
 import type { SavedPortfolio, SavedStrategy, ScanLane, ScanRow } from '@/api'
 import { compareSymbols } from '@/lib/symbol-order'
 
-export const SCAN_LANES: ScanLane[] = ['active', 'testing', 'archived']
+/** Top to bottom on the page. */
+export const SCAN_LANES: ScanLane[] = ['live', 'active', 'testing', 'archived']
 
 export const LANE_LABELS: Record<ScanLane, string> = {
+  live: 'Live',
   active: 'Active',
   testing: 'Testing',
   archived: 'Archived',
 }
 
 export type LaneRows = Record<ScanLane, ScanRow[]>
+
+export function emptyLanes(): LaneRows {
+  return Object.fromEntries(SCAN_LANES.map((lane) => [lane, [] as ScanRow[]])) as LaneRows
+}
+
+/** A copy whose lists can be changed without touching the original. */
+export function copyLanes(lanes: LaneRows): LaneRows {
+  return Object.fromEntries(SCAN_LANES.map((lane) => [lane, [...lanes[lane]]])) as LaneRows
+}
+
+/** The first row, in any lane, that matches. */
+export function findRowInLanes(lanes: LaneRows, matches: (row: ScanRow) => boolean): ScanRow | undefined {
+  for (const lane of SCAN_LANES) {
+    const found = lanes[lane].find(matches)
+    if (found) return found
+  }
+  return undefined
+}
 
 const SIGNAL_ORDER = [
   'buy_signal1',
@@ -101,11 +121,7 @@ export function groupScanRows(
   strategyById: Map<string, SavedStrategy>,
   portfolioById: Map<string, SavedPortfolio>,
 ): { lanes: LaneRows; legacy: ScanRow[] } {
-  const lanes: LaneRows = {
-    active: [],
-    testing: [],
-    archived: [],
-  }
+  const lanes = emptyLanes()
   const legacy: ScanRow[] = []
 
   for (const row of rows) {

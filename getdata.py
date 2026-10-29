@@ -1,3 +1,4 @@
+import threading
 #from ib_insync import IB, Future, util, Stock
 import yfinance as yf
 # import quandl
@@ -434,19 +435,33 @@ def get_bulk_data_ib(symbols, years=1):
     return build_bulk_multiindex(ordered_frames)
 
 
-def clean_holidays(data):
-    # Remove holidays
-    nyse = mcal.get_calendar("NYSE")
+_TRADING_DAYS_CACHE: dict = {}
+_TRADING_DAYS_CACHE_SIZE = 64
+_TRADING_DAYS_LOCK = threading.Lock()
 
+
+def _nyse_trading_days(start_date, end_date):
+    """NYSE session dates between two timestamps. Building the calendar takes ~0.1 s, so reuse it."""
+    key = (start_date, end_date)
+    with _TRADING_DAYS_LOCK:
+        hit = _TRADING_DAYS_CACHE.get(key)
+    if hit is not None:
+        return hit
+    days = mcal.get_calendar("NYSE").schedule(start_date, end_date).index
+    with _TRADING_DAYS_LOCK:
+        if len(_TRADING_DAYS_CACHE) >= _TRADING_DAYS_CACHE_SIZE:
+            _TRADING_DAYS_CACHE.pop(next(iter(_TRADING_DAYS_CACHE)))
+        _TRADING_DAYS_CACHE[key] = days
+    return days
+
+
+def clean_holidays(data):
     # Calculate the date range for the historical data
     start_date = data['Date'].min()
     end_date = data['Date'].max()
 
-    # Get the market schedule within the date range
-    schedule = nyse.schedule(start_date, end_date)
-
     # Get the valid trading days within the date range
-    valid_days = schedule.index
+    valid_days = _nyse_trading_days(start_date, end_date)
 
     # Convert the 'Date' column to pandas datetime format
     data['Date'] = pd.to_datetime(data['Date'])

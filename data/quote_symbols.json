@@ -1,0 +1,18 @@
+[
+  {
+    "symbol": "SPY",
+    "yf_symbol": "SPY"
+  },
+  {
+    "symbol": "QQQ",
+    "yf_symbol": "QQQ"
+  },
+  {
+    "symbol": "SOXX",
+    "yf_symbol": "SOXX"
+  },
+  {
+    "symbol": "VIX",
+    "yf_symbol": "^VIX"
+  }
+]

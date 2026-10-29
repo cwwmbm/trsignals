@@ -28,8 +28,95 @@
     "overlap_mode": "hold_until_all_exit",
     "proxy_symbol": "SOXX",
     "scan_lane": "active",
-    "scan_sort_order": 14,
+    "scan_sort_order": 13,
     "created_at": "2026-07-14T15:58:57+00:00",
-    "updated_at": "2026-07-16T22:23:47+00:00"
+    "updated_at": "2026-10-13T17:56:16+00:00"
+  },
+  {
+    "regime_score": "robustness",
+    "regime_penalty": "medium",
+    "id": "bad68f1f-701c-4cb2-9521-229ad3e3c566",
+    "name": "New OG Based",
+    "description": "",
+    "strategy_ids": [
+      "96c2111a-a538-4277-aec3-a4d28e863e4d",
+      "b1da3fbc-27e3-4729-9832-6bc0c0c1d6a9",
+      "7cb00e4c-9333-42c5-a9fb-2c471883b549"
+    ],
+    "overlap_mode": "hold_until_all_exit",
+    "proxy_symbol": null,
+    "allocation_model": "all_in",
+    "proportional_mode": "linear",
+    "transaction_cost_bps": 0.0,
+    "scan_lane": "testing",
+    "scan_sort_order": 0,
+    "created_at": "2026-10-13T21:00:02+00:00",
+    "updated_at": "2026-10-13T21:00:02+00:00"
+  },
+  {
+    "regime_score": "robustness",
+    "regime_penalty": "medium",
+    "id": "bf663c9c-6d36-4b2e-b160-626d691c46f9",
+    "name": "16 or 7 rgm",
+    "description": "",
+    "strategy_ids": [
+      "b1da3fbc-27e3-4729-9832-6bc0c0c1d6a9",
+      "7cb00e4c-9333-42c5-a9fb-2c471883b549"
+    ],
+    "portfolio_ids": [],
+    "overlap_mode": "hold_until_all_exit",
+    "proxy_symbol": null,
+    "allocation_model": "all_in",
+    "proportional_mode": "linear",
+    "transaction_cost_bps": 0.0,
+    "scan_lane": "active",
+    "scan_sort_order": 15,
+    "created_at": "2026-10-19T00:43:25+00:00",
+    "updated_at": "2026-10-20T01:53:49+00:00"
+  },
+  {
+    "regime_score": "robustness",
+    "regime_penalty": "medium",
+    "id": "35d5524a-a59b-4299-bd6c-6fb1fd2acb1f",
+    "name": "Mod OG + Down Monday",
+    "description": "",
+    "strategy_ids": [
+      "96c2111a-a538-4277-aec3-a4d28e863e4d",
+      "3529f3b9-0f9b-4a06-893f-6bd9e815c12b"
+    ],
+    "portfolio_ids": [],
+    "overlap_mode": "hold_until_all_exit",
+    "proxy_symbol": null,
+    "allocation_model": "all_in",
+    "proportional_mode": "linear",
+    "transaction_cost_bps": 0.0,
+    "scan_lane": "testing",
+    "scan_sort_order": 0,
+    "created_at": "2026-10-19T00:53:19+00:00",
+    "updated_at": "2026-10-19T00:53:19+00:00"
+  },
+  {
+    "regime_score": "robustness",
+    "regime_penalty": "medium",
+    "id": "1e3e2f21-77d1-4c0f-a659-899db4f57415",
+    "name": "Live Portfolio",
+    "description": "",
+    "strategy_ids": [
+      "b1da3fbc-27e3-4729-9832-6bc0c0c1d6a9",
+      "3529f3b9-0f9b-4a06-893f-6bd9e815c12b",
+      "7cb00e4c-9333-42c5-a9fb-2c471883b549",
+      "96c2111a-a538-4277-aec3-a4d28e863e4d"
+    ],
+    "portfolio_ids": [],
+    "overlap_mode": "hold_until_all_exit",
+    "proxy_symbol": null,
+    "allocation_model": "tiered",
+    "proportional_mode": "linear",
+    "tier_single_pct": 50.0,
+    "transaction_cost_bps": 0.0,
+    "scan_lane": "live",
+    "scan_sort_order": 0,
+    "created_at": "2026-10-23T19:28:46+00:00",
+    "updated_at": "2026-10-23T19:33:49+00:00"
   }
 ]

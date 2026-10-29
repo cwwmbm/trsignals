@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import {
   Table,
@@ -40,6 +40,7 @@ export function ResultsTable({
   onAddRow,
   canAddRow,
   addRowLabel,
+  addRowIcon,
   sortable = true,
 }: {
   rows: Array<Record<string, unknown>>;
@@ -53,6 +54,8 @@ export function ResultsTable({
   onAddRow?: (row: Record<string, unknown>) => void;
   canAddRow?: (row: Record<string, unknown>) => boolean;
   addRowLabel?: (row: Record<string, unknown>) => string;
+  /** The row button's icon, when it does something other than add (defaults to a plus). */
+  addRowIcon?: (row: Record<string, unknown>) => ReactNode;
   /** Enable click-to-sort column headers. Defaults to Sharpe descending when present. */
   sortable?: boolean;
 }) {
@@ -93,7 +96,7 @@ export function ResultsTable({
 
   const fixedHeightPx =
     compact && visibleRows !== undefined ? compactTableHeightPx(visibleRows) : undefined;
-  const showAddColumn = Boolean(onAddRow);
+  const showAddColumn = Boolean(onAddRow) && rows.some((row) => canAddRow?.(row) ?? true);
 
   function handleSort(column: string) {
     setSort((current) => {
@@ -196,7 +199,7 @@ export function ResultsTable({
                           onAddRow?.(row);
                         }}
                       >
-                        <Plus className="size-3.5" />
+                        {addRowIcon?.(row) ?? <Plus className="size-3.5" />}
                       </Button>
                     ) : null}
                   </TableCell>

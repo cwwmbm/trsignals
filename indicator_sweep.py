@@ -1,6 +1,9 @@
+import numpy as np
 import pandas as pd
 import backtest as bt
+from api import fast_sweep
 from config import ticker
+from cross_pairs import sweep_specs as cross_sweep_specs
 from time import perf_counter
 
 # (buy_column, sell_column, condition, min, max, step)
@@ -41,8 +44,6 @@ PRICE_SWEEPS = [
     ('%Change', '%Change', 'both', -0.06, 0.06, 0.01),
     ('RSIBuy', 'RSISell', 'both', 0, 0, 1),
     ('Close_EMA8', 'Close_EMA8', 'both', -10, 10, 1),
-    ('EMA8CrossUp', 'EMA8CrossUp', 'both', 0, 0, 1),
-    ('EMA8CrossDown', 'EMA8CrossDown', 'both', 0, 0, 1),
     ('ATR20_ATR50', 'ATR20_ATR50', 'both', 0, 0, 1),
     ('ChangeVelocity', 'ChangeVelocity', 'both', -2, 2, 0.5),
     ('EMA20_EMA100', 'EMA20_EMA100', 'both', 0, 0, 1),
@@ -54,8 +55,11 @@ PRICE_SWEEPS = [
     ('SMA20_SMA50', 'SMA20_SMA50', 'both', 0, 0, 1),
     ('Close_SMA200', 'Close_SMA200', 'both', 0, 0, 1),
     ('Close_SMA50', 'Close_SMA50', 'both', 0, 0, 1),
+    ('Close_KAMA10', 'Close_KAMA10', 'both', -4, 4, 1),
+    ('KAMASlope10', 'KAMASlope10', 'both', -2, 2, 0.5),
     ('Close_SMA20', 'Close_SMA20', 'both', 0, 0, 1),
     ('Vix', 'Vix', 'both', 10, 50, 5),
+    ('VixChange', 'VixChange', 'both', -15, 20, 5),
     ('Stoch', 'Stoch', 'both', 10, 90, 10),
     ('RSI14', 'RSI14', 'both', 20, 90, 10),
     ('RSI5', 'RSI5', 'both', 20, 90, 10),
@@ -75,6 +79,11 @@ PRICE_SWEEPS = [
     ('LowerCloses3', 'LowerCloses3', 'both', 0, 0, 1),
     ('DownMonday', 'DownMonday', 'both', 0, 0, 1),
     ('ADX14', 'ADX14', 'both', 10, 50, 5),
+    ('DIPlus14', 'DIPlus14', 'both', 10, 40, 5),
+    ('DIMinus14', 'DIMinus14', 'both', 10, 40, 5),
+    ('DIBalance14', 'DIBalance14', 'both', -40, 40, 10),
+    ('DICrossAge14', 'DICrossAge14', 'both', -30, 30, 5),
+    ('SignedADX14', 'SignedADX14', 'both', -40, 40, 5),
     ('WilliamsR14', 'WilliamsR14', 'both', -90, -10, 10),
     ('ROC20', 'ROC20', 'both', -10, 10, 2),
     ('TRIX', 'TRIX', 'both', -0.5, 0.5, 0.1),
@@ -89,10 +98,19 @@ PRICE_SWEEPS = [
     ('CloseAboveDonchianUpper55', 'CloseAboveDonchianUpper55', 'both', 0, 0, 1),
     ('CloseBelowDonchianLower55', 'CloseBelowDonchianLower55', 'both', 0, 0, 1),
     ('CloseAbovePSAR', 'CloseAbovePSAR', 'both', 0, 0, 1),
+    ('PSARFlipAge', 'PSARFlipAge', 'both', -20, 20, 2),
+    ('Close_PSAR', 'Close_PSAR', 'both', -8, 8, 1),
     ('CloseAboveKCUpper20', 'CloseAboveKCUpper20', 'both', 0, 0, 1),
     ('CloseBelowKCLower20', 'CloseBelowKCLower20', 'both', 0, 0, 1),
     ('BBSqueeze', 'BBSqueeze', 'both', 0, 0, 1),
+    ('SqueezeRatio20', 'SqueezeRatio20', 'both', 0.8, 2.6, 0.2),
+    ('SqueezeAge20', 'SqueezeAge20', 'both', -20, 10, 1),
+    ('DaysToEarnings', 'DaysToEarnings', 'both', 1, 20, 1),
+    ('DaysSinceEarnings', 'DaysSinceEarnings', 'both', 0, 10, 1),
 ]
+# Crosses between pairs of lines (cross_pairs.CROSS_PAIRS). They replace the old one-off cross
+# flags such as EMA8CrossUp/Down: CrossUp_Close_EMA8 is the same signal.
+PRICE_SWEEPS += cross_sweep_specs()
 
 VFI_SWEEPS = [
     ('VFI80', 'VFI80', 'both', -8, 8, 2),
@@ -128,11 +146,74 @@ def _run_one_sweep(data, days, profit, is_long, is_sell, og, spec, *, pnl_column
     return fn(data, days, profit, is_long, column, condition, min_val, max_val, step, og, include_yearly=False, pnl_column=pnl_column)
 
 
-def _collect_sweeps(running_rows, data, days, profit, is_long, is_sell, og, specs, verbose=True, timing=False, *, pnl_column=None):
+def _spec_candidates(spec, is_sell):
+    """(column, [(condition, value), ...]) for one spec, in the order ``backtest_ind`` tries them."""
+    buy_col, sell_col, condition = spec[0], spec[1], spec[2]
+    buy_min, buy_max, buy_step = spec[3], spec[4], spec[5]
+    sell_min, sell_max, sell_step = (spec[6], spec[7], spec[8]) if len(spec) > 6 else (buy_min, buy_max, buy_step)
+    column = sell_col if is_sell else buy_col
+    min_val, max_val, step = (sell_min, sell_max, sell_step) if is_sell else (buy_min, buy_max, buy_step)
+    candidates = []
+    for value in np.arange(min_val, max_val + step, step):
+        if condition == 'both':
+            candidates.append(('more', value))
+            candidates.append(('less', value))
+        else:
+            candidates.append((condition, value))
+    return column, candidates
+
+
+def _collect_sweeps_fast(running_rows, data, days, profit, is_long, is_sell, specs, verbose, timing, *, pnl_column, min_trades, top=3):
+    """``_collect_sweeps`` with the grid screened by the compiled loop.
+
+    Every threshold of every spec is scored from precomputed masks (about 0.15 ms each instead of a
+    full backtest). Only the best ``top`` per spec go back through the real engine, so the rows are
+    the engine's own numbers. ``min_trades`` skips thresholds that cannot trade enough, which the
+    caller would drop anyway, so they never take one of the ``top`` places.
+    """
+    scorer = fast_sweep.Scorer(data, days, profit, is_long, pnl_column=pnl_column)
+    base_buy, base_sell = scorer.base_buy, scorer.base_sell
+    side = 'Sell' if is_sell else 'Buy'
+    for spec in specs:
+        started = perf_counter()
+        column, candidates = _spec_candidates(spec, is_sell)
+        values = data[column].to_numpy(dtype=float)
+        sharpe = np.full(len(candidates), np.nan)
+        trades = np.zeros(len(candidates), dtype=np.int64)
+        for k, (cond, value) in enumerate(candidates):
+            mask = (values <= value) if cond == 'less' else (values >= value)
+            if is_sell:
+                sharpe[k], trades[k] = scorer.score(base_buy, base_sell | mask)
+            else:
+                sharpe[k], trades[k] = scorer.score(base_buy & mask)
+        picked = fast_sweep.best_candidates(sharpe, trades, limit=top, min_trades=min_trades)
+        rows = [
+            bt._run_indicator_threshold(
+                data, days, profit, is_long, column, side, candidates[k][0], candidates[k][1],
+                include_yearly=True, pnl_column=pnl_column,
+            )
+            for k in picked
+        ]
+        results = bt._format_ranking_results(pd.DataFrame(rows))
+        top_results = results.head(top)
+        if timing:
+            print(f"[timing] sweep {column}: {perf_counter() - started:.3f}s")
+        if verbose:
+            print(results.head(5))
+        running_rows.extend(top_results.to_dict(orient='records'))
+    return running_rows
+
+
+def _collect_sweeps(running_rows, data, days, profit, is_long, is_sell, og, specs, verbose=True, timing=False, *, pnl_column=None, min_trades=0):
+    if days > 0 and fast_sweep.NUMBA_AVAILABLE:
+        return _collect_sweeps_fast(
+            running_rows, data, days, profit, is_long, is_sell, specs, verbose, timing,
+            pnl_column=pnl_column, min_trades=min_trades,
+        )
     for spec in specs:
         started = perf_counter()
         results = _run_one_sweep(data, days, profit, is_long, is_sell, og, spec, pnl_column=pnl_column)
-        top_results = bt.add_yearly_to_indicator_rows(results.head(3), data, days, profit, is_long)
+        top_results = bt.add_yearly_to_indicator_rows(results.head(3), data, days, profit, is_long, pnl_column=pnl_column)
         if timing:
             buy_col, sell_col = spec[0], spec[1]
             label = sell_col if is_sell else buy_col
@@ -143,7 +224,7 @@ def _collect_sweeps(running_rows, data, days, profit, is_long, is_sell, og, spec
     return running_rows
 
 
-def indicator_tryout(data, days, profit, is_long, is_sell=False, check_breadth=True, check_both=True, verbose=True, timing=False, exclude_columns=None, include_vwap_sweeps=False, *, pnl_column=None):
+def indicator_tryout(data, days, profit, is_long, is_sell=False, check_breadth=True, check_both=True, verbose=True, timing=False, exclude_columns=None, include_vwap_sweeps=False, *, pnl_column=None, min_trades=0):
     """Grid-search indicator filters layered on the current buy/sell signal."""
     exclude_columns = set(exclude_columns or [])
     total_started = perf_counter()
@@ -165,28 +246,28 @@ def indicator_tryout(data, days, profit, is_long, is_sell=False, check_breadth=T
         if check_breadth:
             running_rows = _collect_sweeps(
                 running_rows, data, days, profit, is_long, is_sell, og,
-                _filter_specs(BREADTH_SWEEPS), verbose, timing, pnl_column=pnl_column,
+                _filter_specs(BREADTH_SWEEPS), verbose, timing, pnl_column=pnl_column, min_trades=min_trades,
             )
             if data['Date'].dt.year.iloc[0] >= 2003:
                 running_rows = _collect_sweeps(
                     running_rows, data, days, profit, is_long, is_sell, og,
-                    _filter_specs(POST_2003_BREADTH_SWEEPS), verbose, timing, pnl_column=pnl_column,
+                    _filter_specs(POST_2003_BREADTH_SWEEPS), verbose, timing, pnl_column=pnl_column, min_trades=min_trades,
                 )
 
         if check_both or not check_breadth:
             running_rows = _collect_sweeps(
                 running_rows, data, days, profit, is_long, is_sell, og,
-                _filter_specs(PRICE_SWEEPS), verbose, timing, pnl_column=pnl_column,
+                _filter_specs(PRICE_SWEEPS), verbose, timing, pnl_column=pnl_column, min_trades=min_trades,
             )
             if ticker not in VFI_EXCLUDED_TICKERS:
                 running_rows = _collect_sweeps(
                     running_rows, data, days, profit, is_long, is_sell, og,
-                    _filter_specs(VFI_SWEEPS), verbose, timing, pnl_column=pnl_column,
+                    _filter_specs(VFI_SWEEPS), verbose, timing, pnl_column=pnl_column, min_trades=min_trades,
                 )
             if include_vwap_sweeps and 'VWAP' in data.columns and data['VWAP'].notna().any():
                 running_rows = _collect_sweeps(
                     running_rows, data, days, profit, is_long, is_sell, og,
-                    _filter_specs(VWAP_SWEEPS), verbose, timing, pnl_column=pnl_column,
+                    _filter_specs(VWAP_SWEEPS), verbose, timing, pnl_column=pnl_column, min_trades=min_trades,
                 )
     finally:
         bt.set_timing_enabled(previous_timing)

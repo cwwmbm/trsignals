@@ -42,6 +42,11 @@ export function filterCompareIndicators(
   const compareMode = getCompareMode(indicators, leftId);
   if (compareMode === "none" || compareMode === "number") return [];
 
+  if (left.compareIndicatorIds?.length) {
+    const allowedIds = new Set(left.compareIndicatorIds);
+    return indicators.filter((item) => allowedIds.has(item.id) && item.available !== false);
+  }
+
   const allowedKinds = new Set(left.compareIndicatorKinds ?? ["price", "trend"]);
   return indicators.filter(
     (item) =>
