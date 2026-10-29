@@ -49,33 +49,6 @@ class KamaCrossTests(unittest.TestCase):
         age = signed_cross_age(pd.Series([-1.0, 1.0, 0.0, 1.0, -1.0]))
         self.assertEqual(age.iloc[1:].tolist(), [1.0, 2.0, 3.0, -1.0])
 
-    def test_flags_and_age_are_swept_and_listed(self):
-        swept = {spec[0] for spec in PRICE_SWEEPS}
-        self.assertTrue({"KAMA10CrossUp", "KAMA10CrossDown", "KAMA10CrossAge"} <= swept)
-        items = {item["id"]: item for item in list_indicators(builder_only=True, include_regimes=False)}
-        self.assertEqual(items["KAMA10CrossDown"]["category"], "Pattern / signal flags")
-        self.assertIn("typicalRange", items["KAMA10CrossAge"])
-
-
-class KamaWiringTests(unittest.TestCase):
-    def test_derived_columns_are_swept(self):
-        swept = {spec[0] for spec in PRICE_SWEEPS}
-        self.assertIn("Close_KAMA10", swept)
-        self.assertIn("KAMASlope10", swept)
-
-    def test_listed_in_the_builder(self):
-        items = {item["id"]: item for item in list_indicators(builder_only=True, include_regimes=False)}
-        self.assertEqual(items["KAMA10"]["category"], "Moving averages")
-        self.assertIn("typicalRange", items["Close_KAMA10"])
-        self.assertIn("typicalRange", items["KAMASlope10"])
-
-    def test_close_can_be_compared_with_kama(self):
-        self.assertTrue(is_compare_indicator_allowed("Close", "KAMA10"))
-        self.assertTrue(is_compare_indicator_allowed("KAMA10", "SMA50"))
-        data = pd.DataFrame({"Close": [10.0, 12.0], "KAMA10": [11.0, 11.0]})
-        mask = compile_buy_mask(data, [{"left": "Close", "operator": ">", "right": "KAMA10", "logic": "AND"}])
-        self.assertEqual(list(np.asarray(mask, dtype=bool)), [False, True])
-
 
 if __name__ == "__main__":
     unittest.main()

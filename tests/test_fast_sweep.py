@@ -180,7 +180,7 @@ class SearchTests(unittest.TestCase):
 
     def test_pair_search_finds_the_brute_force_best(self):
         found = fs.search_combinations(
-            self.inputs, self.candidates, size=2, top_n=5, min_trades=10
+            self.inputs, self.candidates, size=2, top_n=5, min_trades=10, min_effect=0
         )
         best = None
         pairs = fs._all_pairs(self.candidates.compatible)
@@ -214,6 +214,25 @@ class SearchTests(unittest.TestCase):
                 entries &= fs.filter_mask(self.frame, item)
             signatures.add(entries.tobytes())
         self.assertEqual(len(signatures), len(found.combos))
+
+    def test_every_filter_in_a_result_cuts_enough_entries(self):
+        found = fs.search_combinations(
+            self.inputs, self.candidates, size=3, top_n=20, beam_width=20, min_trades=10
+        )
+        self.assertTrue(found.combos)
+        base = self.inputs.base
+        for combo in found.combos:
+            masks = [fs.filter_mask(self.frame, item) for item in combo]
+            together = (base & np.logical_and.reduce(masks)).sum()
+            for k in range(len(masks)):
+                others = (base & np.logical_and.reduce(masks[:k] + masks[k + 1:])).sum()
+                self.assertLessEqual(together, 0.9 * others)
+
+    def test_weak_pairs_are_counted_as_dropped(self):
+        strict = fs.search_combinations(self.inputs, self.candidates, size=2, top_n=5, min_trades=10)
+        loose = fs.search_combinations(self.inputs, self.candidates, size=2, top_n=5, min_trades=10, min_effect=0)
+        self.assertEqual(loose.dropped.get("weak_filter"), 0)
+        self.assertEqual(strict.tested + strict.dropped["weak_filter"], loose.tested)
 
     def test_trio_beam_extends_good_pairs(self):
         pairs = fs.search_combinations(

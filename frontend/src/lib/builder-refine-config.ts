@@ -5,7 +5,8 @@ export type BuilderRefineMode =
   | "indicator-sweep"
   | "indicator-combo-sweep"
   | "basket-sweep"
-  | "market-regime-sweep";
+  | "market-regime-sweep"
+  | "entry-loo";
 
 export type BuilderRefineModeOption = {
   id: BuilderRefineMode;
@@ -36,6 +37,12 @@ export const BUILDER_REFINE_MODES: BuilderRefineModeOption[] = [
     label: "Market Regime Sweep",
     description:
       "Restrict the draft strategy to each market regime state, and to everything but it, and rank the results. Indicator sweeps never include regimes.",
+  },
+  {
+    id: "entry-loo",
+    label: "Entry condition check",
+    description:
+      "Rerun the draft once without each entry condition (leave one out), to see what each one adds in-sample and out-of-sample.",
   },
   {
     id: "signal-combo-sweep",

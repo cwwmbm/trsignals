@@ -1,3 +1,4 @@
+import { Minus } from "lucide-react";
 import { memo, useEffect, useMemo, useState } from "react";
 import type { BasketSummary, SweepMeta, SweepResult } from "@/api";
 import { DraftBaselineView } from "@/components/backtest/draft-baseline";
@@ -6,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { isEntryCheckRow } from "@/lib/sweep-to-condition";
 import { cn } from "@/lib/utils";
 
 type FullPeriodPayload = {
@@ -104,6 +106,7 @@ export const SweepResults = memo(function SweepResults({
       "RegimeId",
       "RegimeOperator",
       "Filters",
+      "RemovedCondition",
       ...(hasErrors ? [] : ["Error"]),
     ],
     [hasErrors],
@@ -171,6 +174,7 @@ export const SweepResults = memo(function SweepResults({
           onAddRow={onAddRow}
           canAddRow={canAddRow}
           addRowLabel={addRowLabel}
+          addRowIcon={(row) => (isEntryCheckRow(row) ? <Minus className="size-3.5" /> : undefined)}
         />
       </div>
 

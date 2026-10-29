@@ -3,6 +3,7 @@ import pandas as pd
 import backtest as bt
 from api import fast_sweep
 from config import ticker
+from cross_pairs import sweep_specs as cross_sweep_specs
 from time import perf_counter
 
 # (buy_column, sell_column, condition, min, max, step)
@@ -43,8 +44,6 @@ PRICE_SWEEPS = [
     ('%Change', '%Change', 'both', -0.06, 0.06, 0.01),
     ('RSIBuy', 'RSISell', 'both', 0, 0, 1),
     ('Close_EMA8', 'Close_EMA8', 'both', -10, 10, 1),
-    ('EMA8CrossUp', 'EMA8CrossUp', 'both', 0, 0, 1),
-    ('EMA8CrossDown', 'EMA8CrossDown', 'both', 0, 0, 1),
     ('ATR20_ATR50', 'ATR20_ATR50', 'both', 0, 0, 1),
     ('ChangeVelocity', 'ChangeVelocity', 'both', -2, 2, 0.5),
     ('EMA20_EMA100', 'EMA20_EMA100', 'both', 0, 0, 1),
@@ -58,9 +57,6 @@ PRICE_SWEEPS = [
     ('Close_SMA50', 'Close_SMA50', 'both', 0, 0, 1),
     ('Close_KAMA10', 'Close_KAMA10', 'both', -4, 4, 1),
     ('KAMASlope10', 'KAMASlope10', 'both', -2, 2, 0.5),
-    ('KAMA10CrossUp', 'KAMA10CrossUp', 'both', 0, 0, 1),
-    ('KAMA10CrossDown', 'KAMA10CrossDown', 'both', 0, 0, 1),
-    ('KAMA10CrossAge', 'KAMA10CrossAge', 'both', -20, 20, 2),
     ('Close_SMA20', 'Close_SMA20', 'both', 0, 0, 1),
     ('Vix', 'Vix', 'both', 10, 50, 5),
     ('VixChange', 'VixChange', 'both', -15, 20, 5),
@@ -112,6 +108,9 @@ PRICE_SWEEPS = [
     ('DaysToEarnings', 'DaysToEarnings', 'both', 1, 20, 1),
     ('DaysSinceEarnings', 'DaysSinceEarnings', 'both', 0, 10, 1),
 ]
+# Crosses between pairs of lines (cross_pairs.CROSS_PAIRS). They replace the old one-off cross
+# flags such as EMA8CrossUp/Down: CrossUp_Close_EMA8 is the same signal.
+PRICE_SWEEPS += cross_sweep_specs()
 
 VFI_SWEEPS = [
     ('VFI80', 'VFI80', 'both', -8, 8, 2),

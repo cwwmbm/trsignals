@@ -8,9 +8,11 @@ from config import *
 # import mplfinance as mpf
 from numpy import cumsum, log, polyfit, sqrt, std, subtract
 from hurst import compute_Hc
+from cross_pairs import cross_columns, signed_cross_age  # noqa: F401 (signed_cross_age is re-exported)
 
-# Bump when computed indicator columns change so disk cache entries are rebuilt.
-INDICATOR_CACHE_VERSION = 9
+# Bump when computed indicator columns change so disk cache entries are rebuilt. Edits to
+# cross_pairs.CROSS_PAIRS rebuild the cache on their own (the pair list is part of the cache key).
+INDICATOR_CACHE_VERSION = 10
 
 #Calculate Sharpe Ratio
 def sharpes_ratio(data, risk_free_rate=0, periods_per_year=252, exclude_year=None):
@@ -412,20 +414,6 @@ def squeeze_age(squeeze: pd.Series) -> pd.Series:
     return age.where(on.cumsum() > 0)
 
 
-def signed_cross_age(spread: pd.Series) -> pd.Series:
-    """Days since `spread` last changed sign: +N while it has been positive N days, -N while negative.
-
-    +1 is the day of an upward cross, -1 a downward one; a 0 keeps the side that led before it.
-    """
-    side = np.sign(spread).replace(0, np.nan).ffill()
-    run = (side != side.shift()).cumsum()
-    age = side.groupby(run).cumcount() + 1
-    cross_age = (age * side).astype(float)
-    # The first run started before the data did, so its age is unknown.
-    first_run = run == run[side.notna()].min()
-    return cross_age.where(side.notna() & ~first_run)
-
-
 def psar_columns(high: pd.Series, low: pd.Series, close: pd.Series) -> dict[str, pd.Series]:
     """Parabolic SAR level, days since it last flipped (signed) and close's % distance from it."""
     psar = ta.trend.PSARIndicator(high, low, close)
@@ -660,6 +648,7 @@ def add_indicators(data, periods_per_year=252, source_timezone=None, compute_hur
     data['EMA8CrossUp'] = np.where((data['Close'] > data['EMA8']) & (data['Close'].shift(1) < data['EMA8'].shift(1)), 1, -1)
     data['EMA8CrossDown'] = np.where((data['Close'] < data['EMA8']) & (data['Close'].shift(1) > data['EMA8'].shift(1)), 1, -1)
     data['EMA20'] = ta.trend.ema_indicator(data['Close'], window=20)
+    data['EMA50'] = ta.trend.ema_indicator(data['Close'], window=50)
     data['EMA100'] = ta.trend.ema_indicator(data['Close'], window=100)
     data['VolumeEMADiff'] = (data['Volume'] - ta.trend.ema_indicator(data['Volume'], window=8)) / ta.trend.ema_indicator(data['Volume'], window=8)
     data['AdjustedChange'] = data['Close']/data['Close'].shift(1) - 1
@@ -690,9 +679,6 @@ def add_indicators(data, periods_per_year=252, source_timezone=None, compute_hur
     data['KAMA10'] = ta.momentum.KAMAIndicator(data['Close'], window=10, pow1=2, pow2=30).kama()
     data['Close_KAMA10'] = (data['Close'] - data['KAMA10'])/data['Close']*100
     data['KAMASlope10'] = data['KAMA10'].pct_change(5)*100
-    data['KAMA10CrossAge'] = signed_cross_age(data['Close'] - data['KAMA10'])
-    data['KAMA10CrossUp'] = np.where(data['KAMA10CrossAge'] == 1, 1, -1)
-    data['KAMA10CrossDown'] = np.where(data['KAMA10CrossAge'] == -1, 1, -1)
     data['SMA20_SMA50'] = (data['SMA20'] - data['SMA50'])/data['SMA20']*100
     data['Close_SMA200'] = (data['Close'] - data['SMA200'])/data['Close']*100
     data['Close_SMA50'] = (data['Close'] - data['SMA50'])/data['Close']*100
@@ -772,6 +758,7 @@ def add_indicators(data, periods_per_year=252, source_timezone=None, compute_hur
     )
     data = data.drop(columns=['StochSlow', 'Spybull'])
     data = pd.concat([data, tail], axis=1)
+    data = pd.concat([data, pd.DataFrame(cross_columns(data), index=data.index)], axis=1)
     if source_timezone is None:  # daily frames; an intraday custom dataset has no earnings columns to fill
         from api import earnings_data
 

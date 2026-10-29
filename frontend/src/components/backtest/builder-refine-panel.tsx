@@ -309,6 +309,20 @@ export function BuilderRefinePanel({
         </Section>
       )}
 
+      {mode === "entry-loo" && (
+        <Section title="Entry condition check">
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            Row 0 is the draft as it is. Each other row removes one entry condition and reruns the
+            rest, scored in-sample and out-of-sample (OOS) over the same dates as the draft.
+            ΔSharpe is the change from the draft: negative means the strategy is worse without the
+            condition, so the condition is pulling its weight. Compare Sharpe, not PnL: removing a
+            filter adds trades, and PnL and drawdown grow with exposure alone. Blocks is the share
+            of the other conditions&apos; entries this one removes. The verdict is Helps or Hurts
+            only when both halves agree by more than 0.05.
+          </p>
+        </Section>
+      )}
+
       {(mode === "indicator-sweep" || mode === "indicator-combo-sweep") && (
         <Section title={mode === "indicator-combo-sweep" ? "Indicator combo sweep" : "Indicator sweep"}>
           <div className="flex flex-wrap gap-4">

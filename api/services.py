@@ -22,6 +22,7 @@ from api.builder_strategy import (
 )
 from api import leverage_settings, vehicle_data, vehicles
 from api.basket_sweep import run_basket_sweep, symbol_metrics as basket_symbol_metrics
+from api.condition_loo import leave_one_out_rows
 from api.confirm_sweep import build_confirm_context
 from api.fast_sweep import NUMBA_AVAILABLE, combination_sweep, filters_from_row, run_filters_exact
 from api.indicator_catalog import is_market_wide_indicator, list_indicators
@@ -920,6 +921,17 @@ def run_builder_refine(request) -> dict:
             meta["basket"] = summary
             return {"rows": results, "meta": meta}
 
+        if request.mode == "entry-loo":
+            rows = leave_one_out_rows(
+                primary,
+                data,
+                years=years,
+                labels=labels,
+                in_sample_end=in_sample_end,
+                strategy_resolver=get_strategy_by_id,
+            )
+            return _wrap_refine_rows(rows, full_frame, in_sample_end=in_sample_end)
+
         refine_frame, days, profit, is_long, pnl_col = prepare_builder_refine_frame(
             primary,
             years=years,
@@ -1088,8 +1100,8 @@ def run_builder_refine(request) -> dict:
 
     def _run():
         payload = _run_mode()
-        # A basket test already reports the draft's own symbol as its reference row.
-        if request.mode != "basket-sweep":
+        # A basket test and the entry check already carry the draft as their own reference row.
+        if request.mode not in {"basket-sweep", "entry-loo"}:
             payload["meta"]["draft"] = _draft_baseline(
                 primary,
                 data,

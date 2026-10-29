@@ -116,7 +116,6 @@ _SWEEP = {
     "BBWidth": {"min": 0, "max": 0.2},
     "Close_KAMA10": {"min": -4, "max": 4},
     "KAMASlope10": {"min": -2, "max": 2},
-    "KAMA10CrossAge": {"min": -20, "max": 20},
     "PSARFlipAge": {"min": -20, "max": 20},
     "Close_PSAR": {"min": -8, "max": 8},
     "SqueezeRatio20": {"min": 0.8, "max": 2.6},
@@ -270,6 +269,7 @@ INDICATOR_CATALOG: list[IndicatorDef] = [
     _entry("SMA200", "SMA(200)", "Moving averages", "trend", "continuous", description="200-day simple moving average of close."),
     _entry("EMA8", "EMA(8)", "Moving averages", "trend", "continuous", description="8-day exponential moving average of close."),
     _entry("EMA20", "EMA(20)", "Moving averages", "trend", "continuous", description="20-day exponential moving average of close."),
+    _entry("EMA50", "EMA(50)", "Moving averages", "trend", "continuous", description="50-day exponential moving average of close."),
     _entry("EMA100", "EMA(100)", "Moving averages", "trend", "continuous", description="100-day exponential moving average of close."),
     _entry("BBUpper", "Bollinger upper", "Moving averages", "trend", "continuous", description="Upper Bollinger band (default 20-period, 2 std dev) on close."),
     _entry("BBMiddle", "Bollinger middle", "Moving averages", "trend", "continuous", description="Middle Bollinger band — the 20-day SMA of close."),
@@ -311,7 +311,6 @@ INDICATOR_CATALOG: list[IndicatorDef] = [
         description="20-bar linear regression slope of close, normalized as percent of price per bar.",
     ),
     _entry("PSARFlipAge", "PSAR flip age", "Momentum / oscillators", "momentum", "continuous", typical_range=_range("PSARFlipAge"), description="Trading days since Parabolic SAR last flipped: positive while the SAR trails below price (uptrend), negative while it sits above. 1 is the day of a bullish flip, −1 a bearish one."),
-    _entry("KAMA10CrossAge", "KAMA(10) cross age", "Momentum / oscillators", "momentum", "continuous", typical_range=_range("KAMA10CrossAge"), description="Trading days since close last crossed KAMA(10, 2, 30): positive while close is above, negative while below. 1 is the day of an upward cross, −1 a downward one."),
     _entry("KAMASlope10", "KAMA slope (5d %)", "Momentum / oscillators", "momentum", "continuous", typical_range=_range("KAMASlope10"), description="5-day percent change of KAMA(10, 2, 30). Near 0 means KAMA has gone flat, which it does when the market chops; the sign gives the direction."),
     # Volatility / risk
     _entry("Vix", "VIX", "Volatility / risk", "volatility", "continuous", typical_range=_range("Vix"), aliases=["VIX"], description="CBOE Volatility Index closing level — a measure of expected market volatility."),
@@ -404,8 +403,6 @@ INDICATOR_CATALOG: list[IndicatorDef] = [
     _entry("LowMin2Lag1", "2-bar low min (1 bar ago)", "Pattern / signal flags", "pattern", "continuous", description="Minimum low over the prior two bars, shifted back one bar."),
     _entry("EMA8CrossUp", "EMA(8) cross up", "Pattern / signal flags", "pattern", "flag", description="Flag (1) when close crosses above EMA(8) from below; otherwise −1."),
     _entry("EMA8CrossDown", "EMA(8) cross down", "Pattern / signal flags", "pattern", "flag", description="Flag (1) when close crosses below EMA(8) from above; otherwise −1."),
-    _entry("KAMA10CrossUp", "KAMA(10) cross up", "Pattern / signal flags", "pattern", "flag", description="Flag (1) when close crosses above KAMA(10, 2, 30) from below; otherwise −1."),
-    _entry("KAMA10CrossDown", "KAMA(10) cross down", "Pattern / signal flags", "pattern", "flag", description="Flag (1) when close crosses below KAMA(10, 2, 30) from above; otherwise −1."),
     _entry("RSIBuy", "RSI buy flag", "Pattern / signal flags", "signal_flag", "flag", description="Flag (1) when RSI(2) ≤ 15 and RSI(5) ≤ 35 (oversold buy zone); otherwise −1."),
     _entry("RSISell", "RSI sell flag", "Pattern / signal flags", "signal_flag", "flag", description="Flag (1) when RSI(2) ≥ 95 and RSI(5) ≥ 70 (overbought sell zone); otherwise −1."),
     _entry("SPYBull", "SPY bull regime", "Pattern / signal flags", "signal_flag", "flag", description="Flag (1) when SPY SMA(50) > SMA(200) (golden cross regime); otherwise −1."),
@@ -528,6 +525,34 @@ INDICATOR_CATALOG.extend(
     for spec in REGIME_INDICATOR_SPECS
 )
 
+
+
+def _cross_entries() -> list[IndicatorDef]:
+    """Four flags per pair in cross_pairs.CROSS_PAIRS, labelled with the pair's own labels."""
+    from cross_pairs import CROSS_PAIRS, down_column, down_prev_column, up_column, up_prev_column
+
+    labels = {item["id"]: item["label"] for item in INDICATOR_CATALOG}
+    entries = []
+    for pair in CROSS_PAIRS:
+        a, b = labels.get(pair.left, pair.left), labels.get(pair.right, pair.right)
+        for column, direction, when in (
+            (up_column(pair), "above", "today"),
+            (down_column(pair), "below", "today"),
+            (up_prev_column(pair), "above", "yesterday"),
+            (down_prev_column(pair), "below", "yesterday"),
+        ):
+            bar = "this bar" if when == "today" else "the previous bar, whatever it has done since"
+            entries.append(
+                _entry(
+                    column, f"{a} crossed {direction} {b} {when}", "Crosses", "pattern", "flag",
+                    description=f"Flag (1) when {a} crossed {direction} {b} on {bar}; otherwise −1.",
+                )
+            )
+    return entries
+
+
+INDICATOR_CATALOG.extend(_cross_entries())
+
 for _item in INDICATOR_CATALOG:
     _CATALOG_BY_ID[_item["id"]] = _item
 
@@ -541,6 +566,7 @@ _CATEGORY_ORDER = [
     "Spreads & composites",
     "VWAP / fair value",
     "Pattern / signal flags",
+    "Crosses",
     "Breadth RSI",
     "Earnings",
     "Market regimes",

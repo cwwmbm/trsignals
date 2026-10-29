@@ -605,6 +605,32 @@ def _top_distinct(
     return chosen
 
 
+# Each filter in a combination must remove at least this share of the entries the other filters
+# leave. A filter that trims a handful of crash-day entries makes a "pair" that is really the other
+# filter alone, already in the single sweep, and such pairs crowded the top of the list.
+MIN_FILTER_EFFECT = 0.10
+
+
+def _effective(entries: np.ndarray, combos: np.ndarray, min_effect: float, chunk: int = 4096) -> np.ndarray:
+    """True for combinations where dropping any one filter adds back >= ``min_effect`` more entries.
+
+    ``entries`` is the (filters, base entries) mask restricted to base entry bars.
+    """
+    ok = np.ones(len(combos), dtype=bool)
+    if min_effect <= 0 or len(combos) == 0:
+        return ok
+    size = combos.shape[1]
+    for start in range(0, len(combos), chunk):
+        part = combos[start:start + chunk]
+        rows = entries[part]  # (chunk, size, base entries)
+        together = rows.all(axis=1).sum(axis=1)
+        for k in range(size):
+            others = np.delete(rows, k, axis=1).all(axis=1).sum(axis=1)
+            # Filter k must cut at least min_effect of what the others let through.
+            ok[start:start + chunk] &= together <= (1.0 - min_effect) * others
+    return ok
+
+
 def _all_pairs(compatible: np.ndarray) -> np.ndarray:
     first, second = np.nonzero(np.triu(compatible, k=1))
     return np.column_stack([first, second]).astype(np.int64)
@@ -629,11 +655,14 @@ def search_combinations(
     top_n: int = 50,
     beam_width: int = 150,
     min_trades: int = 10,
+    min_effect: float = MIN_FILTER_EFFECT,
 ) -> ComboSearchResult:
     """Best ``size``-filter combinations by screened Sharpe.
 
     Pairs are searched exhaustively. Trios extend the ``beam_width`` best pairs by every
     compatible third filter, so a trio is only found when some pair inside it already ranks well.
+    Combinations where some filter removes less than ``min_effect`` of the entries the others
+    leave are skipped (counted in ``dropped["weak_filter"]``).
     """
     if size not in (2, 3):
         raise ValueError("Combination size must be 2 or 3")
@@ -643,7 +672,13 @@ def search_combinations(
         return ComboSearchResult([], [], 0, count, candidates.dropped)
     min_signals = max(1, int(min_trades))
 
+    entries = np.ascontiguousarray(masks[:, inputs.base])
+    dropped = dict(candidates.dropped)
     pairs = _all_pairs(candidates.compatible)
+    pairs_possible = len(pairs)
+    effective = _effective(entries, pairs, min_effect)
+    dropped["weak_filter"] = int((~effective).sum())
+    pairs = pairs[effective]
     sharpe, trades = _score_chunked(inputs, pairs, masks, min_signals)
     tested = len(pairs)
     keep_pairs = _top_distinct(pairs, sharpe, trades, masks, inputs.base, min_trades, top_n if size == 2 else beam_width)
@@ -659,6 +694,9 @@ def search_combinations(
             for c in np.flatnonzero(compat[a] & compat[b]):
                 expanded.add(tuple(sorted((int(a), int(b), int(c)))))
         trios = np.array(sorted(expanded), dtype=np.int64).reshape(-1, 3)
+        effective = _effective(entries, trios, min_effect)
+        dropped["weak_filter"] += int((~effective).sum())
+        trios = trios[effective]
         t_sharpe, t_trades = _score_chunked(inputs, trios, masks, min_signals)
         tested += len(trios)
         picked = _top_distinct(trios, t_sharpe, t_trades, masks, inputs.base, min_trades, top_n)
@@ -670,8 +708,8 @@ def search_combinations(
         screen_sharpe=[float(value) for value in final_sharpe],
         tested=tested,
         candidates=count,
-        dropped=candidates.dropped,
-        pairs_possible=len(pairs),
+        dropped=dropped,
+        pairs_possible=pairs_possible,
     )
 
 

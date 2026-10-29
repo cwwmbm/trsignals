@@ -9,6 +9,8 @@ export function formatMetric(value: unknown, column?: string) {
     "Profit",
     "Trades",
     "Prf",
+    "#",
+    "OOS Trades",
   ]);
   const percentColumns = new Set(["pnl_percent", "drawdown_percent", "cagr_percent", "pct_positive"]);
   const fractionalPercentColumns = new Set(["trade_pnl", "max_drawdown", "drawdown"]);

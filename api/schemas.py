@@ -146,6 +146,7 @@ BuilderRefineMode = Literal[
     "indicator-combo-sweep",
     "basket-sweep",
     "market-regime-sweep",
+    "entry-loo",
 ]
 
 

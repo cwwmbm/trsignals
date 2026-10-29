@@ -58,7 +58,9 @@ import {
 import {
   holdDaysSweepRowValues,
   comboSweepRowToConditionRows,
+  entryCheckRowRemoval,
   isComboSweepRow,
+  locateRemovedCondition,
   isHoldDaysSweepRow,
   isRegimeSweepRow,
   regimeSweepRowId,
@@ -722,6 +724,25 @@ export const StrategyBuilderSetup = forwardRef<
           setProfitableCloses(String(values.profit))
           setExitOpen(true)
           return `Applied ${values.holdDays}d hold · ${values.profit} profit close${values.profit === 1 ? '' : 's'}.`
+        }
+
+        const removed = entryCheckRowRemoval(row)
+        if (removed) {
+          const found = locateRemovedCondition(removed, regimeConditions, entryConditions)
+          if (!found) {
+            return 'Could not find this condition in the draft. It may have changed since the check ran.'
+          }
+          if (regimeConditions.length + entryConditions.length <= 1) {
+            return 'Could not remove the only entry condition.'
+          }
+          const drop = (prev: ConditionRow[]) => prev.filter((_, index) => index !== found.index)
+          if (found.list === 'regime') {
+            setRegimeConditions(drop)
+          } else {
+            setEntryConditions(drop)
+          }
+          const label = String(row.Removed ?? removed.left)
+          return `Removed ${label} from ${found.list === 'regime' ? 'market regimes' : 'entry'}. Run the check again to see the rest without it.`
         }
 
         if (isSymbolConfirmSweepRow(row)) {
