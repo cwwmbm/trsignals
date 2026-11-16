@@ -125,6 +125,28 @@ class FallbackTests(unittest.TestCase):
             return
         self.assertFalse(slow_raises)
 
+    @patch("stats.ExcludeBestReturnYear", True)
+    def test_max_drawdown_keeps_a_crash_in_the_best_year(self):
+        # Four years in the market; 2017 opens with a crash, then rallies into the best year.
+        frame = _frame(7, bars=252 * 4)
+        change = np.random.default_rng(1).normal(0.0003, 0.004, len(frame))
+        crash_year = np.flatnonzero(frame["Date"].dt.year == 2017)
+        change[crash_year[:40]] = -0.012
+        change[crash_year[40:]] = 0.01
+        frame["Close"] = 100 * np.cumprod(1 + change)
+        frame["PROXY"] = frame["Close"]
+        frame["%Change"] = frame["Close"].pct_change().fillna(0) * config.Leverage
+        frame["Buy"], frame["Sell"] = True, False
+
+        executed = bt.execute_strategy(frame.copy(), 5, 1000, True)
+        self.assertEqual(stats.compute_aggregate_metrics(executed)["excluded_year"], 2017)
+        by_year = executed.groupby(executed["Date"].dt.year)["Drawdown"].max()
+        self.assertEqual(by_year.idxmax(), 2017)
+        worst = by_year.max() * 100
+
+        self.assertAlmostEqual(_slow(frame, 5, 1000, True)["MaxDD"], worst, places=9)
+        self.assertAlmostEqual(fm.ranking_metrics(frame, 5, 1000, True)["MaxDD"], worst, places=9)
+
 
 class WiringTests(unittest.TestCase):
     def test_indicator_threshold_matches_the_slow_row(self):

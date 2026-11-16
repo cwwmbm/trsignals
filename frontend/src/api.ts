@@ -451,6 +451,73 @@ export function isFlagOperator(operator: string): operator is FlagOperator {
   return FLAG_OPERATORS.includes(operator as FlagOperator);
 }
 
+export type RobustnessStatus = "pass" | "warn" | "fail" | "skip";
+
+export type RobustnessScore = {
+  sharpe: number | null;
+  cagr: number | null;
+  trades: number;
+  error?: string;
+};
+
+export type RobustnessNull = {
+  shift_exits: boolean;
+  sharpe: number;
+  null_median: number;
+  null_p95: number;
+  null_p99: number;
+  p: number;
+  shifts: number;
+  histogram: { lo: number; hi: number; count: number }[];
+};
+
+export type RobustnessReport = {
+  baseline: RobustnessScore & { start: string; traded_symbol: string };
+  verdict: "robust" | "mixed" | "likely overfit";
+  checks: { id: string; title: string; status: RobustnessStatus; headline: string }[];
+  random_timing: RobustnessNull[];
+  neighbourhood: {
+    rows: (RobustnessScore & { group: string; condition: string; label: string; step: number })[];
+    summary: {
+      variants: number;
+      median_sharpe: number;
+      min_sharpe: number;
+      max_sharpe: number;
+      share_within_75pct: number;
+    } | null;
+  };
+  ablation: (RobustnessScore & {
+    side: "entry" | "exit";
+    condition: string;
+    sharpe_lost: number | null;
+    earns_place: boolean | null;
+  })[];
+  stability: {
+    periods: { label: string; start: string; end: string; sharpe: number | null }[];
+    years: { year: number; return: number | null; trades: number }[];
+    years_positive: number;
+    years_counted: number;
+    cagr_leave_one_year_out: { min: number; max: number } | null;
+    time_in_market: number;
+    max_drawdown: number;
+    concentration: {
+      trades: number;
+      win_rate: number;
+      avg_win: number | null;
+      avg_loss: number | null;
+      profit_factor: number | null;
+      top10_share_of_growth: number | null;
+      growth_multiple: number | null;
+      growth_multiple_ex_top10: number | null;
+      longest_losing_streak: number;
+    } | null;
+  };
+  execution: {
+    delays: (RobustnessScore & { delay_bars: number })[];
+    fills: (RobustnessScore & { fill: "close" | "next open"; cost_per_leg: number })[];
+  };
+};
+
 export type BuilderBacktestPayload = {
   symbol: string;
   years?: number;
@@ -705,10 +772,13 @@ export type PortfolioOverlapMode = "first_signal_only" | "hold_until_all_exit";
  * All-in is the original behavior. Proportional sizes the book by active / total strategies.
  * Regime-adjusted scales the position by how well the current market regimes have treated the
  * active strategies and the portfolio. Tiered puts `tier_single_pct` of the book in when exactly
- * one member is active and all of it when two or more are.
+ * one member is active and all of it when two or more are (`tier_mode` "single"), or, with
+ * `tier_mode` "half", when fewer than half the eligible members are active and all of it at half
+ * or more (5+ members only; below that it sizes as "single").
  */
 export type PortfolioAllocationModel = "all_in" | "proportional" | "regime_adjusted" | "tiered";
 export type PortfolioProportionalMode = "linear" | "early_conviction" | "confirmation_required";
+export type PortfolioTierMode = "single" | "half";
 export type RegimeScoreKind = "robustness" | "portfolio";
 /** How hard a regime state that has scored poorly is punished. */
 export type RegimePenaltyPreset = "harsh" | "strict" | "medium" | "low";
@@ -728,8 +798,10 @@ export type SavePortfolioPayload = RegimePenaltyFields & {
   proxy_symbol?: string;
   allocation_model?: PortfolioAllocationModel;
   proportional_mode?: PortfolioProportionalMode;
-  /** Tiered only: percent of the book when exactly one member is active (default 55). */
+  /** Tiered only: percent of the book in the low tier (default 55). */
   tier_single_pct?: number;
+  /** Tiered only: "single" (one vs two or more, default) or "half" (under half vs half or more). */
+  tier_mode?: PortfolioTierMode;
   transaction_cost_bps?: number;
 };
 
@@ -753,6 +825,7 @@ export type UpdatePortfolioPayload = RegimePenaltyFields & {
   allocation_model?: PortfolioAllocationModel;
   proportional_mode?: PortfolioProportionalMode;
   tier_single_pct?: number;
+  tier_mode?: PortfolioTierMode;
   transaction_cost_bps?: number;
 };
 
@@ -765,6 +838,7 @@ export type PortfolioSimulatePayload = RegimePenaltyFields & {
   allocation_model?: PortfolioAllocationModel;
   proportional_mode?: PortfolioProportionalMode;
   tier_single_pct?: number;
+  tier_mode?: PortfolioTierMode;
   transaction_cost_bps?: number;
 };
 
@@ -1063,6 +1137,10 @@ export function runMonteCarlo(payload: MonteCarloPayload) {
 
 export function runBuilderBacktest(payload: BuilderBacktestPayload): Promise<DetailedResult> {
   return postJson<DetailedResult>("/backtests/builder", payload);
+}
+
+export function runBuilderRobustness(payload: BuilderBacktestPayload): Promise<RobustnessReport> {
+  return postJson<RobustnessReport>("/backtests/builder/robustness", payload);
 }
 
 export function runBuilderRefine(

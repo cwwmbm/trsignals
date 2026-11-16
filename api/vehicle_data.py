@@ -57,18 +57,20 @@ def _fresh(path: Path) -> bool:
 
 
 def _download(symbol: str, **kwargs) -> pd.Series | None:
-    import yfinance as yf
+    from getdata import to_yf_symbol, yf_download
 
-    from getdata import to_yf_symbol
-
-    frame = yf.download([to_yf_symbol(_normalize(symbol))], progress=False, auto_adjust=True, **kwargs)
+    ticker = to_yf_symbol(_normalize(symbol))
+    frame = yf_download([ticker], progress=False, auto_adjust=True, **kwargs)
     if frame is None or frame.empty:
         return None
     close = frame["Close"]
     if isinstance(close, pd.DataFrame):
-        if close.shape[1] == 0:
+        # Only the ticker asked for. Anything else is another download's data; caching it under this
+        # symbol would price every trade through the wrong series for the rest of the day.
+        if list(close.columns) != [ticker]:
+            LOGGER.warning("Download for %s returned %s; ignoring it", ticker, list(close.columns))
             return None
-        close = close.iloc[:, 0]
+        close = close[ticker]
     close = pd.to_numeric(close, errors="coerce").dropna()
     close.index = pd.to_datetime(close.index).tz_localize(None).normalize()
     close = close[~close.index.duplicated(keep="last")].sort_index()

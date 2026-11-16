@@ -46,6 +46,7 @@ from api.services import (
     run_builder_backtest,
     run_builder_refine,
     run_builder_refine_outcome,
+    run_builder_robustness,
     run_hold_days_sweep,
     run_indicator_sweep,
     run_exact_scan_position,
@@ -232,6 +233,11 @@ def builder_refine(request: BuilderRefineRequest) -> dict:
 @app.post("/backtests/builder/refine/outcome")
 def builder_refine_outcome(request: BuilderRefineOutcomeRequest) -> dict:
     return _handle_errors(run_builder_refine_outcome, request)
+
+
+@app.post("/backtests/builder/robustness")
+def builder_robustness(request: BuilderBacktestRequest) -> dict:
+    return _handle_errors(run_builder_robustness, request)
 
 
 @app.post("/strategies")

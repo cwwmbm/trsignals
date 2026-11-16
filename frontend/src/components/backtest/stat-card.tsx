@@ -100,17 +100,11 @@ export function excludedYearNote(summary: Summary): string | null {
   if (year === undefined || year === null || summary.full_cagr_percent === undefined) return null;
   const best = summary.full_best_year_return;
   const bestText = typeof best === "number" ? `, ${best >= 0 ? "+" : ""}${(best * 100).toFixed(0)}%` : "";
-  const drawdownText =
-    typeof summary.max_drawdown === "number" &&
-    typeof summary.full_max_drawdown === "number" &&
-    summary.max_drawdown < summary.full_max_drawdown
-      ? ` Max drawdown covers every year; without ${year} it is ${formatMetric(summary.max_drawdown, "max_drawdown")}.`
-      : " Max drawdown covers every year.";
   return (
     `CAGR, Sharpe and Sortino leave out ${year} (best year${bestText}). ` +
     `With it: CAGR ${formatMetric(summary.full_cagr_percent, "cagr_percent")}, ` +
     `Sharpe ${formatMetric(summary.full_sharpe, "sharpe")}, ` +
-    `Sortino ${formatMetric(summary.full_sortino, "sortino")}.` +
-    drawdownText
+    `Sortino ${formatMetric(summary.full_sortino, "sortino")}. ` +
+    "Max drawdown covers every year."
   );
 }

@@ -46,8 +46,9 @@ def short_model_label(model) -> str:
     if model.id in SHORT_LABELS:
         return SHORT_LABELS[model.id]
     single = getattr(model, "single", None)
-    if model.id == "tiered" and single is not None:
-        return f"Tiered {single * 100:g}"
+    if model.id.startswith("tiered") and single is not None:
+        prefix = "Tiered ½" if getattr(model, "mode", None) == "half" else "Tiered"
+        return f"{prefix} {single * 100:g}"
     return model.label
 
 

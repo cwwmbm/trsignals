@@ -151,13 +151,12 @@ class ComputeAggregateMetricsTests(unittest.TestCase):
         self.assertNotEqual(metrics["sharpe"], 0.0)
 
     @patch("stats.ExcludeBestReturnYear", True)
-    def test_risk_metrics_still_exclude_best_year(self):
+    def test_ratios_exclude_best_year_but_drawdown_covers_every_year(self):
         data = _backtest_frame()
         metrics = compute_aggregate_metrics(data)
-        excluded = data[data["Date"].dt.year != metrics["excluded_year"]]
 
         self.assertEqual(metrics["excluded_year"], 2020)
-        self.assertEqual(metrics["max_drawdown"], excluded["Drawdown"].max())
+        self.assertEqual(metrics["max_drawdown"], data["Drawdown"].max())
         expected = _sharpe(_daily_returns(data, drop_year=2020))
         self.assertAlmostEqual(metrics["sharpe"], expected)
 
@@ -226,8 +225,8 @@ class FullPeriodMetricsTests(unittest.TestCase):
         self.assertEqual(metrics["excluded_year"], 2020)
         self.assertAlmostEqual(metrics["full"]["max_drawdown"], data["Drawdown"].max())
         self.assertGreater(metrics["full"]["max_drawdown"], 0.35)
-        # The ranking figure leaves 2020 out, and with it the crash.
-        self.assertLess(metrics["max_drawdown"], 0.10)
+        # The ranking ratios leave 2020 out, but its crash still counts as the max drawdown.
+        self.assertAlmostEqual(metrics["max_drawdown"], data["Drawdown"].max(), places=12)
 
     @patch("stats.ExcludeBestReturnYear", True)
     def test_full_ratios_use_every_day(self):
@@ -279,7 +278,7 @@ class FullPeriodMetricsTests(unittest.TestCase):
         payload = summary_payload(data, 0, 0, "x")
         self.assertEqual(payload["excluded_year"], 2020)
         self.assertAlmostEqual(payload["full_max_drawdown"], data["Drawdown"].max())
-        self.assertLess(payload["max_drawdown"], payload["full_max_drawdown"])
+        self.assertAlmostEqual(payload["max_drawdown"], payload["full_max_drawdown"], places=12)
         self.assertEqual(payload["full_best_year"], 2020)
         for key in ("cagr_percent", "sharpe", "sortino", "calmar", "ulcer_index", "best_year_share"):
             self.assertIsNotNone(payload[f"full_{key}"], key)

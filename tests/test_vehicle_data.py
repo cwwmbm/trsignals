@@ -104,5 +104,54 @@ class IntradayTailTests(unittest.TestCase):
         self.assertFalse(REAL_SESSION_OPEN(at(24, 11, 0)))  # Saturday
 
 
+def _yf_frame(closes: dict[str, list[float]]) -> pd.DataFrame:
+    """What ``yf.download`` returns: (Price, Ticker) columns."""
+    index = pd.bdate_range(end="2026-10-21", periods=3)
+    columns = pd.MultiIndex.from_tuples([("Close", ticker) for ticker in closes], names=["Price", "Ticker"])
+    return pd.DataFrame({col: closes[col[1]] for col in columns}, index=index)
+
+
+class DownloadTests(unittest.TestCase):
+    def test_the_requested_ticker_is_returned(self):
+        frame = _yf_frame({"SOXL": [70.0, 71.0, 72.0]})
+        with patch("getdata.yf.download", return_value=frame):
+            close = vd.download_tail("SOXL")
+        self.assertEqual(close.tolist(), [70.0, 71.0, 72.0])
+
+    def test_another_downloads_tickers_are_refused(self):
+        # A concurrent yfinance call can leave other tickers' data in this call's result.
+        mixed = _yf_frame({"SOXX": [470.0, 471.0, 472.0], "SOXL": [70.0, 71.0, 72.0]})
+        only_other = _yf_frame({"SOXX": [470.0, 471.0, 472.0]})
+        for frame in (mixed, only_other):
+            with self.subTest(columns=list(frame.columns)), patch("getdata.yf.download", return_value=frame):
+                self.assertIsNone(vd.download_tail("SOXL"))
+
+    def test_downloads_run_one_at_a_time(self):
+        import threading
+        import time
+
+        import getdata
+
+        active, peak = [0], [0]
+        guard = threading.Lock()
+
+        def slow_download(*args, **kwargs):
+            with guard:
+                active[0] += 1
+                peak[0] = max(peak[0], active[0])
+            time.sleep(0.02)
+            with guard:
+                active[0] -= 1
+            return _yf_frame({"SOXL": [70.0, 71.0, 72.0]})
+
+        with patch("getdata.yf.download", side_effect=slow_download):
+            threads = [threading.Thread(target=getdata.yf_download, args=(["SOXL"],)) for _ in range(4)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+        self.assertEqual(peak[0], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

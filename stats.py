@@ -197,8 +197,9 @@ def full_period_metrics(data, returns=None, periods_per_year=252):
 def compute_aggregate_metrics(data, periods_per_year=252, include_full=False):
     """
     Aggregate backtest metrics for ranking/comparison.
-    Excludes the single best-return year from CAGR, Sharpe, Sortino, and max drawdown
-    when ExcludeBestReturnYear is True. Those top-level figures are the ranking basis
+    Excludes the single best-return year from CAGR, Sharpe and Sortino when
+    ExcludeBestReturnYear is True. Max drawdown always covers every year: the worst fall
+    counts whichever year it happened in. Those top-level figures are the ranking basis
     (sweeps and regime scores read them); ``full`` holds the same ratios with every year in,
     which is what a result should headline.
     Also drops the leading stretch before entry conditions could be evaluated.
@@ -225,7 +226,7 @@ def compute_aggregate_metrics(data, periods_per_year=252, include_full=False):
     if trades and avg_win and avg_loss:
         kelly = (pct_positive / 100 - ((1 - pct_positive / 100) / (avg_win / (-avg_loss)))) * 100
 
-    max_drawdown = metrics_data['Drawdown'].max() if not metrics_data.empty else None
+    max_drawdown = data['Drawdown'].max()
     cagr_pct = round(cagr * 100, 2)
     # Dropping the only positive year leaves no bars. Ratios are undefined then.
     if metrics_data.empty:

@@ -2,7 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from api.allocation import DEFAULT_TIER_SINGLE_PCT
+from api.allocation import DEFAULT_TIER_MODE, DEFAULT_TIER_SINGLE_PCT
 
 ScanLane = Literal["live", "active", "testing", "archived"]
 
@@ -245,6 +245,9 @@ class UpdateStrategyRequest(BaseModel):
 PortfolioOverlapMode = Literal["first_signal_only", "hold_until_all_exit"]
 PortfolioAllocationModel = Literal["all_in", "proportional", "regime_adjusted", "tiered"]
 PortfolioProportionalMode = Literal["linear", "early_conviction", "confirmation_required"]
+# Tiered: "single" is one active vs two or more; "half" is under half of the eligible members vs
+# half or more (sizes as "single" below 5 eligible members, see api.allocation.TieredModel).
+PortfolioTierMode = Literal["single", "half"]
 RegimeScoreKind = Literal["robustness", "portfolio"]
 RegimePenaltyPreset = Literal["harsh", "strict", "medium", "low"]
 
@@ -272,6 +275,7 @@ class PortfolioSimulateRequest(RegimePenaltyFields, RegimeRequestOptions):
     proportional_mode: PortfolioProportionalMode = "linear"
     # Tiered model only: weight in percent when exactly one strategy is active (two or more is 100%).
     tier_single_pct: float = Field(default=DEFAULT_TIER_SINGLE_PCT, ge=0, le=100)
+    tier_mode: PortfolioTierMode = DEFAULT_TIER_MODE
     transaction_cost_bps: float = Field(default=0.0, ge=0, le=1000)
 
 
@@ -307,6 +311,7 @@ class SavedPortfolio(RegimePenaltyFields):
     proportional_mode: PortfolioProportionalMode = "linear"
     # Tiered model only: weight in percent when exactly one strategy is active (two or more is 100%).
     tier_single_pct: float = Field(default=DEFAULT_TIER_SINGLE_PCT, ge=0, le=100)
+    tier_mode: PortfolioTierMode = DEFAULT_TIER_MODE
     transaction_cost_bps: float = Field(default=0.0, ge=0, le=1000)
     scan_lane: ScanLane = "testing"
     scan_sort_order: int = 0
@@ -325,6 +330,7 @@ class SavePortfolioRequest(RegimePenaltyFields):
     proportional_mode: PortfolioProportionalMode = "linear"
     # Tiered model only: weight in percent when exactly one strategy is active (two or more is 100%).
     tier_single_pct: float = Field(default=DEFAULT_TIER_SINGLE_PCT, ge=0, le=100)
+    tier_mode: PortfolioTierMode = DEFAULT_TIER_MODE
     transaction_cost_bps: float = Field(default=0.0, ge=0, le=1000)
 
 
@@ -340,6 +346,7 @@ class UpdatePortfolioRequest(BaseModel):
     allocation_model: PortfolioAllocationModel | None = None
     proportional_mode: PortfolioProportionalMode | None = None
     tier_single_pct: float | None = Field(default=None, ge=0, le=100)
+    tier_mode: PortfolioTierMode | None = None
     transaction_cost_bps: float | None = Field(default=None, ge=0, le=1000)
     regime_score: RegimeScoreKind | None = None
     regime_penalty: RegimePenaltyPreset | None = None

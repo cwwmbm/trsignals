@@ -273,6 +273,12 @@ class ScanRowTests(unittest.TestCase):
         self.assertIsNone(position["approximate"])
         ScanPosition(**position)
 
+    def test_a_half_mode_tiered_portfolio_keeps_its_mode(self):
+        request = _patched_portfolio(self, dict(allocation_model="tiered", tier_single_pct=40, tier_mode="half"))
+        book = build_portfolio_scan_book(request)
+        self.assertEqual(book.allocation.model.mode, "half")
+        self.assertEqual(scan_position(book)["model"], "Tiered (under half 40% / 100%)")
+
     def test_the_row_flags_follow_the_position(self):
         from api import scan_service
 

@@ -9,6 +9,7 @@ import type {
   PortfolioOverlapMode,
   PortfolioProportionalMode,
   PortfolioSimulatePayload,
+  PortfolioTierMode,
   RegimePenaltyFields,
   SavedPortfolio,
   SavedStrategy,
@@ -84,6 +85,8 @@ const PROPORTIONAL_MODES: Array<{
 
 /** Matches api.allocation.DEFAULT_TIER_SINGLE_PCT. */
 const DEFAULT_TIER_SINGLE_PCT = 55
+// Under half vs half or more only differs from one vs two or more with 5+ direct members.
+const TIER_HALF_MIN_MEMBERS = 5
 
 const PROPORTIONAL_LABELS: Record<PortfolioProportionalMode, string> = {
   linear: 'Linear',
@@ -93,12 +96,13 @@ const PROPORTIONAL_LABELS: Record<PortfolioProportionalMode, string> = {
 
 /** Everything a portfolio stores about how its book is sized. Strategies carry none of it. */
 export type AllocationSettingsFields = RegimePenaltyFields &
-  Pick<SavedPortfolio, 'allocation_model' | 'proportional_mode' | 'tier_single_pct' | 'transaction_cost_bps'>
+  Pick<SavedPortfolio, 'allocation_model' | 'proportional_mode' | 'tier_single_pct' | 'tier_mode' | 'transaction_cost_bps'>
 
 function allocationLabel(portfolio: AllocationSettingsFields) {
   if (portfolio.allocation_model === 'regime_adjusted') return 'Regime-adjusted'
   if (portfolio.allocation_model === 'tiered') {
-    return `Tiered · ${portfolio.tier_single_pct ?? DEFAULT_TIER_SINGLE_PCT}% / 100%`
+    const pct = portfolio.tier_single_pct ?? DEFAULT_TIER_SINGLE_PCT
+    return portfolio.tier_mode === 'half' ? `Tiered · under half ${pct}% / 100%` : `Tiered · ${pct}% / 100%`
   }
   if (portfolio.allocation_model !== 'proportional') return 'All-in'
   return `Proportional · ${PROPORTIONAL_LABELS[portfolio.proportional_mode ?? 'linear']}`
@@ -142,6 +146,7 @@ type AllocationSetters = {
   setAllocationModel: (value: PortfolioAllocationModel) => void
   setProportionalMode: (value: PortfolioProportionalMode) => void
   setTierSinglePct: (value: string) => void
+  setTierMode: (value: PortfolioTierMode) => void
   setCostBps: (value: string) => void
   setRegimeForm: (value: RegimeAllocationForm) => void
 }
@@ -151,6 +156,7 @@ function applyAllocationSettings(settings: AllocationSettingsFields, setters: Al
   setters.setAllocationModel(settings.allocation_model ?? 'all_in')
   setters.setProportionalMode(settings.proportional_mode ?? 'linear')
   setters.setTierSinglePct(String(settings.tier_single_pct ?? DEFAULT_TIER_SINGLE_PCT))
+  setters.setTierMode(settings.tier_mode ?? 'single')
   setters.setCostBps(String(settings.transaction_cost_bps ?? 0))
   setters.setRegimeForm(regimeFormFromSaved(settings))
 }
@@ -195,6 +201,7 @@ export function PortfolioSection({
   const [allocationModel, setAllocationModel] = useState<PortfolioAllocationModel>('all_in')
   const [proportionalMode, setProportionalMode] = useState<PortfolioProportionalMode>('linear')
   const [tierSinglePct, setTierSinglePct] = useState(String(DEFAULT_TIER_SINGLE_PCT))
+  const [tierMode, setTierMode] = useState<PortfolioTierMode>('single')
   const [costBps, setCostBps] = useState('0')
   const [regimeForm, setRegimeForm] = useState<RegimeAllocationForm>(DEFAULT_REGIME_FORM)
   const [years, setYears] = useState('25')
@@ -226,6 +233,7 @@ export function PortfolioSection({
         allocation_model: PortfolioAllocationModel
         proportional_mode: PortfolioProportionalMode
         tier_single_pct: number
+        tier_mode: PortfolioTierMode
         transaction_cost_bps: number
       } & RegimePenaltyFields
       existingId?: string
@@ -258,6 +266,7 @@ export function PortfolioSection({
         setAllocationModel,
         setProportionalMode,
         setTierSinglePct,
+        setTierMode,
         setCostBps,
         setRegimeForm,
       })
@@ -282,10 +291,15 @@ export function PortfolioSection({
     parsedTierPct <= 100
   const tieredActive = allocationModel === 'tiered'
   const regimeActive = allocationModel === 'regime_adjusted'
+  const memberCount = selectedIds.size + selectedPortfolioIds.size
+  const tierHalfAllowed = memberCount >= TIER_HALF_MIN_MEMBERS
+  // Under half is only offered with 5+ members; below that the book runs (and saves) one vs two.
+  const effectiveTierMode: PortfolioTierMode = tierHalfAllowed ? tierMode : 'single'
   const allocationFields = {
     allocation_model: allocationModel,
     proportional_mode: proportionalMode,
     tier_single_pct: tierPctValid ? parsedTierPct : DEFAULT_TIER_SINGLE_PCT,
+    tier_mode: effectiveTierMode,
     transaction_cost_bps: costBpsValid ? parsedCostBps : 0,
     ...regimeFields(regimeForm),
   }
@@ -429,6 +443,7 @@ export function PortfolioSection({
       setAllocationModel,
       setProportionalMode,
       setTierSinglePct,
+      setTierMode,
       setCostBps,
       setRegimeForm,
     })
@@ -682,17 +697,62 @@ export function PortfolioSection({
                     Tiered
                   </Label>
                   <p className="text-[11px] text-muted-foreground">
-                    One member active takes the share set below; two or more take the full budget.
-                    Best with a flat portfolio of strategies, since it counts direct members.
+                    A low tier takes the share set below and the full budget once enough members
+                    agree: one vs two or more active, or (5+ members) under half vs half or more
+                    of the eligible members. Best with a flat portfolio of strategies, since it
+                    counts direct members.
                   </p>
                 </div>
               </div>
             </RadioGroup>
 
             {tieredActive ? (
+              <RadioGroup
+                value={effectiveTierMode}
+                onValueChange={(value) => value && setTierMode(value as PortfolioTierMode)}
+                className="mt-3 ml-6 gap-2"
+              >
+                <div className="flex items-start gap-2">
+                  <RadioGroupItem value="single" id="tier-mode-single" className="mt-0.5" />
+                  <div>
+                    <Label htmlFor="tier-mode-single" className="text-sm font-normal">
+                      One vs two or more
+                    </Label>
+                    <p className="text-[11px] text-muted-foreground">
+                      Exactly one member active takes the share; two or more take 100%.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <RadioGroupItem
+                    value="half"
+                    id="tier-mode-half"
+                    className="mt-0.5"
+                    disabled={!tierHalfAllowed}
+                  />
+                  <div>
+                    <Label
+                      htmlFor="tier-mode-half"
+                      className={cn('text-sm font-normal', !tierHalfAllowed && 'text-muted-foreground')}
+                    >
+                      Under half vs half or more
+                    </Label>
+                    <p className="text-[11px] text-muted-foreground">
+                      Fewer than half of the eligible members active takes the share; half or more
+                      take 100% (with 5 members, 3 active is half or more).
+                      {tierHalfAllowed
+                        ? null
+                        : ` Needs ${TIER_HALF_MIN_MEMBERS}+ members; with fewer it matches one vs two or more.`}
+                    </p>
+                  </div>
+                </div>
+              </RadioGroup>
+            ) : null}
+
+            {tieredActive ? (
               <div className="mt-3 ml-6 flex flex-wrap items-center gap-2 text-sm">
                 <Label htmlFor="tier-single" className="text-sm font-normal">
-                  One member active:
+                  {effectiveTierMode === 'half' ? 'Under half active:' : 'One member active:'}
                 </Label>
                 <Input
                   id="tier-single"
@@ -703,7 +763,9 @@ export function PortfolioSection({
                   className={cn('h-8 w-20 font-mono text-sm', !tierPctValid && 'border-destructive')}
                 />
                 <span className="text-sm">% of the book</span>
-                <span className="text-[11px] text-muted-foreground">· two or more: 100%</span>
+                <span className="text-[11px] text-muted-foreground">
+                  {effectiveTierMode === 'half' ? '· half or more: 100%' : '· two or more: 100%'}
+                </span>
                 {!tierPctValid ? (
                   <span className="text-[11px] text-destructive">Enter a number from 0 to 100.</span>
                 ) : null}

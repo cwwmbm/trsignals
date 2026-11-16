@@ -14,5 +14,17 @@
   {
     "symbol": "VIX",
     "yf_symbol": "^VIX"
+  },
+  {
+    "symbol": "RIVN",
+    "yf_symbol": "RIVN"
+  },
+  {
+    "symbol": "SMH",
+    "yf_symbol": "SMH"
+  },
+  {
+    "symbol": "^VXN",
+    "yf_symbol": "^VXN"
   }
 ]

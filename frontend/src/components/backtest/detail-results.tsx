@@ -2,10 +2,13 @@ import { useMutation } from "@tanstack/react-query";
 import { memo, useState } from "react";
 import {
   fetchRegimeOverview,
+  runBuilderRobustness,
+  type BuilderBacktestPayload,
   type DetailedResult,
   type PortfolioSimulatePayload,
   type RegimeOverview,
   type RegimeSource,
+  type RobustnessReport,
 } from "@/api";
 import { AllocationPanel } from "@/components/backtest/allocation-panel";
 import { BenchmarkComparison } from "@/components/backtest/benchmark-comparison";
@@ -14,6 +17,7 @@ import { DrawdownRiskPanel } from "@/components/backtest/drawdown-risk-panel";
 import { EquityDrawdownPanel } from "@/components/backtest/equity-drawdown-panel";
 import { MarketRegimesPanel } from "@/components/backtest/market-regimes-panel";
 import { MonteCarloPanel } from "@/components/backtest/monte-carlo-panel";
+import { RobustnessPanel } from "@/components/backtest/robustness-panel";
 import { PositionEpisodesTable } from "@/components/backtest/position-episodes-table";
 import { SeasonalityPanel } from "@/components/backtest/seasonality-panel";
 import { negativeYearRowClass, ResultsTable, tradeRowClass } from "@/components/backtest/results-table";
@@ -23,7 +27,9 @@ import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
-type AnalysisTab = "equity-drawdown" | "seasonality" | "market-regimes" | "monte-carlo";
+type AnalysisTab = "equity-drawdown" | "seasonality" | "market-regimes" | "monte-carlo" | "robustness";
+
+const ROBUSTNESS_PATH = "/backtests/builder";
 type ResultsTab = "overview" | "contribution" | "allocation";
 
 export const DetailResults = memo(function DetailResults({
@@ -52,6 +58,20 @@ export const DetailResults = memo(function DetailResults({
     onSuccess: (overview, { forResult }) => setRegimeState({ result: forResult, overview }),
   });
   const calculatingRegimes = regimeMutation.isPending && regimeMutation.variables?.forResult === result;
+  // Robustness runs the builder draft again, so it needs the request behind a builder result.
+  const robustnessPayload =
+    regimeSource?.path === ROBUSTNESS_PATH ? (regimeSource.payload as BuilderBacktestPayload) : null;
+  const canRunRobustness = robustnessPayload !== null && !robustnessPayload.custom_dataset_id;
+  const [robustnessState, setRobustnessState] = useState<{ result: DetailedResult; report: RobustnessReport } | null>(
+    null,
+  );
+  const robustnessReport = robustnessState?.result === result ? robustnessState.report : null;
+  const robustnessMutation = useMutation({
+    mutationFn: ({ payload }: { payload: BuilderBacktestPayload; forResult: DetailedResult }) =>
+      runBuilderRobustness(payload),
+    onSuccess: (report, { forResult }) => setRobustnessState({ result: forResult, report }),
+  });
+  const robustnessCurrent = robustnessMutation.variables?.forResult === result;
   const latestTrades = [...result.trades].reverse().slice(0, 100);
   const latestYears = [...result.yearly].reverse();
   const latestMonths = [...(result.monthly ?? [])].reverse();
@@ -153,6 +173,11 @@ export const DetailResults = memo(function DetailResults({
             <TabsTrigger value="monte-carlo" className="h-8 rounded-none px-3 text-xs">
               Monte Carlo
             </TabsTrigger>
+            {robustnessPayload ? (
+              <TabsTrigger value="robustness" className="h-8 rounded-none px-3 text-xs">
+                Robustness
+              </TabsTrigger>
+            ) : null}
           </TabsList>
 
           <TabsContent value="equity-drawdown" className="mt-3">
@@ -182,6 +207,19 @@ export const DetailResults = memo(function DetailResults({
           </TabsContent>
           <TabsContent value="monte-carlo" className="mt-3">
             {analysisTab === "monte-carlo" ? <MonteCarloPanel trades={result.trades} /> : null}
+          </TabsContent>
+          <TabsContent value="robustness" className="mt-3">
+            {analysisTab === "robustness" ? (
+              <RobustnessPanel
+                report={robustnessReport}
+                canRun={canRunRobustness}
+                isRunning={robustnessMutation.isPending && robustnessCurrent}
+                error={robustnessCurrent ? robustnessMutation.error : null}
+                onRun={() => {
+                  if (robustnessPayload) robustnessMutation.mutate({ payload: robustnessPayload, forResult: result });
+                }}
+              />
+            ) : null}
           </TabsContent>
         </Tabs>
       </div>

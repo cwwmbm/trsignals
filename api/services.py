@@ -355,6 +355,28 @@ def run_builder_backtest(request) -> dict:
     return _with_builder_hold_on_buy(request, custom_dataset, _run)
 
 
+def run_builder_robustness(request) -> dict:
+    """Overfitting checks for a builder draft: random timing, neighbours, ablation, time, execution."""
+    from api.robustness import robustness_report
+
+    if request.custom_dataset_id:
+        raise ValueError("Robustness checks are not supported with custom intraday data")
+    labels = _builder_condition_labels()
+    strategy = draft_to_saved_strategy(request, labels=labels)
+    data, _ = _load_builder_data(request)
+
+    def _run():
+        return robustness_report(
+            strategy,
+            data,
+            years=request.years,
+            labels=labels,
+            strategy_resolver=get_strategy_by_id,
+        )
+
+    return _with_builder_hold_on_buy(request, None, _run)
+
+
 def _refine_reference_frame(primary, data, *, years: int, labels: dict[str, str]):
     """Full-period frame used to compute the in-sample cutoff."""
     if primary.confirm_symbols:

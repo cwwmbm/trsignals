@@ -36,6 +36,17 @@ DEFAULT_ALLOCATION_MODEL = ALL_IN
 DEFAULT_PROPORTIONAL_MODE = PROPORTIONAL_LINEAR
 # Tiered: the weight when exactly one strategy is active, in percent. Two or more is always 100%.
 DEFAULT_TIER_SINGLE_PCT = 55.0
+# Tiered modes: what counts as the low tier.
+# ``single``: exactly one member active takes the share, two or more take 100%.
+# ``half``: fewer than half the eligible members active takes the share, half or more take
+# 100% (``active * 2 >= eligible``, so with 5 members 3 is half or more and 2 is not).
+TIER_MODE_SINGLE = "single"
+TIER_MODE_HALF = "half"
+TIER_MODES = (TIER_MODE_SINGLE, TIER_MODE_HALF)
+DEFAULT_TIER_MODE = TIER_MODE_SINGLE
+# Below this many eligible members ``half`` sizes the same as ``single`` (with 3 or 4 they agree
+# anyway; with 1 or 2 ``half`` would put a lone signal at 100%), so it falls back to ``single``.
+TIER_HALF_MIN_MEMBERS = 5
 
 # exposure = (active / total) ** power
 PROPORTIONAL_POWERS: dict[str, float] = {
@@ -133,36 +144,56 @@ def proportional_model(mode: str) -> ProportionalModel:
 
 @dataclass(frozen=True)
 class TieredModel:
-    """One strategy active: ``single`` of the book. Two or more active: all of it.
+    """A low tier at ``single`` of the book, and all of it once enough members agree.
+
+    ``mode`` sets where the line sits. ``single``: one member active is the low tier, two or more
+    take 100%. ``half``: fewer than half of the eligible members active is the low tier, half or
+    more (``active * 2 >= eligible``) take 100%; with fewer than ``TIER_HALF_MIN_MEMBERS`` eligible
+    it sizes as ``single``.
 
     The count that matters is how many strategies agree, so it fits a flat portfolio of
-    strategies. In a portfolio of child portfolios it counts the children. Only who is active
-    matters, so a change in who is eligible does not trigger a new rebalance.
+    strategies. In a portfolio of child portfolios it counts the children. In ``single`` mode only
+    who is active matters, so a change in who is eligible does not trigger a new rebalance; in
+    ``half`` mode the eligible count is the denominator, so it does.
     """
 
     single: float = DEFAULT_TIER_SINGLE_PCT / 100.0
-    reacts_to_eligibility: bool = False
-    id: str = TIERED
+    mode: str = DEFAULT_TIER_MODE
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.single) or not 0.0 <= self.single <= 1.0:
             raise ValueError("The single-strategy weight must be between 0% and 100%")
+        if self.mode not in TIER_MODES:
+            raise ValueError(f"Unsupported tiered mode: {self.mode}")
+
+    @property
+    def id(self) -> str:
+        # The legacy mode keeps the plain id, so saved comparisons and colors stay put.
+        return TIERED if self.mode == TIER_MODE_SINGLE else f"{TIERED}_{self.mode}"
+
+    @property
+    def reacts_to_eligibility(self) -> bool:
+        return self.mode == TIER_MODE_HALF
 
     @property
     def label(self) -> str:
+        if self.mode == TIER_MODE_HALF:
+            return f"Tiered (under half {self.single * 100:g}% / 100%)"
         return f"Tiered ({self.single * 100:g}% / 100%)"
 
     def target_exposure(self, state: SignalState) -> float:
         if state.active_count <= 0:
             return 0.0
+        if self.mode == TIER_MODE_HALF and state.eligible_count >= TIER_HALF_MIN_MEMBERS:
+            return 1.0 if state.active_count * 2 >= state.eligible_count else self.single
         return self.single if state.active_count == 1 else 1.0
 
 
-def tiered_model(single_pct: float | None = None) -> TieredModel:
+def tiered_model(single_pct: float | None = None, mode: str | None = None) -> TieredModel:
     pct = DEFAULT_TIER_SINGLE_PCT if single_pct is None else float(single_pct)
     if not math.isfinite(pct) or not 0.0 <= pct <= 100.0:
         raise ValueError("The single-strategy weight must be between 0% and 100%")
-    return TieredModel(single=pct / 100.0)
+    return TieredModel(single=pct / 100.0, mode=mode or DEFAULT_TIER_MODE)
 
 
 # Regime-adjusted sizing reads these two numbers from ``SignalState.context``.
@@ -213,6 +244,7 @@ def resolve_allocation_model(
     allocation_model: str | None = None,
     proportional_mode: str | None = None,
     tier_single_pct: float | None = None,
+    tier_mode: str | None = None,
 ) -> AllocationModel:
     """Map the request/storage fields onto a model. Unset means the legacy default."""
     name = allocation_model or DEFAULT_ALLOCATION_MODEL
@@ -223,14 +255,19 @@ def resolve_allocation_model(
     if name == REGIME_ADJUSTED:
         return RegimeAdjustedModel()
     if name == TIERED:
-        return tiered_model(tier_single_pct)
+        return tiered_model(tier_single_pct, tier_mode)
     raise ValueError(f"Unsupported allocation model: {name}")
 
 
-def comparison_models(tier_single_pct: float | None = None) -> list[AllocationModel]:
-    """Every built-in model, in the order the comparison view lists them."""
+def comparison_models(tier_single_pct: float | None = None, member_count: int | None = None) -> list[AllocationModel]:
+    """Every built-in model, in the order the comparison view lists them.
+
+    Tiered is listed in both modes when the portfolio has ``TIER_HALF_MIN_MEMBERS`` or more members
+    (fewer, and the half mode would only repeat the one-vs-two row), else in the one-vs-two mode.
+    """
+    tier_modes = TIER_MODES if (member_count or 0) >= TIER_HALF_MIN_MEMBERS else (TIER_MODE_SINGLE,)
     return [
         AllInModel(),
         *(proportional_model(mode) for mode in PROPORTIONAL_POWERS),
-        tiered_model(tier_single_pct),
+        *(tiered_model(tier_single_pct, mode) for mode in tier_modes),
     ]

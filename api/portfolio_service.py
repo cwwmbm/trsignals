@@ -18,7 +18,7 @@ from api.allocation import (
     AllocationModel,
     RegimeAdjustedModel,
     PROPORTIONAL_LINEAR,
-    TIERED,
+    TieredModel,
     comparison_models,
     proportional_model,
     resolve_allocation_model,
@@ -418,6 +418,7 @@ def allocation_settings(source) -> AllocationSettings:
         getattr(source, "allocation_model", None),
         getattr(source, "proportional_mode", None),
         getattr(source, "tier_single_pct", None),
+        getattr(source, "tier_mode", None),
     )
     cost = getattr(source, "transaction_cost_bps", 0.0)
     regime = RegimePenaltySettings.from_source(source) if isinstance(model, RegimeAdjustedModel) else None
@@ -919,7 +920,7 @@ def _portfolio_description(
     if allocation is not None and not allocation.is_all_in:
         mode_label = (
             allocation.model.label.lower()
-            if allocation.model.id == TIERED
+            if isinstance(allocation.model, TieredModel)
             else allocation.model.id.replace("_", " ")
         )
         if allocation.regime is not None:
@@ -2210,7 +2211,7 @@ def simulate_portfolio_allocation_comparison(request) -> dict:
     models = [
         AllInModel(),
         *(RegimeAdjustedModel(preset=preset) for preset in PENALTY_PRESETS),
-        *(model for model in comparison_models(getattr(request, "tier_single_pct", None)) if model.id != ALL_IN),
+        *(model for model in comparison_models(getattr(request, "tier_single_pct", None), len(strategies)) if model.id != ALL_IN),
     ]
     rows: list[dict[str, Any]] = []
     curves: list[tuple[str, pd.DataFrame]] = []
@@ -2249,6 +2250,7 @@ def simulate_portfolio_allocation_comparison(request) -> dict:
             signals_by_id,
             cost_bps=cost_bps,
             tier_single_pct=getattr(request, "tier_single_pct", None),
+            tier_mode=getattr(request, "tier_mode", None),
             global_proxy=global_proxy,
             track_changes=track_changes,
             close_series=close_series,
@@ -2279,12 +2281,12 @@ def simulate_portfolio_allocation_comparison(request) -> dict:
 NESTED_PATHS = 600
 
 
-def _model_from_id(model_id: str, tier_single_pct: float | None) -> AllocationModel:
+def _model_from_id(model_id: str, tier_single_pct: float | None, tier_mode: str | None = None) -> AllocationModel:
     """A comparison model from the id the nesting plan uses (``all_in``, ``proportional_*``, ``tiered``)."""
     if model_id.startswith("proportional_"):
         return resolve_allocation_model("proportional", model_id[len("proportional_"):])
     if model_id == "tiered":
-        return resolve_allocation_model("tiered", None, tier_single_pct)
+        return resolve_allocation_model("tiered", None, tier_single_pct, tier_mode)
     return resolve_allocation_model(ALL_IN)
 
 
@@ -2294,6 +2296,7 @@ def _nested_comparison_rows(
     *,
     cost_bps: float,
     tier_single_pct: float | None,
+    tier_mode: str | None = None,
     global_proxy: str | None,
     track_changes: dict[str, pd.Series],
     close_series: dict[str, pd.Series],
@@ -2320,7 +2323,7 @@ def _nested_comparison_rows(
     if plan is None:
         return [], [], {"skipped": "Nesting needs at least 3 strategies.", "strategies": legend}
 
-    models = {model_id: _model_from_id(model_id, tier_single_pct) for model_id in plan.model_ids}
+    models = {model_id: _model_from_id(model_id, tier_single_pct, tier_mode) for model_id in plan.model_ids}
     rows: list[dict[str, Any]] = []
     curves: list[tuple[str, pd.DataFrame]] = []
     children: dict[tuple[str, str], tuple[list, dict]] = {}

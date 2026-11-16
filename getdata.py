@@ -87,6 +87,17 @@ def get_data_ib(ib, contract, useRTH = True, Local = False, period = '1 D', barS
     return data
 """
 #Function to get the data from Yahoo Finance
+# yfinance collects every download in one module-global dict that each call resets and fills, so
+# two downloads running at once in different API threads can hand each other's tickers back.
+YF_DOWNLOAD_LOCK = threading.Lock()
+
+
+def yf_download(*args, **kwargs):
+    """``yf.download``, one call at a time across the process."""
+    with YF_DOWNLOAD_LOCK:
+        return yf.download(*args, **kwargs)
+
+
 def get_data_yf(ticker, years=1, Local=False):
     start_date = (pd.to_datetime("today") - pd.DateOffset(years=years)).strftime("%Y")
     end_date = (dtm.now() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
@@ -99,7 +110,7 @@ def get_data_yf(ticker, years=1, Local=False):
     else:
         print("Using yahoo finance")
         tickers = [ticker, '^VIX', 'SPY', 'RSP', 'QQQ', 'SMH', 'IWM', 'XLF','XLE', 'XLU', 'XLI', 'SOXX', 'GLD', 'TLT', 'UVXY', 'SQQQ']
-        data = yf.download(tickers, start=start_date, end=end_date)
+        data = yf_download(tickers, start=start_date, end=end_date)
         vix = data['Close']['^VIX']
         qqq = data['Close']['QQQ']
         soxx = data['Close']['SOXX']
@@ -254,7 +265,7 @@ def get_bulk_data(symbols, years=1, csv_path=None):
     end_date = (dtm.now() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
     start_date = (pd.to_datetime("today") - pd.DateOffset(years=years)).strftime("%Y")
     start_date += "-01-01"
-    data = yf.download(symbols, start=start_date, end=end_date)
+    data = yf_download(symbols, start=start_date, end=end_date)
     return data
 
 

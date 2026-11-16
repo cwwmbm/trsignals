@@ -49,6 +49,7 @@ const MODEL_COLORS: Record<string, string> = {
   proportional_early_conviction: "var(--chart-4)",
   proportional_confirmation_required: "var(--chart-2)",
   tiered: "var(--chart-1)",
+  tiered_half: "oklch(0.62 0.17 300)",
 };
 
 /** Percentage-point delta, with float noise around zero shown as a plain 0 rather than "-0.0". */

@@ -6,8 +6,8 @@ basket row is made of. It costs about 50 ms: ``long_strat`` runs a Python loop, 
 
 ``ranking_metrics`` returns the same dictionary from arrays: a compiled copy of the ``long_strat`` loop
 that also keeps each trade's return, then the metrics in numpy with the same definitions (leading bars
-before the first ready entry dropped, best positive year left out, drawdown measured from the full
-run's running peak). It takes a few milliseconds.
+before the first ready entry dropped, best positive year left out of the ratios, drawdown over every
+year, measured from the full run's running peak). It takes a few milliseconds.
 
 It returns None whenever it is not certain to agree with the real engine, and callers then run the real
 path: no numba, a zero-day ("og") strategy, non-finite or non-positive equity (a blown-up account has
@@ -198,7 +198,7 @@ def ranking_metrics(
     trades = int(out.sum())
     positive = int((trade_pnl[out] > 0).sum())
     pct_positive = (positive / trades * 100) if trades else 0
-    max_drawdown = float(dd_p[keep].max())
+    max_drawdown = float(dd_p.max())
 
     sharpe = fast_sweep._sharpe(pnl_p, starts.astype(np.int64), ends.astype(np.int64), exclude_best)
     daily = pnl_p[1:] / pnl_p[:-1] - 1.0

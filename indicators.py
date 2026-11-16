@@ -695,6 +695,9 @@ def add_indicators(data, periods_per_year=252, source_timezone=None, compute_hur
         data[column] = values
     for column, values in psar_columns(data['High'], data['Low'], data['Close']).items():
         data[column] = values
+    # Over a hundred columns have been added one at a time by now; gather them into one block
+    # so the inserts below stay fast (and pandas stops warning about fragmentation).
+    data = data.copy()
     data['LinRegSlope20'] = rolling_linreg_slope_pct(data['Close'], 20)
     # Prior-period Donchian levels (standard breakout: compare close to yesterday's N-day extreme)
     data['DonchianUpper20'] = data['High'].rolling(20).max().shift(1)
